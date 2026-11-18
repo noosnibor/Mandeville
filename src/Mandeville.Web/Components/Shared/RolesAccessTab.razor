@@ -1,0 +1,420 @@
+@implements IDisposable
+@using System.Text.RegularExpressions
+@inject IRoleRepository RoleRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="acc-grid">
+
+    @* ---------- Roles ---------- *@
+    <div class="card acc-roles">
+        <div class="acc-head"><h2>Roles</h2><button class="btn btn-sm" @onclick='() => OpenModal("new")'><Icon Name="plus" Size="14" />New</button></div>
+        @foreach (var r in __roles)
+        {
+            <button type="button" class="acc-role @(r.flngKey == __sel?.flngKey ? "on" : "")" @onclick="() => SelectAsync(r)">
+                <span>@r.fstrLabel</span>
+                <span class="acc-pill">@r.flngUsers @(r.flngUsers == 1 ? "user" : "users")</span>
+            </button>
+        }
+        <p class="hint">The Administrator role always has everything, so you can never lock yourself out.</p>
+    </div>
+
+    @* ---------- What the selected role can open ---------- *@
+    <div class="card acc-perms">
+        @if (__sel is null)
+        {
+            <p class="empty" style="margin:0">Choose a role on the left, or add one.</p>
+        }
+        else
+        {
+            <div class="acc-head">
+                <h2>@__sel.fstrLabel <span>@OnCount of @Pages.Count pages</span></h2>
+                @if (!__sel.fblnLocked)
+                {
+                    <div class="acc-actions">
+                        <button class="btn btn-sm" @onclick='() => OpenModal("rename")'>Rename</button>
+                        <button class="btn btn-sm care-del" @onclick='() => OpenModal("delete")'>Delete</button>
+                    </div>
+                }
+            </div>
+
+            @foreach (var group in Pages.GroupBy(p => p.Group))
+            {
+                <div class="acc-group">@group.Key</div>
+                @foreach (var pg in group)
+                {
+                    var e = Edit(pg);
+                    <div class="acc-page @(e.On ? "" : "off")">
+                        <div class="acc-row">
+                            <b>@pg.Name</b>
+                            <button type="button" class="acc-sw @(e.On ? "on" : "")" role="switch" aria-checked="@(e.On ? "true" : "false")" aria-label="@pg.Name"
+                                    disabled="@__sel.fblnLocked" @onclick="() => TogglePage(e)"></button>
+                        </div>
+                        @if (e.On && (pg.Tabs.Length > 0 || pg.OwnOnlyOption))
+                        {
+                            <div class="acc-sub">
+                                @foreach (var tab in pg.Tabs)
+                                {
+                                    <label class="acc-chk"><input type="checkbox" checked="@e.Tabs.Contains(tab)" disabled="@__sel.fblnLocked" @onchange="() => ToggleTab(pg, e, tab)" />@tab</label>
+                                }
+                                @if (pg.OwnOnlyOption)
+                                {
+                                    <label class="acc-chk">Sees
+                                        <select disabled="@__sel.fblnLocked" value="@(e.Own ? "own" : "all")" @onchange="ev => SetOwn(e, ev.Value?.ToString())">
+                                            <option value="all">everyone's records</option>
+                                            <option value="own">only their own records</option>
+                                        </select>
+                                    </label>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            }
+
+            @if (HasOwn)
+            {
+                <p class="hint">Accounts with this role only see their own records on some pages, so each account has to be linked to a member when you create it.</p>
+            }
+
+            @if (!__sel.fblnLocked)
+            {
+                <div class="acc-save">
+                    <button class="btn btn-primary btn-sm" disabled="@(!__dirty || __saving)" @onclick="SaveAsync">@(__saving ? "Saving..." : "Save changes")</button>
+                    @if (__dirty)
+                    {
+                        <button class="btn btn-sm" @onclick="DiscardAsync">Discard</button>
+                        <span class="acc-dirty">Unsaved changes</span>
+                    }
+                </div>
+                <p class="hint">People who are signed in get the change within about a minute (pages already open show it when they are next opened).</p>
+            }
+        }
+    </div>
+
+    @* ---------- Preview of the menu ---------- *@
+    <div class="acc-prev">
+        <div class="acc-group" style="margin-top:0">What this role sees</div>
+        <div class="acc-side">
+            @if (__sel is null || OnCount == 0)
+            {
+                <div class="acc-none">Nothing yet. Switch a page on.</div>
+            }
+            else
+            {
+                @foreach (var group in Pages.Where(p => Edit(p).On).GroupBy(p => p.Group))
+                {
+                    <div class="acc-sg">@group.Key</div>
+                    @foreach (var pg in group)
+                    {
+                        var e = Edit(pg);
+                        <div class="acc-si"><b>&bull;</b> @pg.Name
+                            @if (pg.Tabs.Length > 0) { <small>(@e.Tabs.Count of @pg.Tabs.Length tabs)</small> }
+                            @if (pg.OwnOnlyOption && e.Own) { <small>(own records)</small> }
+                        </div>
+                    }
+                }
+            }
+        </div>
+        <p class="hint">This is the menu that person gets when they sign in.</p>
+    </div>
+</div>
+
+@* ---------- New / rename / delete ---------- *@
+@if (__modal == "new" || __modal == "rename")
+{
+    <Modal Title="@(__modal == "new" ? "New role" : "Rename role")" Subtitle="@(__modal == "new" ? "Then choose what it can open" : "People keep the role; only the name changes")" Icon="lock" OnClose="CloseModal">
+        <ChildContent>
+            <div class="field"><label>Role name</label><input type="text" maxlength="60" placeholder="e.g. Usher team" @bind="__modalName" @bind:event="oninput" /></div>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary btn-sm" @onclick="SaveRoleAsync">@(__modal == "new" ? "Create role" : "Save")</button>
+            <button class="btn btn-sm" @onclick="CloseModal">Cancel</button>
+        </Footer>
+    </Modal>
+}
+else if (__modal == "delete" && __sel is not null)
+{
+    <Modal Title="Delete role" Subtitle="@__sel.fstrLabel" Icon="lock" OnClose="CloseModal">
+        <ChildContent>
+            <p class="hint">The role is removed from the list. This is refused while anyone still has it, so move them to another role first.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-sm care-del" @onclick="DeleteRoleAsync">Delete role</button>
+            <button class="btn btn-sm" @onclick="CloseModal">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+
+    /// <summary>Tells the Users tab to reload its role dropdowns.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private List<RoleModel> __roles = [];
+    private RoleModel? __sel;
+    private readonly Dictionary<string, PageEdit> __edit = new(StringComparer.OrdinalIgnoreCase);
+    private List<RolePermissionModel> __hidden = [];    // saved pages that no longer exist in the code are kept untouched
+    private bool __dirty, __saving;
+    private string __modal = string.Empty;
+    private string __modalName = string.Empty;
+    private ToastMessageModel? __toast;
+
+    /// <summary>What is ticked for one page, before it is saved.</summary>
+    private sealed class PageEdit
+    {
+        public bool On { get; set; }
+        public bool Own { get; set; }
+        public HashSet<string> Tabs { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    #endregion
+
+    #region Display values
+
+    /// <summary>The pages a role can be given (pages only the Administrator may open are left out).</summary>
+    private static List<PageInfo> Pages => [.. PageRegistry.All.Where(p => !p.AdminOnly)];
+
+    private PageEdit Edit(PageInfo pg)
+    {
+        if (!__edit.TryGetValue(pg.Key, out var e))
+        {
+            e = new PageEdit();
+            foreach (var t in pg.Tabs) e.Tabs.Add(t);
+            __edit[pg.Key] = e;
+        }
+        return e;
+    }
+
+    private int OnCount => Pages.Count(p => Edit(p).On);
+
+    private bool HasOwn => Pages.Any(p => p.OwnOnlyOption && Edit(p).On && Edit(p).Own);
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync() => await LoadAsync(null);
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    /// <summary>Loads the roles and opens one (the given one, or the first that is not the Administrator).</summary>
+    private async Task LoadAsync(Guid? keep)
+    {
+        __roles = await RoleRepo.SelectRole(cancellationToken: __cts.Token);
+        var pick = __roles.FirstOrDefault(r => r.flngKey == keep) ?? __roles.FirstOrDefault(r => !r.fblnLocked) ?? __roles.FirstOrDefault();
+        await OpenRoleAsync(pick);
+    }
+
+    /// <summary>Fills the ticks from what is saved for the role.</summary>
+    private async Task OpenRoleAsync(RoleModel? role)
+    {
+        __sel = role;
+        __edit.Clear();
+        __hidden = [];
+        __dirty = false;
+        if (role is null) return;
+
+        if (role.fblnLocked)
+        {
+            foreach (var pg in Pages) Edit(pg).On = true;
+            return;
+        }
+
+        var saved = await RoleRepo.SelectRolePermission(roleKey: role.flngKey, cancellationToken: __cts.Token);
+        foreach (var permission in saved)
+        {
+            var pg = PageRegistry.Find(permission.fstrPage);
+            if (pg is null || pg.AdminOnly)
+            {
+                __hidden.Add(permission);
+                continue;
+            }
+
+            var e = Edit(pg);
+            e.On = true;
+            e.Own = permission.fblnOwnOnly && pg.OwnOnlyOption;
+
+            var allowed = PageRegistry.SplitTabs(permission.fstrTabs);
+            if (allowed.Length > 0)
+            {
+                e.Tabs.Clear();
+                foreach (var t in pg.Tabs.Where(t => allowed.Contains(t, StringComparer.OrdinalIgnoreCase))) e.Tabs.Add(t);
+                if (e.Tabs.Count == 0) foreach (var t in pg.Tabs) e.Tabs.Add(t);
+            }
+        }
+    }
+
+    #endregion
+
+    #region Editing the ticks
+
+    private async Task SelectAsync(RoleModel role)
+    {
+        if (__sel?.flngKey == role.flngKey) return;
+        if (__dirty)
+        {
+            __toast = Warn("Save or discard your changes before opening another role");
+            return;
+        }
+        await OpenRoleAsync(role);
+    }
+
+    private void TogglePage(PageEdit e)
+    {
+        if (__sel is null || __sel.fblnLocked) return;
+        e.On = !e.On;
+        __dirty = true;
+    }
+
+    private void ToggleTab(PageInfo pg, PageEdit e, string tab)
+    {
+        if (__sel is null || __sel.fblnLocked) return;
+
+        if (e.Tabs.Contains(tab))
+        {
+            if (e.Tabs.Count == 1)
+            {
+                __toast = Warn("A page needs at least one tab. Switch the page off instead");
+                return;
+            }
+            e.Tabs.Remove(tab);
+        }
+        else
+        {
+            e.Tabs.Add(tab);
+        }
+        __dirty = true;
+    }
+
+    private void SetOwn(PageEdit e, string? value)
+    {
+        if (__sel is null || __sel.fblnLocked) return;
+        e.Own = value == "own";
+        __dirty = true;
+    }
+
+    private async Task DiscardAsync() => await OpenRoleAsync(__sel);
+
+    #endregion
+
+    #region Save access
+
+    private async Task SaveAsync()
+    {
+        if (__sel is null || __sel.fblnLocked) return;
+
+        var list = new List<RolePermissionModel>();
+        foreach (var pg in Pages)
+        {
+            var e = Edit(pg);
+            if (!e.On) continue;
+
+            // Every tab ticked is saved as "no list", so tabs added to the page later are included automatically
+            var tabs = pg.Tabs.Length == 0 || e.Tabs.Count >= pg.Tabs.Length
+                ? null
+                : string.Join(',', pg.Tabs.Where(t => e.Tabs.Contains(t)));
+
+            list.Add(new RolePermissionModel { fstrPage = pg.Key, fstrTabs = tabs, fblnOwnOnly = pg.OwnOnlyOption && e.Own });
+        }
+
+        // Pages that no longer exist keep their saved setting in case the page comes back
+        list.AddRange(__hidden.Select(h => new RolePermissionModel { fstrPage = h.fstrPage, fstrTabs = h.fstrTabs, fblnOwnOnly = h.fblnOwnOnly }));
+
+        __saving = true;
+        __toast = await RoleRepo.SaveRolePermissions(__sel.flngKey, list, AppConstants.Who, __cts.Token);
+        __saving = false;
+
+        if (__toast.IsSuccess)
+        {
+            __dirty = false;
+            await LoadAsync(__sel.flngKey);
+            await OnChanged.InvokeAsync();
+        }
+    }
+
+    #endregion
+
+    #region New, rename and delete
+
+    private void OpenModal(string mode)
+    {
+        if (__dirty && mode == "new")
+        {
+            __toast = Warn("Save or discard your changes first");
+            return;
+        }
+        __modal = mode;
+        __modalName = mode == "rename" ? __sel?.fstrLabel ?? string.Empty : string.Empty;
+    }
+
+    private void CloseModal() => __modal = string.Empty;
+
+    private async Task SaveRoleAsync()
+    {
+        var label = (__modalName ?? string.Empty).Trim();
+        if (label.Length == 0)
+        {
+            __toast = Warn("Enter a name for the role");
+            return;
+        }
+
+        if (__modal == "rename" && __sel is not null)
+        {
+            __toast = await RoleRepo.AddOrUpdateRole(new RoleModel { flngKey = __sel.flngKey, fstrLabel = label, fstrWho = AppConstants.Who }, insert: false, __cts.Token);
+            if (!__toast.IsSuccess) return;
+
+            __modal = string.Empty;
+            await LoadAsync(__sel.flngKey);
+            await OnChanged.InvokeAsync();
+            return;
+        }
+
+        var code = MakeCode(label);
+        if (code.Length == 0)
+        {
+            __toast = Warn("Use letters or numbers in the role name");
+            return;
+        }
+
+        var role = new RoleModel { fstrName = code, fstrLabel = label, fstrWho = AppConstants.Who };
+        __toast = await RoleRepo.AddOrUpdateRole(role, insert: true, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __modal = string.Empty;
+        var created = (await RoleRepo.SelectRole(name: code, cancellationToken: __cts.Token)).FirstOrDefault();
+        await LoadAsync(created?.flngKey);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task DeleteRoleAsync()
+    {
+        if (__sel is null) return;
+
+        __toast = await RoleRepo.DeleteRole(__sel.flngKey, AppConstants.Who, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __modal = string.Empty;
+        await LoadAsync(null);
+        await OnChanged.InvokeAsync();
+    }
+
+    /// <summary>The unchanging code kept on each account: "Usher team" becomes "UsherTeam".</summary>
+    private static string MakeCode(string label)
+    {
+        var words = Regex.Split(label, "[^A-Za-z0-9]+").Where(w => w.Length > 0);
+        var code = string.Concat(words.Select(w => char.ToUpperInvariant(w[0]) + w[1..]));
+        return code.Length > 40 ? code[..40] : code;
+    }
+
+    private static ToastMessageModel Warn(string message) => new() { ToastType = ToastTypeModel.Warning, Message = message };
+
+    #endregion
+}

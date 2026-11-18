@@ -1,0 +1,343 @@
+﻿@implements IDisposable
+@inject IVisitorRepository VisitorRepo
+@inject IMemberRepository MemberRepo
+@inject IMemberTypeRepository MemberTypeRepo
+
+<ToastBar Toast="__toast" />
+
+@* ---------- Stage tiles (click to filter) ---------- *@
+<div class="inc-tiles">
+    <button class="inc-tile @(__filter is null ? "on" : "")" @onclick="() => __filter = null"><b>@__list.Count</b><span>All incoming</span></button>
+    @for (var stage = 0; stage < Stages.Length; stage++)
+    {
+        var s = stage;
+        <button class="inc-tile @(__filter == s ? "on" : "")" @onclick="() => __filter = s"><b>@__list.Count(v => StageOf(v) == s)</b><span>@Stages[s]</span></button>
+    }
+</div>
+
+<div class="mtools">
+    <input class="msearch" type="text" placeholder="Search name or phone" @bind="__listSearch" @bind:event="oninput" />
+</div>
+
+@* ---------- Cards ---------- *@
+<div class="mgrid">
+    @foreach (var v in Shown())
+    {
+        var stage = StageOf(v);
+        <div class="icard" @onclick="() => Open(v)">
+            <div class="vcard-head">
+                <div class="ucard-avatar" style="background:@AvatarStyle.Colour(v.flngKey)">@AvatarStyle.Initials(v.fstrFirstname, v.fstrLastname)</div>
+                <div class="ucard-text">
+                    <b>@v.FullName</b>
+                    <small>@(string.IsNullOrWhiteSpace(v.fstrFollowUpName) ? "Waiting for a connector" : "Connector: " + v.fstrFollowUpName)</small>
+                </div>
+                <span class="inc-path @(stage == 4 ? "join" : "new")">@Stages[stage]</span>
+            </div>
+            <div class="mtrack">
+                @for (var n = 1; n < Stages.Length; n++) { <i class="@(n <= stage ? "f" : "")"></i> }
+            </div>
+            <div class="mtrack-l">
+                @for (var n = 1; n < Stages.Length; n++) { <span>@Stages[n]</span> }
+            </div>
+            <div class="vcard-foot soft">
+                <button @onclick="() => Open(v)" @onclick:stopPropagation="true">Update dates</button>
+                @if (stage == 4)
+                {
+                    <button class="p" @onclick="() => ConvertFromListAsync(v)" @onclick:stopPropagation="true">Add to members</button>
+                }
+            </div>
+        </div>
+    }
+</div>
+@if (Shown().Count == 0)
+{
+    <div class="mpanel"><p class="empty" style="margin:1rem 0">No incoming members here. People appear when their team member adds them after confirming by phone.</p></div>
+}
+
+<button class="fab" @onclick="OpenAdd"><Icon Name="plus" Size="16" />Add incoming</button>
+
+@* ---------- Details drawer ---------- *@
+@if (__edit is not null)
+{
+    var e = __edit;
+    var stage = StageOf(e);
+    <div class="drawer-backdrop" @onclick="Close">
+        <aside class="drawer" role="dialog" aria-modal="true" aria-label="Incoming member" @onclick:stopPropagation="true">
+            <div class="drawer-cover" style="background:@AvatarStyle.Cover(e.flngKey)">
+                <button class="drawer-close" aria-label="Close" @onclick="Close">&#10005;</button>
+            </div>
+            <div class="drawer-top">
+                <div class="drawer-avatar" style="background:@AvatarStyle.Colour(e.flngKey)">@AvatarStyle.Initials(e.fstrFirstname, e.fstrLastname)</div>
+                <h3>@e.FullName</h3>
+                <small>@(string.IsNullOrWhiteSpace(e.fstrPhoneNumber) ? "No phone" : e.fstrPhoneNumber)</small>
+                <div class="drawer-status"><span class="inc-path @(stage == 4 ? "join" : "new")">@Stages[stage]</span></div>
+            </div>
+
+            <div class="drawer-card">
+                <h4>Membership stage</h4>
+                <div class="stg big">
+                    @for (var n = 1; n < Stages.Length; n++)
+                    {
+                        <span class="stg-step @(n <= stage ? "done" : "") @(n == stage ? "cur" : "")">@Stages[n]</span>
+                    }
+                </div>
+                <p class="hint">The stage follows the dates below. Add a Tier 1 date and the person moves to Tier 1, and so on.</p>
+            </div>
+
+            <div class="drawer-card">
+                <h4>Dates</h4>
+                <div class="form-grid">
+                    <div class="field"><label>Baptised on</label><input type="date" @bind="e.fdtmBaptisedOn" /></div>
+                    <div class="field"><label>Tier 1 on</label><input type="date" @bind="e.fdtmClassStartedOn" /></div>
+                    <div class="field"><label>Tier 2 on</label><input type="date" @bind="e.fdtmTier2On" /></div>
+                    <div class="field"><label>Interview on</label><input type="date" @bind="e.fdtmInterviewOn" /></div>
+                    <div class="field"><label>Inauguration on</label><input type="date" @bind="e.fdtmInauguratedOn" /></div>
+                </div>
+            </div>
+
+            <div class="drawer-card">
+                <h4>Details</h4>
+                <div class="ir"><span>Connector</span><b>@(string.IsNullOrWhiteSpace(e.fstrFollowUpName) ? "Not assigned" : e.fstrFollowUpName)</b></div>
+                <div class="ir"><span>Last attended</span><b>@(e.fdtmLastAttended?.ToString("dd MMM yyyy") ?? "-")</b></div>
+                <div class="ir"><span>Visits</span><b>@e.flngVisitCount</b></div>
+            </div>
+
+            <div class="drawer-foot">
+                <button class="p" @onclick="SaveAsync">Save</button>
+            </div>
+            @if (stage == 4)
+            {
+                <div class="drawer-foot" style="padding-top:0">
+                    <button class="p" @onclick="ConvertAsync">Add to members</button>
+                </div>
+            }
+        </aside>
+    </div>
+}
+
+@* ---------- Add incoming popup ---------- *@
+@if (__adding)
+{
+    <Modal Title="Add incoming member" Subtitle="Pick a visitor who wants to join the church" Icon="userplus" OnClose="() => __adding = false">
+        <ChildContent>
+            <div class="mfilter" style="margin-bottom:.6rem">
+                <input type="text" placeholder="Search visitor by name or phone" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
+                <button class="btn btn-dark btn-sm" @onclick="SearchAsync">Search</button>
+            </div>
+            @foreach (var v in __results)
+            {
+                <div class="ucard pick @(__picked?.flngKey == v.flngKey ? "selected" : "")" @onclick="() => __picked = v">
+                    <div class="ucard-avatar" style="background:@AvatarStyle.Colour(v.flngKey)">@AvatarStyle.Initials(v.fstrFirstname, v.fstrLastname)</div>
+                    <div class="ucard-text"><b>@v.FullName</b><small>@v.fstrPhoneNumber</small></div>
+                    <span class="tag">@v.fstrStatus</span>
+                </div>
+            }
+            @if (__searched && __results.Count == 0) { <p class="empty">No visitor found. Register them on the Visitors page first.</p> }
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary btn-sm" disabled="@(__picked is null)" @onclick="AddIncomingAsync">Add to incoming</button>
+            <button class="btn btn-sm" @onclick="() => __adding = false">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<VisitorModel> __list = [];
+    private int? __filter;
+    private string? __listSearch;
+    private VisitorModel? __edit;
+    private ToastMessageModel? __toast;
+
+    // Add popup
+    private bool __adding, __searched;
+    private string? __search;
+    private List<VisitorModel> __results = [];
+    private VisitorModel? __picked;
+
+    /// <summary>The membership stages in order. Stage 0 means no class date has been added yet.</summary>
+    private static readonly string[] Stages = ["Not started", "Tier 1", "Tier 2", "Interview", "Inauguration"];
+
+    #endregion
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #region Display helpers
+
+    /// <summary>The stage follows the dates: the latest date filled in decides it.</summary>
+    private static int StageOf(VisitorModel v) =>
+        v.fdtmInauguratedOn.HasValue ? 4
+        : v.fdtmInterviewOn.HasValue ? 3
+        : v.fdtmTier2On.HasValue ? 2
+        : v.fdtmClassStartedOn.HasValue ? 1
+        : 0;
+
+    private List<VisitorModel> Shown()
+    {
+        var q = string.IsNullOrWhiteSpace(__listSearch) ? null : __listSearch.Trim();
+        return __list
+            .Where(v => __filter is null || StageOf(v) == __filter)
+            .Where(v => q is null
+                || v.FullName.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || (v.fstrPhoneNumber ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    #endregion
+
+    #region Loading and editing
+
+    private async Task LoadAsync() =>
+        __list = await VisitorRepo.SelectVisitor(status: "Incoming Member", active: true, cancellationToken: __cts.Token);
+
+    private void Open(VisitorModel v) => __edit = CopyOf(v);
+
+    private void Close() => __edit = null;
+
+    /// <summary>A full copy so the drawer can be edited and cancelled without touching the list.</summary>
+    private static VisitorModel CopyOf(VisitorModel v) => new()
+    {
+        flngKey = v.flngKey, fstrFirstname = v.fstrFirstname, fstrLastname = v.fstrLastname, fstrGender = v.fstrGender,
+        fstrAgeGroup = v.fstrAgeGroup, fstrPhoneNumber = v.fstrPhoneNumber, fstrEmailAddress = v.fstrEmailAddress,
+        fstrAddress = v.fstrAddress, fdtmLastContactDate = v.fdtmLastContactDate, fdtmNextContactDate = v.fdtmNextContactDate,
+        fstrStatus = v.fstrStatus, fstrJoinedChurch = v.fstrJoinedChurch, fstrMembershipTransferNote = v.fstrMembershipTransferNote,
+        fdtmBaptisedOn = v.fdtmBaptisedOn, fdtmClassStartedOn = v.fdtmClassStartedOn, fdtmTier2On = v.fdtmTier2On,
+        fdtmInterviewOn = v.fdtmInterviewOn, fdtmInauguratedOn = v.fdtmInauguratedOn, fdtmDateOfBirth = v.fdtmDateOfBirth, fstrPath = v.fstrPath,
+        flngMemberKey = v.flngMemberKey, fblnActive = v.fblnActive, fstrFollowUpName = v.fstrFollowUpName,
+        fdtmLastAttended = v.fdtmLastAttended, flngVisitCount = v.flngVisitCount
+    };
+
+    private async Task SaveAsync()
+    {
+        if (__edit is null) return;
+        __edit.fstrWho = AppConstants.Who;
+        __toast = await VisitorRepo.AddOrUpdateVisitor(__edit, false, __cts.Token);
+        if (!__toast.IsSuccess) return;
+        __toast = new() { ToastType = ToastTypeModel.Success, Message = $"Saved. {__edit.FullName} is now at {Stages[StageOf(__edit)]}" };
+        __edit = null;
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Convert to member
+
+    /// <summary>Finds the member type named "Member"; creates it when the church has not set one up yet.</summary>
+    private async Task<Guid?> EnsureMemberTypeAsync()
+    {
+        var types = await MemberTypeRepo.SelectMemberType(active: true, cancellationToken: __cts.Token);
+        var existing = types.FirstOrDefault(t => string.Equals(t.fstrName.Trim(), "Member", StringComparison.OrdinalIgnoreCase));
+        if (existing is not null) return existing.flngKey;
+
+        var created = new MemberTypeModel { flngKey = Guid.NewGuid(), fstrName = "Member", fstrWho = AppConstants.Who };
+        var result = await MemberTypeRepo.AddOrUpdateMemberType(created, true, __cts.Token);
+        if (!result.IsSuccess)
+        {
+            __toast = result;
+            return null;
+        }
+        return created.flngKey;
+    }
+
+    /// <summary>The Add to members button on a list row.</summary>
+    private async Task ConvertFromListAsync(VisitorModel v)
+    {
+        __edit = CopyOf(v);
+        await ConvertAsync();
+    }
+
+    /// <summary>Creates the member record from the visitor and marks the visitor as a Member. Only offered once the person is at Inauguration.</summary>
+    private async Task ConvertAsync()
+    {
+        if (__edit is null || StageOf(__edit) != 4) return;
+
+        // The new member starts with the member type "Member" (created once if it does not exist yet).
+        var typeKey = await EnsureMemberTypeAsync();
+        if (typeKey is null) return;
+
+        var member = new MemberModel
+        {
+            flngMemberTypeKey = typeKey,
+            fstrFirstname = __edit.fstrFirstname,
+            fstrLastname = __edit.fstrLastname,
+            fstrGender = __edit.fstrGender,
+            fstrEmailAddress = __edit.fstrEmailAddress,
+            fstrPhoneNumber = __edit.fstrPhoneNumber,
+            fstrHomeAddress = __edit.fstrAddress,
+            fdtmJoinDate = __edit.fdtmInauguratedOn ?? AppClock.Today,
+            fstrMembershipStatus = "Active",
+            fblnActive = true,
+            fstrWho = AppConstants.Who
+        };
+
+        var created = await MemberRepo.AddOrUpdateMember(member, true, __cts.Token);
+        if (!created.IsSuccess)
+        {
+            __toast = created;
+            return;
+        }
+
+        __edit.fstrStatus = "Member";
+        __edit.flngMemberKey = member.flngKey;
+        __edit.fstrWho = AppConstants.Who;
+        var linked = await VisitorRepo.AddOrUpdateVisitor(__edit, false, __cts.Token);
+
+        __toast = linked.IsSuccess
+            ? new() { ToastType = ToastTypeModel.Success, Message = $"{__edit.FullName} is now a member. Their join date is {member.fdtmJoinDate:d MMM yyyy}. Add their service on the Members page" }
+            : linked;
+
+        __edit = null;
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Add incoming
+
+    private void OpenAdd()
+    {
+        __adding = true;
+        __search = null;
+        __results = [];
+        __picked = null;
+        __searched = false;
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        var found = await VisitorRepo.SelectVisitor(search: string.IsNullOrWhiteSpace(__search) ? null : __search.Trim(), active: true, cancellationToken: __cts.Token);
+        __results = found.Where(v => v.fstrStatus is "Visitor" or "Regular Visitor").Take(8).ToList();
+        __searched = true;
+    }
+
+    private async Task AddIncomingAsync()
+    {
+        if (__picked is null) return;
+
+        var v = CopyOf(__picked);
+        v.fstrStatus = "Incoming Member";
+        if (string.IsNullOrWhiteSpace(v.fstrPath)) v.fstrPath = "Joining the church";
+        v.fstrWho = AppConstants.Who;
+
+        __toast = await VisitorRepo.AddOrUpdateVisitor(v, false, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __adding = false;
+        await LoadAsync();
+    }
+
+    #endregion
+}

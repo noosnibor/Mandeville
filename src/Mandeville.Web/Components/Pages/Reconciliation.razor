@@ -1,0 +1,277 @@
+@page "/reconciliation"
+@attribute [Authorize(Roles = AppRoles.Administrator)]
+@implements IDisposable
+@inject IReconciliationRepository ReconciliationRepo
+@inject IReconciliationItemRepository ItemRepo
+
+<PageTitle>Reconciliation</PageTitle>
+
+<div class="page-head">
+    <h1>Reconciliation</h1>
+    <button class="btn btn-primary" @onclick="NewReconciliation">+ New month</button>
+</div>
+
+<ToastBar Toast="__toast" />
+
+<div class="split">
+    <div class="card">
+        <h2>Months</h2>
+        <table class="table selectable">
+            <tbody>
+                @foreach (var r in __list)
+                {
+                    <tr class="@(__current?.flngKey == r.flngKey ? "selected" : "")" @onclick="() => OpenAsync(r)">
+                        <td>@FixedLists.Months[r.flngMonth - 1] @r.flngYear</td>
+                        <td><span class="badge @(r.fstrStatus == "Reconciled" ? "badge-ok" : "badge-warn")">@r.fstrStatus</span></td>
+                    </tr>
+                }
+                @if (__list.Count == 0) { <tr><td class="empty">No reconciliations yet.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    <div>
+        @if (__new is not null)
+        {
+            <Modal Title="New reconciliation" Subtitle="Compare your records with the bank statement" Icon="recon" OnClose="() => __new = null">
+                <ChildContent>
+                <div class="form-grid">
+                    <div class="field">
+                        <label>Month</label>
+                        <select @bind="__new.flngMonth">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
+                    </div>
+                    <div class="field"><label>Year</label><input type="number" @bind="__new.flngYear" /></div>
+                    <div class="field"><label>Opening balance</label><input type="number" step="0.01" @bind="__new.fcurOpeningBalance" /></div>
+                    <div class="field"><label>Bank statement balance</label><input type="number" step="0.01" @bind="__new.fcurStatementBalance" /></div>
+                </div>
+                </ChildContent>
+                <Footer>
+                    <button class="btn btn-primary" @onclick="CreateAsync">Create</button>
+                        <button class="btn" @onclick="() => __new = null">Cancel</button>
+                </Footer>
+            </Modal>
+        }
+
+        @if (__current is not null)
+        {
+            var locked = __current.fstrStatus == "Reconciled";
+            <div class="card">
+                <div class="page-head" style="margin-bottom:.5rem">
+                    <h2 style="margin:0">@FixedLists.Months[__current.flngMonth - 1] @__current.flngYear</h2>
+                    <span class="badge @(locked ? "badge-ok" : "badge-warn")">@__current.fstrStatus</span>
+                </div>
+
+                <div class="form-grid">
+                    <div class="field"><label>Opening balance</label><input type="number" step="0.01" disabled="@locked" @bind="__current.fcurOpeningBalance" /></div>
+                    <div class="field"><label>Bank statement balance</label><input type="number" step="0.01" disabled="@locked" @bind="__current.fcurStatementBalance" /></div>
+                </div>
+
+                <h3>Tick what appears on the bank statement</h3>
+                <p class="hint">Anything you leave unticked carries over to the next month.</p>
+                <table class="table table-cards">
+                    <thead><tr><th></th><th>Date</th><th>Type</th><th>Description</th><th class="num">Amount</th></tr></thead>
+                    <tbody>
+                        @foreach (var c in __candidates)
+                        {
+                            var item = c;
+                            <tr>
+                                <td data-label=""><input type="checkbox" checked="@item.fblnTicked" disabled="@locked" @onchange="e => ToggleAsync(item, e.Value is true)" /></td>
+                                <td data-label="Date">@item.fdtmItemDate.ToString("dd MMM yyyy")</td>
+                                <td data-label="Type">@item.fstrItemType</td>
+                                <td data-label="Description">@item.fstrDescription</td>
+                                <td data-label="Amount" class="num @(item.SignedAmount < 0 ? "neg" : "pos")">@(item.SignedAmount.ToString("N2"))</td>
+                            </tr>
+                        }
+                        @if (__candidates.Count == 0) { <tr><td colspan="5" class="empty">Nothing to reconcile.</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <h3>Summary</h3>
+                <div class="summary-box">
+                    <span>Opening balance</span><span class="num">@Opening.ToString("N2")</span>
+                    <span>+ Collections ticked</span><span class="num pos">@CollectionsTotal.ToString("N2")</span>
+                    <span>- Expenses ticked</span><span class="num neg">@ExpensesTotal.ToString("N2")</span>
+                    <span class="total">Expected balance</span><span class="num total">@Expected.ToString("N2")</span>
+                    <span>Bank statement balance</span><span class="num">@Statement.ToString("N2")</span>
+                    <span class="total">Difference</span><span class="num total @(Difference == 0 ? "pos" : "neg")">@Difference.ToString("N2")</span>
+                </div>
+
+                <div class="field" style="margin:1rem 0">
+                    <label>Variance note (required when the difference is not zero)</label>
+                    <textarea maxlength="500" disabled="@locked" @bind="__current.fstrVarianceNote"></textarea>
+                </div>
+
+                @if (locked)
+                {
+                    <p class="hint">Finalised by @__current.fstrReconciledBy on @__current.fdtmReconciledOn?.ToString("dd MMM yyyy HH:mm"). Its collections and expenses are locked.</p>
+                    <div class="actions"><button class="btn" @onclick="ReopenAsync">Reopen</button></div>
+                }
+                else
+                {
+                    <div class="actions">
+                        <button class="btn" @onclick="SaveDraftAsync">Save draft</button>
+                        <button class="btn btn-primary" @onclick="FinalizeAsync">Finalise month</button>
+                        <button class="btn btn-danger" @onclick="DeleteAsync">Delete draft</button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<ReconciliationModel> __list = [];
+    private List<ReconciliationCandidateModel> __candidates = [];
+    private List<ReconciliationItemModel> __items = [];
+    private ReconciliationModel? __current;
+    private ReconciliationModel? __new;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    #region Calculated totals (match what the finalise procedure calculates)
+
+    private decimal Opening => __current?.fcurOpeningBalance ?? 0;
+    private decimal Statement => __current?.fcurStatementBalance ?? 0;
+    private decimal CollectionsTotal => __candidates.Where(c => c.fblnTicked && c.fstrItemType == "Collection").Sum(c => c.fcurAmount);
+    private decimal ExpensesTotal => __candidates.Where(c => c.fblnTicked && c.fstrItemType == "Expense").Sum(c => c.fcurAmount);
+    private decimal Expected => Opening + CollectionsTotal - ExpensesTotal;
+    private decimal Difference => Statement - Expected;
+
+    #endregion
+
+    protected override async Task OnInitializedAsync() => await LoadListAsync();
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #region Loading
+
+    private async Task LoadListAsync() => __list = await ReconciliationRepo.SelectReconciliation(cancellationToken: __cts.Token);
+
+    private async Task OpenAsync(ReconciliationModel r)
+    {
+        __new = null;
+        __current = r;
+        await LoadDetailAsync();
+    }
+
+    private async Task LoadDetailAsync()
+    {
+        if (__current is null) return;
+        __candidates = await ReconciliationRepo.SelectCandidates(__current.flngMonth, __current.flngYear, __current.flngKey, __cts.Token);
+        __items = await ItemRepo.SelectReconciliationItem(reconciliationKey: __current.flngKey, cancellationToken: __cts.Token);
+    }
+
+    #endregion
+
+    #region Create / save / delete
+
+    private void NewReconciliation()
+    {
+        var previous = AppClock.Today.AddMonths(-1);
+        __new = new ReconciliationModel { flngMonth = previous.Month, flngYear = previous.Year };
+        __current = null;
+    }
+
+    private async Task CreateAsync()
+    {
+        if (__new is null) return;
+        __new.fstrWho = AppConstants.Who;
+        __toast = await ReconciliationRepo.AddOrUpdateReconciliation(__new, true, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        var created = __new;
+        __new = null;
+        await LoadListAsync();
+        __current = __list.FirstOrDefault(r => r.flngKey == created.flngKey);
+        await LoadDetailAsync();
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        if (__current is null) return;
+        __current.fstrWho = AppConstants.Who;
+        __toast = await ReconciliationRepo.AddOrUpdateReconciliation(__current, false, __cts.Token);
+        if (__toast.IsSuccess) await LoadListAsync();
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (__current is null) return;
+        __toast = await ReconciliationRepo.DeleteReconciliation(__current.flngKey, AppConstants.Who, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __current = null;
+        __candidates = [];
+        await LoadListAsync();
+    }
+
+    #endregion
+
+    #region Ticking items, finalise, reopen
+
+    private async Task ToggleAsync(ReconciliationCandidateModel c, bool ticked)
+    {
+        if (__current is null) return;
+
+        if (ticked)
+        {
+            var item = new ReconciliationItemModel
+            {
+                flngReconciliationKey = __current.flngKey,
+                fstrItemType = c.fstrItemType,
+                flngSourceKey = c.flngSourceKey,
+                fcurAmount = c.fcurAmount,
+                fstrWho = AppConstants.Who
+            };
+            __toast = await ItemRepo.AddReconciliationItem(item, __cts.Token);
+        }
+        else
+        {
+            var existing = __items.FirstOrDefault(i => i.fstrItemType == c.fstrItemType && i.flngSourceKey == c.flngSourceKey);
+            if (existing is null) return;
+            __toast = await ItemRepo.DeleteReconciliationItem(existing.flngKey, AppConstants.Who, __cts.Token);
+        }
+
+        await LoadDetailAsync();
+    }
+
+    private async Task FinalizeAsync()
+    {
+        if (__current is null) return;
+
+        // Save the balances first so the procedure works from what is on screen.
+        __current.fstrWho = AppConstants.Who;
+        var saved = await ReconciliationRepo.AddOrUpdateReconciliation(__current, false, __cts.Token);
+        if (!saved.IsSuccess) { __toast = saved; return; }
+
+        __toast = await ReconciliationRepo.FinalizeReconciliation(__current.flngKey, __current.fstrVarianceNote, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await ReloadCurrentAsync();
+    }
+
+    private async Task ReopenAsync()
+    {
+        if (__current is null) return;
+        __toast = await ReconciliationRepo.ReopenReconciliation(__current.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await ReloadCurrentAsync();
+    }
+
+    private async Task ReloadCurrentAsync()
+    {
+        var key = __current?.flngKey;
+        await LoadListAsync();
+        __current = __list.FirstOrDefault(r => r.flngKey == key);
+        await LoadDetailAsync();
+    }
+
+    #endregion
+}

@@ -1,0 +1,24 @@
+@using global::Mandeville.Web.Security
+@using System.Security.Claims
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthProvider
+
+<div class="denied-card">
+    <h1>You do not have access to this page</h1>
+    <p>Your account is not set up to open this page. If you think it should be, please ask the administrator.</p>
+    <a class="btn btn-primary btn-sm" href="@_landing">Go to my page</a>
+</div>
+
+@code {
+    private string _landing = "/";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _landing = AccountService.LandingFor(state.User);
+
+        // Someone who opens the dashboard address but has no dashboard goes straight to their own page
+        if (_landing != "/" && Navigation.ToBaseRelativePath(Navigation.Uri).Trim('/').Length == 0)
+            Navigation.NavigateTo(_landing, replace: true);
+    }
+}

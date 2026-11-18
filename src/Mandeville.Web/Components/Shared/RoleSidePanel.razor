@@ -1,0 +1,123 @@
+@implements IDisposable
+@using System.Security.Claims
+@using global::Mandeville.Web.Dashboards
+@inject RoleStatsService Stats
+
+@* Summary panel for the page's role, plus "My team" for anyone tagged as a team lead *@
+<div class="side-card">
+    @if (__loading)
+    {
+        <p class="hint">Loading...</p>
+    }
+    else if (__data is not null)
+    {
+        <h3>@__data.Title summary</h3>
+        <div class="side-tiles">
+            @foreach (var t in __data.Tiles)
+            {
+                <div class="side-tile @(t.Warn ? "warn" : "")"><small>@t.Label</small><b>@t.Value</b></div>
+            }
+        </div>
+
+        @foreach (var b in __data.Bars.Where(b => b.Total > 0))
+        {
+            <div class="side-bar-row"><span>@b.Label</span><span>@b.Done of @b.Total</span></div>
+            <div class="side-bar"><i style="width:@(Math.Min(100, b.Done * 100 / b.Total))%"></i></div>
+        }
+
+        <p class="side-head">Needs attention</p>
+        @if (__data.Attention.Count == 0)
+        {
+            <p class="hint" style="margin:0">Nothing waiting. Well done.</p>
+        }
+        @foreach (var a in __data.Attention)
+        {
+            <div class="side-li"><span>@a.Text</span><span class="side-tag @(a.Warn ? "warn" : "")">@a.Tag</span></div>
+        }
+    }
+
+    @if (__teams.Count > 0)
+    {
+        var team = __teams.FirstOrDefault(t => t.DepartmentKey == __teamKey) ?? __teams[0];
+        <div class="side-divider"></div>
+        <div class="side-team-head">
+            <h3>My team</h3>
+            @if (__teams.Count > 1)
+            {
+                <select @onchange="e => __teamKey = Guid.TryParse(e.Value?.ToString(), out var k) ? k : __teamKey">
+                    @foreach (var t in __teams) { <option value="@t.DepartmentKey" selected="@(t.DepartmentKey == team.DepartmentKey)">@t.DepartmentName</option> }
+                </select>
+            }
+            else { <span class="hint">@team.DepartmentName - you are lead</span> }
+        </div>
+        <div class="side-tiles three">
+            <div class="side-tile"><small>Members</small><b>@team.Members.Count</b></div>
+            <div class="side-tile"><small>Present last service</small><b>@team.PresentLastSunday</b></div>
+            <div class="side-tile @(team.MissedThree > 0 ? "warn" : "")"><small>Missed 3 services</small><b>@team.MissedThree</b></div>
+        </div>
+        <table class="side-team">
+            <thead><tr><th>Member</th><th>Last 4</th><th>Last contact</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var m in team.Members)
+                {
+                    <tr>
+                        <td>@m.Name</td>
+                        <td>@foreach (var p in m.Attended) { <span class="dot @(p ? "on" : "")"></span> }</td>
+                        <td>@RoleStatsService.Ago(m.LastContact)</td>
+                        <td>@if (m.FollowUp) { <span class="side-tag warn">Follow up</span> }</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private RolePanelData? __data;
+    private List<TeamData> __teams = [];
+    private Guid __teamKey;
+    private bool __loading = true;
+
+    #endregion
+
+    #region Parameters
+
+    /// <summary>Which role summary to show: "care", "connect" or "pastoral".</summary>
+    [Parameter, EditorRequired] public string Kind { get; set; } = "care";
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var user = AuthState is null ? null : (await AuthState).User;
+            Guid? myKey = Guid.TryParse(user?.FindFirstValue(AppClaims.MemberKey), out var k) ? k : null;
+
+            __data = Kind switch
+            {
+                "connect" => await Stats.GetConnectionsAsync(__cts.Token),
+                // A role limited to "own records only" sees just its own caseload
+                "pastoral" => await Stats.GetPastoralAsync(user is not null && user.OwnOnly(PageKeys.Pastoral) ? myKey : null, __cts.Token),
+                _ => await Stats.GetMembersCareAsync(__cts.Token)
+            };
+
+            if (myKey is Guid mk) __teams = await Stats.GetMyTeamsAsync(mk, __cts.Token);
+            if (__teams.Count > 0) __teamKey = __teams[0].DepartmentKey;
+        }
+        catch (OperationCanceledException) { }
+        catch { __data = null; }
+        finally { __loading = false; }
+    }
+
+    public void Dispose() { __cts.Cancel(); __cts.Dispose(); }
+
+    #endregion
+}

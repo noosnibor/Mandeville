@@ -1,0 +1,566 @@
+﻿@* Birthdays and anniversaries coming up: a card per person, click one to see the card and send it by email, queue it, or share it on WhatsApp. *@
+@implements IDisposable
+@inject ICelebrationRepository CelebrationRepo
+@inject IMemberPhotoRepository PhotoRepo
+@inject IJSRuntime JS
+@inject IConfiguration Configuration
+@inject Mandeville.Web.Celebrations.CelebrationMailer Mailer
+@inject Mandeville.Web.Celebrations.CelebrationEmailStatus EmailStatus
+
+<ToastBar Toast="__toast" />
+
+<div class="tabs">
+    <button class="tab @(__sub == "b" ? "active" : "")" @onclick='() => ShowTab("b")'>Birthdays (@Birthdays.Count())</button>
+    <button class="tab @(__sub == "a" ? "active" : "")" @onclick='() => ShowTab("a")'>Anniversaries (@Anniversaries.Count())</button>
+    <button class="tab @(__sub == "h" ? "active" : "")" @onclick='() => ShowTab("h")'>Sent (@__sent.Count)</button>
+</div>
+
+@if (__sub == "h")
+{
+    <div class="card">
+        <table class="table table-cards">
+            <thead><tr><th>Name</th><th>Type</th><th>How</th><th>When</th><th>Sent by</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var l in __sent)
+                {
+                    var log = l;
+                    <tr>
+                        <td data-label="Name">@log.fstrDisplayName</td>
+                        <td data-label="Type">@log.fstrType</td>
+                        <td data-label="How">@SentText(log.fstrChannel, log.fstrSentTo)</td>
+                        <td data-label="When">@log.fdtmWhen?.ToString("dd MMM yyyy HH:mm")</td>
+                        <td data-label="Sent by">@log.fstrWho</td>
+                        <td data-label="" class="row-actions"><button class="btn btn-sm" @onclick="() => UndoAsync(log)">Move back to upcoming</button></td>
+                    </tr>
+                }
+                @if (__sent.Count == 0) { <tr><td colspan="6" class="empty">Nothing has been sent yet this year.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    var list = __sub == "b" ? Birthdays : Anniversaries;
+    @if (!list.Any())
+    {
+        <div class="mpanel"><p class="empty" style="margin:0">No @(__sub == "b" ? "birthdays" : "anniversaries") in the next @Days day@(Days == 1 ? "" : "s").</p></div>
+    }
+    else
+    {
+        <div class="mgrid cel-names">
+            @foreach (var c in list)
+            {
+                var item = c;
+                <div class="cel-card cel-pick @(__open?.Id == item.Id ? "sel" : "")" role="button" tabindex="0" @onclick="() => ToggleCard(item)">
+                    <div class="cel-row">
+                        <div class="cel-icon @(item.IsBirthday ? "b" : "a")">@(item.IsBirthday ? "\U0001F382" : "\U0001F48D")</div>
+                        <div>
+                            <b>@item.DisplayName</b>
+                            <small>@(item.IsBirthday ? "Birthday" : "Anniversary") &middot; @item.Date.ToString("ddd d MMM")</small>
+                        </div>
+                        <span class="cel-pill @PillClass(item)">@PillText(item)</span>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (__open is not null)
+    {
+        var o = __open;
+        <div class="mpanel cel-inline" id="cel-panel">
+            <div class="cel-inline-head">
+                <div>
+                    <b>@o.DisplayName &middot; @(o.IsBirthday ? "Birthday" : "Anniversary") card</b>
+                    <small>@o.Date.ToString("dddd d MMMM")@(o.Emails.Count > 0 ? " · " + string.Join(", ", o.Emails) : " · no email on record")</small>
+                </div>
+                <button class="btn btn-sm" @onclick="CloseCard">Close</button>
+            </div>
+
+            @if (o.Sent)
+            {
+                <div class="cel-note">@SentText(o.SentChannel, o.SentTo)@(o.SentOn.HasValue ? $" at {o.SentOn:h:mm tt}" : "")</div>
+            }
+            else if (o.QueueStatus == "Failed")
+            {
+                <div class="cel-note bad">@(o.QueueError ?? "The queued email could not be sent.")</div>
+            }
+            else if (o.QueueStatus == "Queued")
+            {
+                <div class="cel-note">Waiting in the queue. It is emailed on @o.Date.ToString("ddd d MMM") at @Mailer.SendHour:00.</div>
+            }
+            else if (EmailStatus.FailureFor(o.Id) is { } failure)
+            {
+                <div class="cel-note bad">@failure</div>
+            }
+            else if (o.Emails.Count == 0)
+            {
+                <div class="cel-note">Add an email on the member profile, or send it on WhatsApp.</div>
+            }
+
+            <div class="cel-inline-body">
+                <div>
+                    <div class="cel-photo">
+                        <img src="@CardPicture" alt="@Heading(o)" />
+                        @if (__avatarData is not null)
+                        {
+                            <img id="cel-avatar" class="cel-av @__pos @__size" src="@__avatarData" alt="" />
+                        }
+                        <div class="cel-plate @(__avatarData is not null && __pos == "beside" ? "beside" : "")">
+                            <div class="cel-msg">@__extra</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="field">
+                        <label>Card image</label>
+                        <div class="cel-designs">
+                            @if (CardDesigns.For(o).Count > 1)
+                            {
+                                @foreach (var d in CardDesigns.For(o))
+                                {
+                                    var file = d.File;
+                                    <button type="button" class="cel-dchip @(file == __design && __customImage is null ? "on" : "")" @onclick="() => { __design = file; __customImage = null; }">@d.Label</button>
+                                }
+                            }
+                        </div>
+                        <div class="cel-upload">
+                            <label class="btn cel-upload-btn">
+                                @(__customImage is null ? "Upload background image" : "Change background image")
+                                <input type="file" id="cel-image-file" accept="image/jpeg,image/png" hidden @onchange="PickCardImageAsync" />
+                            </label>
+                            @if (__customImage is not null)
+                            {
+                                <span class="cel-using">Using your image</span>
+                                <button type="button" class="btn btn-sm" @onclick="() => __customImage = null">Remove</button>
+                            }
+                        </div>
+                        <p class="hint">Pick a design above, or upload your own background image (JPG or PNG, up to 2 MB). The name and date are added to it. It is used in the preview, the email and the WhatsApp card.</p>
+                    </div>
+
+                    <div class="field">
+                        <label>Photo of the person</label>
+                        <div class="cel-designs">
+                            <label class="cel-dchip">
+                                @(__avatarData is null ? "Add photo" : "Change photo")
+                                <input type="file" id="cel-photo-file" accept="image/*" hidden @onchange="PickCardPhotoAsync" />
+                            </label>
+                            @if (__avatarData is not null)
+                            {
+                                <button type="button" class="cel-dchip" @onclick="() => __avatarData = null">Remove</button>
+                                <button type="button" class="cel-dchip @(__pos == "tr" ? "on" : "")" @onclick='() => __pos = "tr"'>Top right</button>
+                                <button type="button" class="cel-dchip @(__pos == "tl" ? "on" : "")" @onclick='() => __pos = "tl"'>Top left</button>
+                                <button type="button" class="cel-dchip @(__pos == "beside" ? "on" : "")" @onclick='() => __pos = "beside"'>Beside the name</button>
+                                @if (__pos != "beside")
+                                {
+                                    <button type="button" class="cel-dchip @(__size == "lg" ? "on" : "")" @onclick='() => __size = "lg"'>Large</button>
+                                    <button type="button" class="cel-dchip @(__size == "sm" ? "on" : "")" @onclick='() => __size = "sm"'>Small</button>
+                                }
+                            }
+                        </div>
+                        <p class="hint">@(__avatarFromProfile ? "This is the photo saved on the member's profile. Adding one here changes this card only." : "Photos saved on a member's profile appear here automatically. A photo added here is for this card only.")</p>
+                    </div>
+
+                    <div class="field">
+                        <label>Message</label>
+                        <textarea id="cel-extra" maxlength="500" rows="9" @bind="__extra" @bind:event="oninput"></textarea>
+                        <p class="hint">@__extra.Length / 500. It is printed on the card, in place of the name, and used in the email and on WhatsApp. You can edit it.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="cel-data" hidden
+                 data-kind="@(o.IsBirthday ? "birthday" : "anniversary")"
+                 data-heading="@Heading(o)"
+                 data-name="@o.DisplayName"
+                 data-detail="@Detail(o)"
+                 data-church="@Church"
+                 data-image="@CardPicture"
+                 data-pos="@__pos"
+                 data-size="@__size"
+                 data-file="@FileName(o)"></div>
+
+            <p class="hint"><b>On a phone:</b> WhatsApp opens with the card and you choose the group. <b>On a computer:</b> the card is copied and WhatsApp Web opens. Open the group and press Ctrl+V to paste the card. The message is already printed on it.</p>
+
+            <div class="cel-actions">
+                @if (!o.Sent && o.QueueStatus is null)
+                {
+                    var canEmail = o.Emails.Count > 0 && Mailer.IsConfigured;
+                    <button class="btn" disabled="@(__busy || !canEmail)" title="@(canEmail ? "Email the card now" : EmailBlockedReason(o))" @onclick="() => EmailNowAsync(o, true)">Email now</button>
+                    <button class="btn" disabled="@(__busy || !canEmail)" title="@(canEmail ? QueueHint(o) : EmailBlockedReason(o))" @onclick="QueueOpenAsync">Add to queue (@Mailer.SendHour:00)</button>
+                    @if (!canEmail)
+                    {
+                        <span class="cel-note bad" style="align-self:center">@EmailBlockedReason(o)</span>
+                    }
+                }
+                <button class="btn cel-send" onclick="celebrate.send()">Send to WhatsApp group</button>
+                <button class="btn btn-sm" @onclick="CopyImageAsync">Copy card</button>
+                <button class="btn btn-sm" onclick="celebrate.download()">Download card</button>
+                <button class="btn btn-sm" @onclick="MarkManualAsync">I already sent it</button>
+                <button id="cel-mark" hidden @onclick="MarkWhatsAppAsync"></button>
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <h3 style="margin:0 0 10px">Queue</h3>
+        <table class="table table-cards">
+            <thead><tr><th>Name</th><th>Type</th><th>Sends</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var q in __queue)
+                {
+                    var row = q;
+                    <tr>
+                        <td data-label="Name">@row.fstrDisplayName</td>
+                        <td data-label="Type">@row.fstrType</td>
+                        <td data-label="Sends">@row.fdtmDueDate.ToString("ddd d MMM"), @Mailer.SendHour:00</td>
+                        <td data-label="Status">
+                            @if (row.fstrStatus == "Failed") { <span class="badge badge-warn" title="@row.fstrError">Failed</span> }
+                            else { <span class="badge">Queued</span> }
+                            @if (row.fblnHasImage) { <small> with image</small> }
+                            @if (!string.IsNullOrWhiteSpace(row.fstrMessage)) { <small> and message</small> }
+                        </td>
+                        <td data-label="" class="row-actions">
+                            @if (row.fstrStatus == "Failed") { <button class="btn btn-sm" disabled="@__busy" @onclick="() => RetryQueueAsync(row.flngKey)">Retry</button> }
+                            <button class="btn btn-sm" disabled="@__busy" @onclick="() => CancelQueueAsync(row.flngKey)">Cancel</button>
+                        </td>
+                    </tr>
+                }
+                @if (__queue.Count == 0) { <tr><td colspan="5" class="empty">Nothing is waiting in the queue.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    #region Parameters
+
+    /// <summary>Raised when the number of cards waiting changes, so the tab badge can refresh.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private const string Church = "WAFIF Mandeville";
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<CelebrationModel> __all = [];
+    private List<CelebrationLogModel> __sent = [];
+    private CelebrationModel? __open;
+
+    /// <summary>The card picture chosen in the open card (file name in wwwroot/cards).</summary>
+    private string __design = string.Empty;
+
+    /// <summary>The person's photo for the open card as a data address: the member's saved photo, or one added just for this card. Null for no photo.</summary>
+    private string? __avatarData;
+    private bool __avatarFromProfile;
+
+    /// <summary>Where the photo sits: tr (top right), tl (top left) or beside (beside the name); and its size: lg or sm.</summary>
+    private string __pos = "tr";
+    private string __size = "lg";
+    /// <summary>The image the admin uploaded for this card (a data address); null to use the chosen design.</summary>
+    private string? __customImage;
+
+    /// <summary>The message under the card: the email body and the WhatsApp caption (starts as the default text, the admin can edit it).</summary>
+    private string __extra = string.Empty;
+    private string __sub = "b";
+    private bool __busy;
+    private ToastMessageModel? __toast;
+
+    /// <summary>Why Email now and Add to queue cannot be used for this card.</summary>
+    private string EmailBlockedReason(CelebrationModel c) =>
+        !Mailer.IsConfigured ? "Email is not set up yet. Add the Smtp settings (Host and From) first."
+        : c.Emails.Count == 0 ? "There is no email address on the member's profile."
+        : string.Empty;
+
+    /// <summary>When a queued card goes out, for the button tooltip.</summary>
+    private string QueueHint(CelebrationModel c) => $"Emails on {c.Date:ddd d MMM} at {Mailer.SendHour}:00";
+
+    /// <summary>Emails waiting for the daily job (queued, or failed and waiting for a retry).</summary>
+    private List<CelebrationQueueModel> __queue = [];
+
+    /// <summary>How many days before the date a birthday or anniversary appears on this tab (Celebrations:DaysBefore, default 3).</summary>
+    private int Days => int.TryParse(Configuration["Celebrations:DaysBefore"], out var d) && d is >= 0 and <= 60 ? d : 3;
+
+    /// <summary>The picture on the card: the uploaded image, otherwise the chosen design.</summary>
+    private string CardPicture => __customImage ?? "/cards/" + __design;
+
+    /// <summary>Cards still to send; once sent they leave this list and show on the Sent tab.</summary>
+    private IEnumerable<CelebrationModel> Birthdays => __all.Where(c => c.IsBirthday && !c.Sent);
+    private IEnumerable<CelebrationModel> Anniversaries => __all.Where(c => !c.IsBirthday && !c.Sent);
+
+    #endregion
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #region Loading
+
+    private async Task LoadAsync()
+    {
+        __all = await CelebrationRepo.SelectUpcoming(Days, __cts.Token);
+        __queue = (await CelebrationRepo.SelectQueue(null, false, __cts.Token)).Where(q => q.fstrStatus is "Queued" or "Failed").ToList();
+        __sent = await CelebrationRepo.SelectSent(AppClock.Today.Year, __cts.Token);
+        await OnChanged.InvokeAsync();
+    }
+
+    #endregion
+
+    #region Status text
+
+    /// <summary>True when the daily job will email this card by itself.</summary>
+    private bool WillAutoEmail(CelebrationModel c) => !c.Sent && c.QueueStatus is null && c.Emails.Count > 0 && Mailer.AutoEmail && Mailer.IsConfigured;
+
+    private string PillText(CelebrationModel c)
+    {
+        if (c.Sent) return c.SentChannel == "Email" ? "Emailed" : "Sent";
+        if (c.QueueStatus == "Failed") return "Queued email failed";
+        if (c.QueueStatus == "Queued") return c.DaysAway == 0 ? $"Queued for {Mailer.SendHour}:00" : $"Queued for {c.Date:ddd} {Mailer.SendHour}:00";
+        if (EmailStatus.FailureFor(c.Id) is not null) return "Email failed";
+        if (c.Emails.Count == 0 && Mailer.IsConfigured) return "No email on record";
+        if (WillAutoEmail(c))
+            return c.DaysAway == 0 ? "Emailing today" : $"Emails {c.Date:ddd} {Mailer.SendHour}:00";
+        return c.DaysAway == 0 ? "Today" : c.DaysAway == 1 ? "Tomorrow" : $"In {c.DaysAway} days";
+    }
+
+    private string PillClass(CelebrationModel c)
+    {
+        if (c.Sent) return "sent";
+        if (c.QueueStatus == "Failed") return "bad";
+        if (c.QueueStatus == "Queued") return "plan";
+        if (EmailStatus.FailureFor(c.Id) is not null) return "bad";
+        if (c.Emails.Count == 0 && Mailer.IsConfigured) return "soon";
+        return c.DaysAway == 0 ? "today" : "plan";
+    }
+
+    private static string SentText(string? channel, string? sentTo) => channel switch
+    {
+        "Email" => string.IsNullOrWhiteSpace(sentTo) ? "Emailed" : $"Emailed to {sentTo}",
+        "WhatsApp" => "Shared on WhatsApp",
+        _ => "Marked as sent by hand"
+    };
+
+    #endregion
+
+    #region Card text
+
+    private static string Heading(CelebrationModel c) => c.IsBirthday ? "HAPPY BIRTHDAY" : "HAPPY ANNIVERSARY";
+
+    private static string Detail(CelebrationModel c) =>
+        c.IsBirthday ? c.Date.ToString("dddd d MMMM")
+        : c.Years < 1 ? c.Date.ToString("dddd d MMMM")
+        : $"{c.Years} year{(c.Years == 1 ? "" : "s")} together \u00B7 {c.Date:d MMMM}";
+
+    private static string FileName(CelebrationModel c) =>
+        $"{(c.IsBirthday ? "birthday" : "anniversary")}-{new string(c.DisplayName.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant()}.png";
+
+    private static string Ordinal(int n)
+    {
+        var suffix = (n % 100) is >= 11 and <= 13 ? "th" : (n % 10) switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" };
+        return $"{n}{suffix}";
+    }
+
+    /// <summary>"Brother" or "Sister" from the recorded gender; empty when it is not known.</summary>
+    private static string Title(CelebrationModel c) => c.Gender switch { "Male" => "Brother ", "Female" => "Sister ", _ => string.Empty };
+
+    /// <summary>The default message under the card; the admin can change it before it is emailed, queued or shared on WhatsApp.</summary>
+    private static string DefaultMessage(CelebrationModel c) => c.IsBirthday
+        ? $"Great morning, {Church} family!\n\n" +
+          $"Please join me in wishing our dearest {Title(c)}{c.ShortName} a very happy birthday! \U0001F973\U0001F389\n\n" +
+          $"{Title(c)}{c.ShortName}, we celebrate you today and thank God for the gift of your life. May the Lord bless you and grant you many more years of good health, joy, peace and favour.\n\n" +
+          "May this new year bring you even greater experiences of God\u2019s goodness.\n\n" +
+          "Have a wonderful and truly blessed birthday! \u2764\uFE0F"
+        : $"Great morning, {Church} family!\n\n" +
+          $"Please join me in wishing {c.ShortName} a very happy {(c.Years < 1 ? "" : Ordinal(c.Years) + " ")}anniversary! \U0001F48D\U0001F389\n\n" +
+          "We celebrate the love and faith you share and thank God for your marriage. May the Lord bless your home and grant you many more years together filled with joy, peace and favour.\n\n" +
+          "Have a wonderful and truly blessed anniversary! \u2764\uFE0F";
+
+    #endregion
+
+    #region Open / send / undo
+
+    private void ShowTab(string tab)
+    {
+        __sub = tab;
+        __open = null;
+    }
+
+    /// <summary>Click on a name: opens its card below the list, or closes it when it is already open.</summary>
+    private async Task ToggleCard(CelebrationModel c)
+    {
+        if (__open?.Id == c.Id)
+        {
+            __open = null;
+            return;
+        }
+
+        __open = c;
+        __design = CardDesigns.Default(c).File;
+        __customImage = null;
+        __extra = DefaultMessage(c);
+        __pos = "tr";
+        __size = "lg";
+
+        // Use the saved photo of the member (or the spouse) when there is one
+        var saved = await PhotoRepo.SelectForCard(c.MemberKey, c.SpouseKey, __cts.Token);
+        __avatarData = saved?.DataUrl;
+        __avatarFromProfile = saved is not null;
+    }
+
+    /// <summary>A photo was chosen in the card: the browser shrinks it and it is used for this card only (not saved).</summary>
+    private async Task PickCardPhotoAsync()
+    {
+        var picked = await JS.InvokeAsync<string?>("celebrate.pickPhoto", __cts.Token, "cel-photo-file");
+        if (picked is null) return;
+        __avatarData = picked;
+        __avatarFromProfile = false;
+    }
+
+    /// <summary>Copies the card picture so it can be pasted into WhatsApp.</summary>
+    private async Task CopyImageAsync()
+    {
+        var ok = await JS.InvokeAsync<bool>("celebrate.copyImage", __cts.Token);
+        __toast = ok ? new() { ToastType = ToastTypeModel.Success, Message = "Card copied. Paste it in WhatsApp." }
+                     : new() { ToastType = ToastTypeModel.Danger, Message = "Could not copy the card. Use Download card instead." };
+    }
+
+    private void CloseCard() => __open = null;
+
+    /// <summary>The card was shared on WhatsApp (called by the share button once WhatsApp opened).</summary>
+    private Task MarkWhatsAppAsync() => MarkAsync("WhatsApp");
+
+    /// <summary>The admin says they sent it themselves.</summary>
+    private Task MarkManualAsync() => MarkAsync("Manual");
+
+    private async Task MarkAsync(string channel)
+    {
+        if (__open is null) return;
+
+        // A card that was already emailed is not recorded a second time
+        if (__open.Sent)
+            __toast = new() { ToastType = ToastTypeModel.Success, Message = "Shared on WhatsApp" };
+        else
+            __toast = await CelebrationRepo.MarkSent(__open, __extra, channel, null, AppConstants.Who, __cts.Token);
+
+        __open = null;
+        await LoadAsync();
+    }
+
+    /// <summary>An image was chosen: the browser checks the type and size (2 MB) and shrinks it; it is kept for this card only.</summary>
+    private async Task PickCardImageAsync()
+    {
+        var picked = await JS.InvokeAsync<string?>("celebrate.pickImage", __cts.Token, "cel-image-file");
+        if (picked is null) return;
+
+        if (picked == "toolarge")
+            __toast = new() { ToastType = ToastTypeModel.Danger, Message = "That image is over 2 MB. Choose a smaller one." };
+        else if (picked == "badtype")
+            __toast = new() { ToastType = ToastTypeModel.Danger, Message = "Choose a JPG or PNG image." };
+        else
+            __customImage = picked;
+    }
+
+    /// <summary>Splits a data address into its bytes and content type (null when it is not one).</summary>
+    private static (byte[] Bytes, string ContentType)? ParseDataUrl(string? dataUrl)
+    {
+        if (string.IsNullOrWhiteSpace(dataUrl) || !dataUrl.StartsWith("data:", StringComparison.Ordinal)) return null;
+        var comma = dataUrl.IndexOf(',');
+        var semi = dataUrl.IndexOf(';');
+        if (comma < 0 || semi < 0 || semi > comma) return null;
+        try { return (Convert.FromBase64String(dataUrl[(comma + 1)..]), dataUrl[5..semi]); }
+        catch (FormatException) { return null; }
+    }
+
+    /// <summary>
+    /// Emails the card now. From the list it is the plain card (also used to retry a failed email); from the open card
+    /// (<paramref name="fromCard"/>) it carries the uploaded image, the additional message and the photo chosen there.
+    /// </summary>
+    private async Task EmailNowAsync(CelebrationModel card, bool fromCard = false)
+    {
+        __busy = true;
+        try
+        {
+            MemberPhotoModel? photo;
+            string? extra = null;
+            byte[]? image = null;
+            string? imageType = null;
+
+            if (fromCard)
+            {
+                extra = __extra;
+                var picked = ParseDataUrl(__customImage);
+                if (picked is { } p) { image = p.Bytes; imageType = p.ContentType; }
+                // The photo shown on the card (saved on the profile, or added for this card)
+                var av = ParseDataUrl(__avatarData);
+                photo = av is { } a ? new MemberPhotoModel { flngMemberKey = card.MemberKey, fbinPhoto = a.Bytes, fstrContentType = a.ContentType } : null;
+            }
+            else
+                photo = await PhotoRepo.SelectForCard(card.MemberKey, card.SpouseKey, __cts.Token);
+
+            var error = await Mailer.SendAsync(card, photo, extra, image, imageType, __cts.Token);
+            if (error is not null)
+            {
+                EmailStatus.RecordFailure(card.Id, error);
+                __toast = new() { ToastType = ToastTypeModel.Danger, Message = error };
+                return;
+            }
+
+            EmailStatus.Clear(card.Id);
+            if (card.QueueKey.HasValue) await CelebrationRepo.CancelQueued(card.QueueKey.Value, AppConstants.Who, __cts.Token);
+            __toast = await CelebrationRepo.MarkSent(card, string.IsNullOrWhiteSpace(extra) ? null : extra, "Email", string.Join(", ", card.Emails), AppConstants.Who, __cts.Token);
+            if (fromCard) __open = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            __busy = false;
+        }
+    }
+
+    /// <summary>Saves the open card with its image and message; the daily job emails it on the celebration day at the configured hour.</summary>
+    private async Task QueueOpenAsync()
+    {
+        if (__open is null) return;
+
+        __busy = true;
+        try
+        {
+            __toast = await CelebrationRepo.QueueCard(__open, __extra, ParseDataUrl(__customImage)?.Bytes, ParseDataUrl(__customImage)?.ContentType, AppConstants.Who, __cts.Token);
+            if (__toast.ToastType == ToastTypeModel.Success) __open = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            __busy = false;
+        }
+    }
+
+    /// <summary>Takes a queued card out of the queue (the automatic plain email then applies again if it is switched on).</summary>
+    private async Task CancelQueueAsync(Guid queueKey)
+    {
+        __toast = await CelebrationRepo.CancelQueued(queueKey, AppConstants.Who, __cts.Token);
+        await LoadAsync();
+    }
+
+    /// <summary>Puts a failed queued email back in the queue so the daily job tries it again.</summary>
+    private async Task RetryQueueAsync(Guid queueKey)
+    {
+        __toast = await CelebrationRepo.SetQueueStatus(queueKey, "Queued", null, AppConstants.Who, __cts.Token);
+        await LoadAsync();
+    }
+
+    private async Task UndoAsync(CelebrationLogModel log)
+    {
+        __toast = await CelebrationRepo.UndoSent(log.flngKey, AppConstants.Who, __cts.Token);
+        await LoadAsync();
+    }
+
+    #endregion
+}

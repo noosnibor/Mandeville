@@ -1,0 +1,292 @@
+@page "/evangelism"
+@attribute [PageAccess(PageKeys.Evangelism, "Evangelism", "Outreach", "mega", Tint = "c2", Order = 210)]
+@implements IDisposable
+@inject IEvangelismServiceRepository ServiceRepo
+@inject IEvangelismAssignmentRepository AssignmentRepo
+@inject IMemberRepository MemberRepo
+
+<PageTitle>Evangelism</PageTitle>
+
+<div class="page-head">
+    <h1>Evangelism</h1>
+    <button class="btn btn-primary" @onclick="NewService">+ Add service</button>
+</div>
+
+<ToastBar Toast="__toast" />
+
+<div class="split">
+    <div class="card">
+        <h2>Services</h2>
+        <table class="table selectable">
+            <tbody>
+                @foreach (var s in __services)
+                {
+                    <tr class="@(__selected?.flngKey == s.flngKey ? "selected" : "")" @onclick="() => SelectAsync(s)">
+                        <td>@s.fdtmServiceDate.ToString("ddd dd MMM yyyy")<div class="hint">@s.fstrLocation</div></td>
+                        <td class="num">@s.flngTotalMinistered<div class="hint">ministered</div></td>
+                    </tr>
+                }
+                @if (__services.Count == 0) { <tr><td class="empty">No services yet.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    <div>
+        @if (__edit is not null)
+        {
+            <Modal Title="@(__isNew ? "Add service" : "Edit service")" Subtitle="Date, location and the numbers from the outing" Icon="mega" OnClose="() => __edit = null">
+                <ChildContent>
+                <div class="form-grid">
+                    <div class="field"><label>Date</label><input type="date" @bind="__edit.fdtmServiceDate" /></div>
+                    <div class="field"><label>Start time</label><input type="time" @bind="__startTime" /></div>
+                    <div class="field"><label>Location</label><input type="text" maxlength="150" @bind="__edit.fstrLocation" /></div>
+                    <div class="field"><label>Total present</label><input type="number" min="0" @bind="__edit.flngTotalPresent" /></div>
+                    <div class="field"><label>Total callers</label><input type="number" min="0" @bind="__edit.flngTotalCallers" /></div>
+                    <div class="field"><label>Total prayers</label><input type="number" min="0" @bind="__edit.flngTotalPrayers" /></div>
+                    <div class="field"><label>Total ministered</label><input type="number" min="0" @bind="__edit.flngTotalMinistered" /></div>
+                </div>
+                </ChildContent>
+                <Footer>
+                    <button class="btn btn-primary" @onclick="SaveServiceAsync">Save</button>
+                        <button class="btn" @onclick="() => __edit = null">Cancel</button>
+                </Footer>
+            </Modal>
+        }
+
+        @if (__selected is not null)
+        {
+            <div class="card">
+                <div class="page-head" style="margin-bottom:.5rem">
+                    <h2 style="margin:0">@__selected.fdtmServiceDate.ToString("dd MMM yyyy") - @__selected.fstrLocation</h2>
+                    <div class="actions">
+                        <button class="btn btn-sm" @onclick="EditService">Edit totals</button>
+                        <button class="btn btn-sm btn-danger" @onclick="DeleteServiceAsync">Delete service</button>
+                    </div>
+                </div>
+                <div class="tiles">
+                    <div class="tile"><div class="tile-value">@__selected.flngTotalPresent</div><div class="tile-label">Present</div></div>
+                    <div class="tile"><div class="tile-value">@__selected.flngTotalCallers</div><div class="tile-label">Callers</div></div>
+                    <div class="tile"><div class="tile-value">@__selected.flngTotalPrayers</div><div class="tile-label">Prayers</div></div>
+                    <div class="tile"><div class="tile-value">@__selected.flngTotalMinistered</div><div class="tile-label">Ministered</div></div>
+                </div>
+
+                <h3>Assignments</h3>
+                @if (__editAssignment is not null)
+                {
+                    <Modal Title="Service assignment" Subtitle="Who is assigned and when" Icon="users" OnClose="() => __editAssignment = null">
+                        <ChildContent>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label>Pick a member (optional)</label>
+                                <select value="@__editAssignment.flngMemberKey" @onchange="OnMemberPicked">
+                                    <option value="">-- not a member / type below --</option>
+                                    @foreach (var m in __members) { <option value="@m.flngKey">@m.FullName</option> }
+                                </select>
+                            </div>
+                            <div class="field"><label>Title</label><input type="text" maxlength="20" @bind="__editAssignment.fstrTitle" /></div>
+                            <div class="field"><label>First name</label><input type="text" maxlength="50" @bind="__editAssignment.fstrFirstname" /></div>
+                            <div class="field"><label>Last name</label><input type="text" maxlength="50" @bind="__editAssignment.fstrLastname" /></div>
+                            <div class="field"><label>Email address</label><input type="text" maxlength="150" @bind="__editAssignment.fstrEmailAddress" /></div>
+                            <div class="field"><label>Schedule</label><input type="text" maxlength="150" @bind="__editAssignment.fstrSchedule" /></div>
+                            <div class="field"><label>Assignment</label><input type="text" maxlength="150" @bind="__editAssignment.fstrAssignment" /></div>
+                            <div class="field">
+                                <label>Role</label>
+                                <select @bind="__editAssignment.fstrRole">@foreach (var r in FixedLists.EvangelismRoles) { <option value="@r">@r</option> }</select>
+                            </div>
+                        </div>
+                        </ChildContent>
+                        <Footer>
+                            <button class="btn btn-primary" @onclick="SaveAssignmentAsync">Save</button>
+                                <button class="btn" @onclick="() => __editAssignment = null">Cancel</button>
+                        </Footer>
+                    </Modal>
+                }
+                else
+                {
+                    <div class="toolbar"><button class="btn" @onclick="NewAssignment">+ Add assignment</button></div>
+                }
+
+                <table class="table table-cards">
+                    <thead><tr><th>Name</th><th>Role</th><th>Schedule</th><th>Assignment</th><th>Email</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var a in __assignments)
+                        {
+                            <tr>
+                                <td data-label="Name">@a.fstrTitle @a.fstrFirstname @a.fstrLastname</td>
+                                <td data-label="Role"><span class="badge badge-info">@a.fstrRole</span></td>
+                                <td data-label="Schedule">@a.fstrSchedule</td>
+                                <td data-label="Assignment">@a.fstrAssignment</td>
+                                <td data-label="Email">@a.fstrEmailAddress</td>
+                                <td data-label="" class="row-actions">
+                                    <button class="btn btn-sm" @onclick="() => EditAssignment(a)">Edit</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteAssignmentAsync(a)">Delete</button>
+                                </td>
+                            </tr>
+                        }
+                        @if (__assignments.Count == 0) { <tr><td colspan="6" class="empty">No assignments for this service.</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<EvangelismServiceModel> __services = [];
+    private List<EvangelismAssignmentModel> __assignments = [];
+    private List<MemberModel> __members = [];
+    private EvangelismServiceModel? __selected;
+    private EvangelismServiceModel? __edit;
+    private EvangelismAssignmentModel? __editAssignment;
+    private bool __isNew;
+    private bool __isNewAssignment;
+    private TimeOnly? __startTime = new TimeOnly(18, 0);
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    protected override async Task OnInitializedAsync()
+    {
+        __members = await MemberRepo.SelectMember(membershipStatus: "Active", cancellationToken: __cts.Token);
+        await LoadServicesAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #region Services
+
+    private async Task LoadServicesAsync()
+    {
+        __services = await ServiceRepo.SelectEvangelismService(cancellationToken: __cts.Token);
+        if (__selected is not null) __selected = __services.FirstOrDefault(s => s.flngKey == __selected.flngKey);
+        await LoadAssignmentsAsync();
+    }
+
+    private async Task LoadAssignmentsAsync()
+    {
+        __assignments = __selected is null ? [] : await AssignmentRepo.SelectEvangelismAssignment(serviceKey: __selected.flngKey, cancellationToken: __cts.Token);
+    }
+
+    private async Task SelectAsync(EvangelismServiceModel s)
+    {
+        __selected = s;
+        __editAssignment = null;
+        await LoadAssignmentsAsync();
+    }
+
+    private void NewService()
+    {
+        __edit = new EvangelismServiceModel { fdtmServiceDate = AppClock.Today };
+        __startTime = new TimeOnly(18, 0);
+        __isNew = true;
+    }
+
+    private void EditService()
+    {
+        if (__selected is null) return;
+        __edit = new EvangelismServiceModel
+        {
+            flngKey = __selected.flngKey, fdtmServiceDate = __selected.fdtmServiceDate, ftimStartTime = __selected.ftimStartTime,
+            fstrLocation = __selected.fstrLocation, flngTotalPresent = __selected.flngTotalPresent, flngTotalCallers = __selected.flngTotalCallers,
+            flngTotalPrayers = __selected.flngTotalPrayers, flngTotalMinistered = __selected.flngTotalMinistered, fblnActive = __selected.fblnActive
+        };
+        __startTime = __selected.ftimStartTime.HasValue ? TimeOnly.FromTimeSpan(__selected.ftimStartTime.Value) : null;
+        __isNew = false;
+    }
+
+    private async Task SaveServiceAsync()
+    {
+        if (__edit is null) return;
+        __edit.ftimStartTime = __startTime?.ToTimeSpan();
+        __edit.fstrWho = AppConstants.Who;
+        __toast = await ServiceRepo.AddOrUpdateEvangelismService(__edit, __isNew, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        var savedKey = __edit.flngKey;
+        __edit = null;
+        __selected = new EvangelismServiceModel { flngKey = savedKey };
+        await LoadServicesAsync();
+    }
+
+    private async Task DeleteServiceAsync()
+    {
+        if (__selected is null) return;
+        __toast = await ServiceRepo.DeleteEvangelismService(__selected.flngKey, AppConstants.Who, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __selected = null;
+        await LoadServicesAsync();
+    }
+
+    #endregion
+
+    #region Assignments
+
+    private void NewAssignment()
+    {
+        if (__selected is null) return;
+        __editAssignment = new EvangelismAssignmentModel { flngServiceKey = __selected.flngKey, fstrRole = "Caller" };
+        __isNewAssignment = true;
+    }
+
+    private void EditAssignment(EvangelismAssignmentModel a)
+    {
+        __editAssignment = new EvangelismAssignmentModel
+        {
+            flngKey = a.flngKey, flngServiceKey = a.flngServiceKey, flngMemberKey = a.flngMemberKey, fstrTitle = a.fstrTitle,
+            fstrFirstname = a.fstrFirstname, fstrLastname = a.fstrLastname, fstrEmailAddress = a.fstrEmailAddress,
+            fstrSchedule = a.fstrSchedule, fstrAssignment = a.fstrAssignment, fstrRole = a.fstrRole, fblnActive = a.fblnActive
+        };
+        __isNewAssignment = false;
+    }
+
+    /// <summary>Picking a member copies their name and email into the assignment.</summary>
+    private void OnMemberPicked(ChangeEventArgs e)
+    {
+        if (__editAssignment is null) return;
+        if (!Guid.TryParse(e.Value?.ToString(), out var memberKey))
+        {
+            __editAssignment.flngMemberKey = null;
+            return;
+        }
+
+        var member = __members.FirstOrDefault(m => m.flngKey == memberKey);
+        __editAssignment.flngMemberKey = memberKey;
+        if (member is null) return;
+        __editAssignment.fstrFirstname = member.fstrFirstname;
+        __editAssignment.fstrLastname = member.fstrLastname;
+        __editAssignment.fstrEmailAddress = member.fstrEmailAddress;
+    }
+
+    private async Task SaveAssignmentAsync()
+    {
+        if (__editAssignment is null) return;
+        if (string.IsNullOrWhiteSpace(__editAssignment.fstrFirstname) || string.IsNullOrWhiteSpace(__editAssignment.fstrLastname))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "First name and last name are required" };
+            return;
+        }
+
+        __editAssignment.fstrWho = AppConstants.Who;
+        __toast = await AssignmentRepo.AddOrUpdateEvangelismAssignment(__editAssignment, __isNewAssignment, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __editAssignment = null;
+        await LoadAssignmentsAsync();
+    }
+
+    private async Task DeleteAssignmentAsync(EvangelismAssignmentModel a)
+    {
+        __toast = await AssignmentRepo.DeleteEvangelismAssignment(a.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await LoadAssignmentsAsync();
+    }
+
+    #endregion
+}

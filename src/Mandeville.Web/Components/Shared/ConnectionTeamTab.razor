@@ -1,0 +1,58 @@
+@implements IDisposable
+@inject IVisitorAttendanceRepository AttendanceRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="card">
+    <h2>Connection team <span>@__rows.Count @(__rows.Count == 1 ? "visitor" : "visitors")</span></h2>
+    <div class="mfilter" style="margin-bottom:.4rem">
+        <label class="hint" style="margin:0">Service date</label>
+        <input type="date" style="max-width:180px" max="@AppClock.Today.ToString("yyyy-MM-dd")" @bind="__date" />
+        <button class="btn btn-dark btn-sm" @onclick="LoadAsync">Load</button>
+    </div>
+    <p class="hint" style="margin:0 0 .6rem">The connection team records why each visitor went to the altar and adds notes for that service.</p>
+
+    @foreach (var a in __rows)
+    {
+        var row = a;
+        <div class="crow">
+            <div class="ucard-avatar" style="background:@AvatarStyle.Colour(row.flngVisitorKey)">@AvatarStyle.Initials(row.fstrVisitorFirstname, row.fstrVisitorLastname)</div>
+            <div class="ucard-text"><b>@row.VisitorName</b><small>@row.fstrVisitorAgeGroup &middot; @row.fstrVisitorGender</small></div>
+            <select @bind="row.fstrAltarReason">
+                <option value="">Reason for the altar...</option>
+                @foreach (var r in FixedLists.AltarReasons) { <option value="@r">@r</option> }
+            </select>
+            <input type="text" maxlength="500" placeholder="Notes" @bind="row.fstrNotes" />
+            <button class="btn btn-primary btn-sm" @onclick="() => SaveAsync(row)">Save</button>
+        </div>
+    }
+    @if (__rows.Count == 0) { <p class="empty">No visitors were recorded for this date.</p> }
+</div>
+
+@code {
+    private readonly CancellationTokenSource __cts = new();
+    private DateTime? __date = AppClock.Today;
+    private List<VisitorAttendanceModel> __rows = [];
+    private ToastMessageModel? __toast;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync()
+    {
+        __rows = __date is null ? [] : await AttendanceRepo.SelectVisitorAttendance(serviceDate: __date.Value.Date, cancellationToken: __cts.Token);
+    }
+
+    private async Task SaveAsync(VisitorAttendanceModel row)
+    {
+        // Empty selection is stored as NULL (no altar reason).
+        if (string.IsNullOrWhiteSpace(row.fstrAltarReason)) row.fstrAltarReason = null;
+        row.fstrWho = AppConstants.Who;
+        __toast = await AttendanceRepo.AddOrUpdateVisitorAttendance(row, false, __cts.Token);
+    }
+}

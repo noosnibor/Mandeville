@@ -1,0 +1,177 @@
+@page "/expenditure"
+@attribute [PageAccess(PageKeys.Expenditure, "Expenditure", "Finance", "receipt", Tint = "c6", Short = "Spending", Order = 120)]
+@implements IDisposable
+@inject IExpenditureRepository ExpenditureRepo
+@inject IExpenseCategoryRepository CategoryRepo
+
+<PageTitle>Expenditure</PageTitle>
+
+<div class="page-head">
+    <h1>Expenditure</h1>
+    <button class="btn btn-primary" @onclick="NewExpense">+ Add expense</button>
+</div>
+
+<ToastBar Toast="__toast" />
+
+<div class="tiles">
+    <div class="tile"><div class="tile-value">@(__rows.Sum(r => r.fcurAmount).ToString("N2"))</div><div class="tile-label">Total for @FixedLists.Months[__month - 1] @__year</div></div>
+    <div class="tile"><div class="tile-value">@__rows.Count</div><div class="tile-label">Expenses</div></div>
+</div>
+
+@if (__rows.Count > 0)
+{
+    <div class="chips">
+        @foreach (var g in __rows.GroupBy(r => r.fstrExpenseCategoryName ?? "-").OrderByDescending(g => g.Sum(r => r.fcurAmount)))
+        {
+            <span class="chip">@g.Key: @(g.Sum(r => r.fcurAmount).ToString("N2"))</span>
+        }
+    </div>
+}
+
+@if (__edit is not null)
+{
+    <Modal Title="@(__isNew ? "Add expense" : "Edit expense")" Subtitle="Record money paid out" Icon="receipt" OnClose="() => __edit = null">
+        <ChildContent>
+        <div class="form-grid">
+            <div class="field"><label>Date</label><input type="date" @bind="__edit.fdtmExpenseDate" /></div>
+            <div class="field">
+                <label>Category</label>
+                <select @bind="__edit.flngExpenseCategoryKey">
+                    <option value="">-- choose --</option>
+                    @foreach (var c in __categories) { <option value="@c.flngKey">@c.fstrName</option> }
+                </select>
+            </div>
+            <div class="field"><label>Payee</label><input type="text" maxlength="100" @bind="__edit.fstrPayee" /></div>
+            <div class="field"><label>Description</label><input type="text" maxlength="250" @bind="__edit.fstrDescription" /></div>
+            <div class="field">
+                <label>Payment method</label>
+                <select @bind="__edit.fstrPaymentMethod">@foreach (var p in FixedLists.PaymentMethods) { <option value="@p">@p</option> }</select>
+            </div>
+            <div class="field"><label>Reference number</label><input type="text" maxlength="50" @bind="__edit.fstrReferenceNumber" /></div>
+            <div class="field"><label>Amount</label><input type="number" step="0.01" min="0" @bind="__edit.fcurAmount" /></div>
+            <div class="field"><label>Paid by</label><input type="text" maxlength="100" @bind="__edit.fstrPaidBy" /></div>
+        </div>
+        <div class="field" style="margin-bottom:.75rem"><label>Notes</label><textarea maxlength="500" @bind="__edit.fstrNotes"></textarea></div>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" @onclick="SaveAsync">Save</button>
+                <button class="btn" @onclick="() => __edit = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+<div class="card">
+    <div class="toolbar">
+        <select @bind="__month">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
+        <input type="number" style="max-width:100px" @bind="__year" />
+        <select @bind="__category">
+            <option value="">All categories</option>
+            @foreach (var c in __categories) { <option value="@c.flngKey">@c.fstrName</option> }
+        </select>
+        <input type="text" placeholder="Search payee or description" @bind="__search" @bind:event="oninput" />
+        <button class="btn" @onclick="LoadAsync">Show</button>
+    </div>
+
+    <table class="table table-cards">
+        <thead><tr><th>Date</th><th>Category</th><th>Payee</th><th>Description</th><th>Method</th><th>Ref</th><th class="num">Amount</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var r in __rows)
+            {
+                <tr>
+                    <td data-label="Date">@r.fdtmExpenseDate.ToString("dd MMM")</td>
+                    <td data-label="Category">@r.fstrExpenseCategoryName</td>
+                    <td data-label="Payee">@r.fstrPayee @if (r.fblnLocked) { <span class="badge badge-warn" title="Reconciled">Locked</span> }</td>
+                    <td data-label="Description">@r.fstrDescription</td>
+                    <td data-label="Method">@r.fstrPaymentMethod</td>
+                    <td data-label="Ref">@r.fstrReferenceNumber</td>
+                    <td data-label="Amount" class="num">@r.fcurAmount.ToString("N2")</td>
+                    <td data-label="" class="row-actions">
+                        <button class="btn btn-sm" disabled="@r.fblnLocked" @onclick="() => Edit(r)">Edit</button>
+                        <button class="btn btn-sm btn-danger" disabled="@r.fblnLocked" @onclick="() => DeleteAsync(r)">Delete</button>
+                    </td>
+                </tr>
+            }
+            @if (__rows.Count == 0) { <tr><td colspan="8" class="empty">No expenses for this month.</td></tr> }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<ExpenditureModel> __rows = [];
+    private List<ExpenseCategoryModel> __categories = [];
+    private ExpenditureModel? __edit;
+    private bool __isNew;
+    private int __month = AppClock.Today.Month;
+    private int __year = AppClock.Today.Year;
+    private Guid? __category;
+    private string? __search;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    protected override async Task OnInitializedAsync()
+    {
+        __categories = await CategoryRepo.SelectExpenseCategory(active: true, cancellationToken: __cts.Token);
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync()
+    {
+        var from = new DateTime(__year, __month, 1);
+        __rows = await ExpenditureRepo.SelectExpenditure(
+            expenseCategoryKey: __category,
+            search: string.IsNullOrWhiteSpace(__search) ? null : __search.Trim(),
+            fromDate: from,
+            toDate: from.AddMonths(1).AddDays(-1),
+            cancellationToken: __cts.Token);
+    }
+
+    private void NewExpense()
+    {
+        __edit = new ExpenditureModel { fdtmExpenseDate = AppClock.Today, fstrPaymentMethod = "Cash", fstrPaidBy = AppConstants.Who };
+        __isNew = true;
+    }
+
+    private void Edit(ExpenditureModel r)
+    {
+        __edit = new ExpenditureModel
+        {
+            flngKey = r.flngKey, fdtmExpenseDate = r.fdtmExpenseDate, flngExpenseCategoryKey = r.flngExpenseCategoryKey, fstrPayee = r.fstrPayee,
+            fstrDescription = r.fstrDescription, fstrPaymentMethod = r.fstrPaymentMethod, fstrReferenceNumber = r.fstrReferenceNumber,
+            fcurAmount = r.fcurAmount, fstrPaidBy = r.fstrPaidBy, fstrNotes = r.fstrNotes, fblnActive = r.fblnActive
+        };
+        __isNew = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (__edit is null) return;
+        if (__edit.flngExpenseCategoryKey == Guid.Empty) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Choose a category" }; return; }
+        if (string.IsNullOrWhiteSpace(__edit.fstrPayee)) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Payee is required" }; return; }
+        if (__edit.fcurAmount <= 0) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Enter an amount greater than zero" }; return; }
+
+        __edit.fstrWho = AppConstants.Who;
+        __toast = await ExpenditureRepo.AddOrUpdateExpenditure(__edit, __isNew, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __month = __edit.fdtmExpenseDate.Month;
+        __year = __edit.fdtmExpenseDate.Year;
+        __edit = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(ExpenditureModel r)
+    {
+        __toast = await ExpenditureRepo.DeleteExpenditure(r.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await LoadAsync();
+    }
+}

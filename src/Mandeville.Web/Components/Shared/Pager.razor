@@ -1,0 +1,66 @@
+@* Page buttons for a long list: "Showing 1-10 of 47", previous / next and a short run of page numbers. *@
+@if (Total > 0)
+{
+    <div class="pager">
+        <span class="pager-info">Showing @From-@To of @Total</span>
+        @if (PageCount > 1)
+        {
+            <div class="pager-btns">
+                <button disabled="@(Current == 1)" aria-label="Previous page" @onclick="() => Go(Current - 1)">&lsaquo;</button>
+                @foreach (var p in Items())
+                {
+                    if (p is null)
+                    {
+                        <span class="pager-gap">&hellip;</span>
+                    }
+                    else
+                    {
+                        var number = p.Value;
+                        <button class="@(number == Current ? "on" : "")" @onclick="() => Go(number)">@number</button>
+                    }
+                }
+                <button disabled="@(Current == PageCount)" aria-label="Next page" @onclick="() => Go(Current + 1)">&rsaquo;</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    #region Parameters
+
+    [Parameter] public int Page { get; set; } = 1;
+    [Parameter] public int PageSize { get; set; } = 10;
+    [Parameter] public int Total { get; set; }
+    [Parameter] public EventCallback<int> PageChanged { get; set; }
+
+    #endregion
+
+    #region Display values
+
+    private int PageCount => Math.Max(1, (Total + PageSize - 1) / PageSize);
+    private int Current => Math.Min(Math.Max(1, Page), PageCount);
+    private int From => (Current - 1) * PageSize + 1;
+    private int To => Math.Min(Total, Current * PageSize);
+
+    /// <summary>The first page, the last page and the pages around the current one. A null is a gap ("...").</summary>
+    private List<int?> Items()
+    {
+        var shown = new SortedSet<int> { 1, PageCount };
+        for (var p = Current - 1; p <= Current + 1; p++)
+            if (p >= 1 && p <= PageCount) shown.Add(p);
+
+        var items = new List<int?>();
+        var last = 0;
+        foreach (var p in shown)
+        {
+            if (p - last > 1) items.Add(null);
+            items.Add(p);
+            last = p;
+        }
+        return items;
+    }
+
+    #endregion
+
+    private Task Go(int page) => PageChanged.InvokeAsync(Math.Min(Math.Max(1, page), PageCount));
+}

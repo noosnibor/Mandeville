@@ -1,0 +1,121 @@
+<div class="card">
+    <ToastBar Toast="__toast" />
+
+    <div class="toolbar">
+        <input type="text" placeholder="Search @Title.ToLower()" @bind="__search" @bind:event="oninput" />
+        <button class="btn btn-primary" @onclick="NewItem">+ Add</button>
+    </div>
+
+    @if (__edit is not null)
+    {
+        <Modal Title="@(__isNew ? "Add item" : "Edit item")" Subtitle="@Title" Icon="gear" OnClose="() => __edit = null">
+            <ChildContent>
+            <div class="form-grid">
+                <div class="field">
+                    <label>Name</label>
+                    <input type="text" maxlength="100" @bind="__edit.Name" />
+                </div>
+                <div class="field">
+                    <label>Description</label>
+                    <input type="text" maxlength="200" @bind="__edit.Description" />
+                </div>
+                @if (ShowDues)
+                {
+                    <div class="field checkbox-field">
+                        <label><input type="checkbox" @bind="__edit.IsDues" /> Counts as member dues</label>
+                    </div>
+                }
+                <div class="field checkbox-field">
+                    <label><input type="checkbox" @bind="__edit.Active" /> Active</label>
+                </div>
+            </div>
+            </ChildContent>
+            <Footer>
+                <button class="btn btn-primary" @onclick="SaveAsync">Save</button>
+                    <button class="btn" @onclick="() => __edit = null">Cancel</button>
+            </Footer>
+        </Modal>
+    }
+
+    <table class="table table-cards">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Description</th>
+                @if (ShowDues) { <th>Dues</th> }
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Filtered)
+            {
+                <tr>
+                    <td data-label="Name">@item.Name</td>
+                    <td data-label="Description">@item.Description</td>
+                    @if (ShowDues) { <td data-label="Dues">@(item.IsDues ? "Yes" : "")</td> }
+                    <td data-label="Status"><span class="badge @(item.Active ? "badge-ok" : "badge-off")">@(item.Active ? "Active" : "Inactive")</span></td>
+                    <td data-label="" class="row-actions">
+                        <button class="btn btn-sm" @onclick="() => EditItem(item)">Edit</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteAsync(item)">Delete</button>
+                    </td>
+                </tr>
+            }
+            @if (!Filtered.Any())
+            {
+                <tr><td colspan="5" class="empty">Nothing here yet.</td></tr>
+            }
+        </tbody>
+    </table>
+    <p class="hint">Items that are in use cannot be deleted. Make them inactive instead.</p>
+</div>
+
+@code {
+    #region Parameters
+
+    [Parameter] public string Title { get; set; } = "Item";
+    [Parameter] public bool ShowDues { get; set; }
+    [Parameter] public Func<Task<List<LookupItem>>> Load { get; set; } = default!;
+    [Parameter] public Func<LookupItem, bool, Task<ToastMessageModel>> Save { get; set; } = default!;
+    [Parameter] public Func<Guid, Task<ToastMessageModel>> Delete { get; set; } = default!;
+
+    #endregion
+
+    #region Private Fields
+
+    private List<LookupItem> __items = [];
+    private LookupItem? __edit;
+    private bool __isNew;
+    private string? __search;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    private IEnumerable<LookupItem> Filtered => string.IsNullOrWhiteSpace(__search)
+        ? __items
+        : __items.Where(i => i.Name.Contains(__search, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync() => __items = await Load();
+
+    private void NewItem() { __edit = new LookupItem(); __isNew = true; }
+
+    private void EditItem(LookupItem item)
+    {
+        __edit = new LookupItem { Key = item.Key, Name = item.Name, Description = item.Description, Active = item.Active, IsDues = item.IsDues };
+        __isNew = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (__edit is null) return;
+        if (string.IsNullOrWhiteSpace(__edit.Name)) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Name is required" }; return; }
+        __toast = await Save(__edit, __isNew);
+        if (__toast.IsSuccess) { __edit = null; __items = await Load(); }
+    }
+
+    private async Task DeleteAsync(LookupItem item)
+    {
+        __toast = await Delete(item.Key);
+        if (__toast.IsSuccess) __items = await Load();
+    }
+}

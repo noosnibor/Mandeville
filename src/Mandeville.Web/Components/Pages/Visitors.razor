@@ -1,0 +1,58 @@
+﻿@page "/visitors"
+@attribute [PageAccess(PageKeys.Visitors, "Visitors", "People", "userplus", Tint = "c3", Tabs = "Add visitor,Returning visitor,Thank you messages", Bar = true, Order = 20)]
+
+<PageTitle>Visitors</PageTitle>
+
+<div class="with-side"><div class="side-main">
+
+<div class="mod">
+<div class="mhead"><div><h1>Visitors</h1><p>Welcome guests and record their visits. The Connections team takes it from the altar.</p></div></div>
+
+@if ((__canAdd ? 1 : 0) + (__canReturning ? 1 : 0) + (__canThank ? 1 : 0) > 1)
+{
+    <div class="tabs">
+        @if (__canAdd) { <button class="tab @(__tab == 0 ? "active" : "")" @onclick="() => __tab = 0">Add visitor</button> }
+        @if (__canReturning) { <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1">Returning visitor</button> }
+        @if (__canThank) { <button class="tab @(__tab == 2 ? "active" : "")" @onclick="() => __tab = 2">Thank you messages</button> }
+    </div>
+}
+
+@switch (__tab)
+{
+    case 0:
+        <AddVisitorTab />
+        break;
+    case 2:
+        <VisitorThankYouTab />
+        break;
+    default:
+        <ReturningVisitorTab />
+        break;
+}
+</div>
+
+</div>
+<aside><RoleSidePanel Kind="care" /></aside>
+</div>
+
+@code {
+    #region Private Fields
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private int __tab;
+    private bool __canAdd = true, __canReturning = true, __canThank = true;
+
+    #endregion
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthState is null ? null : (await AuthState).User;
+
+        // Only the tabs this person's role was given are shown
+        __canAdd = user?.CanTab(PageKeys.Visitors, "Add visitor") ?? false;
+        __canReturning = user?.CanTab(PageKeys.Visitors, "Returning visitor") ?? false;
+        __canThank = user?.CanTab(PageKeys.Visitors, "Thank you messages") ?? false;
+        __tab = __canAdd ? 0 : __canReturning ? 1 : 2;
+    }
+}

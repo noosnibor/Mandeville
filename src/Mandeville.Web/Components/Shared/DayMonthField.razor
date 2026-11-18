@@ -1,0 +1,56 @@
+@* A day and a month picker (no year) bound to a nullable date. Use: <DayMonthField @bind-Value="__edit.fdtmDateOfBirth" />
+   The date keeps whatever year it already had, or the placeholder year when it is new. *@
+
+<div class="dm-row">
+    <select aria-label="Day" value="@__day" @onchange="OnDay">
+        <option value="0">Day</option>
+        @for (var d = 1; d <= 31; d++) { <option value="@d">@d</option> }
+    </select>
+    <select aria-label="Month" value="@__month" @onchange="OnMonth">
+        <option value="0">Month</option>
+        @for (var m = 1; m <= 12; m++) { <option value="@m">@FixedLists.Months[m - 1]</option> }
+    </select>
+</div>
+
+@code {
+    #region Parameters
+
+    /// <summary>The date (only its day and month are shown and changed).</summary>
+    [Parameter] public DateTime? Value { get; set; }
+
+    [Parameter] public EventCallback<DateTime?> ValueChanged { get; set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private int __day;
+    private int __month;
+
+    #endregion
+
+    protected override void OnParametersSet()
+    {
+        __day = Value?.Day ?? 0;
+        __month = Value?.Month ?? 0;
+    }
+
+    private async Task OnDay(ChangeEventArgs e)
+    {
+        __day = int.TryParse(e.Value?.ToString(), out var d) ? d : 0;
+        await PublishAsync();
+    }
+
+    private async Task OnMonth(ChangeEventArgs e)
+    {
+        __month = int.TryParse(e.Value?.ToString(), out var m) ? m : 0;
+        await PublishAsync();
+    }
+
+    /// <summary>Sends the new date once both the day and the month are chosen (or clears it when either is cleared).</summary>
+    private async Task PublishAsync()
+    {
+        DateTime? result = __day > 0 && __month > 0 ? DayMonth.Make(__day, __month, Value?.Year) : null;
+        await ValueChanged.InvokeAsync(result);
+    }
+}

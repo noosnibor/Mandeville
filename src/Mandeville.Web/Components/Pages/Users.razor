@@ -1,0 +1,308 @@
+@page "/users"
+@attribute [PageAccess(PageKeys.Users, "Users & access", "Admin", "lock", Tint = "c6", AdminOnly = true, Order = 330)]
+@implements IDisposable
+@using System.Security.Claims
+@inject IAppUserRepository UserRepo
+@inject IMemberRepository MemberRepo
+@inject IRoleRepository RoleRepo
+@inject AccountService Accounts
+
+<PageTitle>Users &amp; access</PageTitle>
+
+<PageBanner Title="Users &amp; access" Subtitle="Who can sign in, and what each person can open" Icon="lock" />
+
+<ToastBar Toast="__toast" />
+
+<div class="tabs">
+    <button class="tab @(__tab == "users" ? "active" : "")" @onclick='() => __tab = "users"'>Users</button>
+    <button class="tab @(__tab == "roles" ? "active" : "")" @onclick='() => __tab = "roles"'>Roles &amp; access</button>
+</div>
+
+@if (__tab == "roles")
+{
+    <RolesAccessTab OnChanged="ReloadRolesAsync" />
+}
+else
+{
+<div class="card care-assign">
+    <h2>Accounts <span>@__users.Count(u => u.fblnActive) active</span></h2>
+    @if (__users.Count == 0)
+    {
+        <p class="empty" style="margin:0">No accounts yet.</p>
+    }
+    @foreach (var u in __users)
+    {
+        var isMe = u.flngKey == __myKey;
+        <div class="care-u @(u.fblnActive ? "" : "off")">
+            <div class="care-av sm" style="background:@(u.fblnActive ? AvatarStyle.Colour(u.flngKey) : "#cdd2db")">@Initials(u.fstrDisplayName)</div>
+            <div class="care-ut">
+                <b>@u.fstrDisplayName @if (isMe) { <span class="care-tag i">You</span> }</b>
+                <small>@u.fstrEmail
+                    @if (!string.IsNullOrWhiteSpace(u.fstrMemberName)) { <text> &middot; Member: @u.fstrMemberName</text> }
+                    &middot; @(u.fdtmLastSignIn is { } ls ? "Last sign-in " + ls.ToString("d MMM HH:mm") : "Never signed in")
+                    @if (u.IsLocked) { <text> &middot; <span class="care-lock">Locked</span></text> }
+                </small>
+            </div>
+            <span class="care-tag @RoleCss(u.fstrRole)">@LabelOf(u.fstrRole)</span>
+            @if (!u.fblnActive) { <span class="bd off">Inactive</span> }
+            <button class="btn btn-sm" @onclick="() => StartEdit(u)">Edit</button>
+            <button class="btn btn-sm" @onclick="() => ResetPasswordAsync(u)">Reset password</button>
+            <button class="btn btn-sm @(u.fblnActive ? "care-del" : "")" @onclick="() => ToggleActiveAsync(u)">@(u.fblnActive ? "Deactivate" : "Activate")</button>
+        </div>
+    }
+</div>
+
+<button class="fab" @onclick="StartAdd"><Icon Name="plus" Size="16" />Add account</button>
+}
+
+@* ---------- Add / edit ---------- *@
+@if (__edit is not null)
+{
+    <Modal Title="@(__isNew ? "Add account" : "Edit account")" Subtitle="@(__isNew ? "A temporary password is made for them" : "Change their details or access")" Icon="lock" OnClose="() => __edit = null">
+        <ChildContent>
+            <div class="form-grid">
+                <div class="field"><label>Name</label><input type="text" maxlength="100" @bind="__edit.fstrDisplayName" /></div>
+                <div class="field"><label>Email (their sign-in)</label><input type="email" maxlength="150" @bind="__edit.fstrEmail" /></div>
+                <div class="field">
+                    <label>Role</label>
+                    <select @bind="__edit.fstrRole">
+                        @foreach (var r in __roles) { <option value="@r.fstrName">@r.fstrLabel</option> }
+                    </select>
+                </div>
+                @if (NeedsMember(__edit.fstrRole))
+                {
+                    <div class="field">
+                        <label>@(NeedsCoreMember(__edit.fstrRole) ? "Core member" : "Member")</label>
+                        <select @bind="__edit.flngMemberKey">
+                            <option value="">-- choose --</option>
+                            @foreach (var m in (NeedsCoreMember(__edit.fstrRole) ? __core : __active)) { <option value="@m.flngKey">@m.FullName</option> }
+                        </select>
+                    </div>
+                }
+            </div>
+            @if (NeedsMember(__edit.fstrRole))
+            {
+                <p class="hint">This role only sees its own records, so the account has to belong to one member.</p>
+            }
+            <p class="hint">What each role can open is set on the Roles &amp; access tab.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary btn-sm" @onclick="SaveAsync">@(__isNew ? "Create account" : "Save")</button>
+            <button class="btn btn-sm" @onclick="() => __edit = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@* ---------- Temporary password (shown once) ---------- *@
+@if (__reveal is not null)
+{
+    <Modal Title="Temporary password" Subtitle="Shown only now. Give it to them privately." Icon="lock" OnClose="() => __reveal = null">
+        <ChildContent>
+            <div class="care-reveal">
+                <div><span>Email</span><b>@__reveal.Email</b></div>
+                <div><span>Temporary password</span><code>@__reveal.Password</code></div>
+            </div>
+            <p class="hint">They will be asked to choose their own password the first time they sign in. This password cannot be shown again; use Reset password if it is lost.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary btn-sm" @onclick="() => __reveal = null">Done</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private Guid? __myKey;
+    private List<AppUserModel> __users = [];
+    private List<RoleModel> __roles = [];
+    private string __tab = "users";
+    private List<MemberModel> __core = [];
+    private List<MemberModel> __active = [];
+    private AppUserModel? __edit;
+    private bool __isNew;
+    private ToastMessageModel? __toast;
+    private Reveal? __reveal;
+
+    private sealed record Reveal(string Email, string Password);
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthState is null ? null : (await AuthState).User;
+        __myKey = Guid.TryParse(user?.FindFirstValue(ClaimTypes.NameIdentifier), out var k) ? k : null;
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync()
+    {
+        __users = await UserRepo.SelectAppUser(cancellationToken: __cts.Token);
+        __roles = await RoleRepo.SelectRole(cancellationToken: __cts.Token);
+        __core = await MemberRepo.SelectMember(coreMember: true, active: true, cancellationToken: __cts.Token);
+        __active = await MemberRepo.SelectMember(membershipStatus: "Active", active: true, cancellationToken: __cts.Token);
+    }
+
+    #endregion
+
+    #region Display helpers
+
+    private static string Initials(string? name)
+    {
+        var parts = (name ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch { 0 => "?", 1 => AvatarStyle.Initials(parts[0], null), _ => AvatarStyle.Initials(parts[0], parts[^1]) };
+    }
+
+    /// <summary>Accounts whose role only sees its own records belong to one member.</summary>
+    private bool NeedsMember(string? role) => __roles.FirstOrDefault(r => r.fstrName == role)?.NeedsMember ?? false;
+
+    /// <summary>Pastoral Care style roles belong to a Core Member; other own-records roles to any active member.</summary>
+    private bool NeedsCoreMember(string? role) => __roles.FirstOrDefault(r => r.fstrName == role)?.OwnsPage(PageKeys.Pastoral) ?? false;
+
+    /// <summary>The friendly name of a role (falls back to the built-in label when the role was removed).</summary>
+    private string LabelOf(string? role) => __roles.FirstOrDefault(r => r.fstrName == role)?.fstrLabel ?? AppRoles.Label(role);
+
+    private static string RoleCss(string role) => role == AppRoles.Administrator ? "i" : "ok";
+
+    /// <summary>Called by the Roles &amp; access tab after it changed a role, so the dropdowns stay current.</summary>
+    private async Task ReloadRolesAsync() => __roles = await RoleRepo.SelectRole(cancellationToken: __cts.Token);
+
+    private int ActiveAdmins => __users.Count(u => u.fblnActive && u.fstrRole == AppRoles.Administrator);
+
+    #endregion
+
+    #region Add / edit
+
+    private void StartAdd()
+    {
+        // New accounts start on the first role that is not the Administrator, so nobody gets full access by accident
+        __edit = new AppUserModel { fstrRole = __roles.FirstOrDefault(r => !r.fblnLocked)?.fstrName ?? string.Empty };
+        __isNew = true;
+    }
+
+    private void StartEdit(AppUserModel u)
+    {
+        __edit = new AppUserModel
+        {
+            flngKey = u.flngKey, fstrEmail = u.fstrEmail, fstrDisplayName = u.fstrDisplayName, fstrPasswordHash = u.fstrPasswordHash,
+            fstrRole = u.fstrRole, flngMemberKey = u.flngMemberKey, fblnMustChangePassword = u.fblnMustChangePassword, fblnActive = u.fblnActive
+        };
+        __isNew = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (__edit is null) return;
+
+        if (string.IsNullOrWhiteSpace(__edit.fstrRole))
+        {
+            __toast = Warn("Choose a role");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(__edit.fstrDisplayName))
+        {
+            __toast = Warn("Enter their name");
+            return;
+        }
+
+        var email = __edit.fstrEmail?.Trim() ?? string.Empty;
+        if (!email.Contains('@') || !email.Contains('.') || email.Contains(' '))
+        {
+            __toast = Warn("Enter a valid email address");
+            return;
+        }
+
+        if (NeedsMember(__edit.fstrRole) && __edit.flngMemberKey is null)
+        {
+            __toast = Warn(NeedsCoreMember(__edit.fstrRole) ? "Choose the Core Member this account belongs to" : "Choose the member this account belongs to");
+            return;
+        }
+
+        if (!NeedsMember(__edit.fstrRole)) __edit.flngMemberKey = null;
+
+        // Never leave the system without an administrator
+        if (!__isNew && __edit.fstrRole != AppRoles.Administrator && IsLastAdmin(__edit.flngKey))
+        {
+            __toast = Warn("There must always be at least one active Administrator");
+            return;
+        }
+
+        __edit.fstrWho = AppConstants.Who;
+
+        if (__isNew)
+        {
+            var temp = AccountService.GeneratePassword();
+            __edit.fstrPasswordHash = Accounts.HashPassword(temp);
+            __edit.fblnMustChangePassword = true;
+            __edit.fblnActive = true;
+
+            __toast = await UserRepo.AddOrUpdateAppUser(__edit, insert: true, __cts.Token);
+            if (!__toast.IsSuccess) return;
+
+            __reveal = new Reveal(__edit.fstrEmail.Trim().ToLowerInvariant(), temp);
+        }
+        else
+        {
+            __toast = await UserRepo.AddOrUpdateAppUser(__edit, insert: false, __cts.Token);
+            if (!__toast.IsSuccess) return;
+        }
+
+        __edit = null;
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Password, activate / deactivate
+
+    private async Task ResetPasswordAsync(AppUserModel u)
+    {
+        var temp = AccountService.GeneratePassword();
+        __toast = await Accounts.SetPasswordAsync(u, temp, mustChange: true, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) __reveal = new Reveal(u.fstrEmail, temp);
+        await LoadAsync();
+    }
+
+    private async Task ToggleActiveAsync(AppUserModel u)
+    {
+        if (u.fblnActive)
+        {
+            if (u.flngKey == __myKey)
+            {
+                __toast = Warn("You cannot deactivate your own account");
+                return;
+            }
+            if (IsLastAdmin(u.flngKey))
+            {
+                __toast = Warn("There must always be at least one active Administrator");
+                return;
+            }
+        }
+
+        u.fblnActive = !u.fblnActive;
+        u.fstrWho = AppConstants.Who;
+        __toast = await UserRepo.AddOrUpdateAppUser(u, insert: false, __cts.Token);
+        await LoadAsync();
+    }
+
+    /// <summary>True when this is the only active Administrator left.</summary>
+    private bool IsLastAdmin(Guid key) =>
+        ActiveAdmins <= 1 && __users.Any(u => u.flngKey == key && u.fblnActive && u.fstrRole == AppRoles.Administrator);
+
+    private static ToastMessageModel Warn(string message) => new() { ToastType = ToastTypeModel.Warning, Message = message };
+
+    #endregion
+}

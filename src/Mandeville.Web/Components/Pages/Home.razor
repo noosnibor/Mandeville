@@ -1,0 +1,428 @@
+@page "/"
+@page "/dashboard"
+@attribute [PageAccess(PageKeys.Dashboard, "Dashboard", "Overview", "dashboard", Tint = "c1", Order = 0)]
+@implements IDisposable
+@inject IConfiguration Configuration
+@inject IMemberRepository MemberRepo
+@inject IVisitorRepository VisitorRepo
+@inject IVisitorAttendanceRepository VisitorAttendanceRepo
+@inject IFinanceRepository FinanceRepo
+@inject IExpenditureRepository ExpenditureRepo
+@inject IMemberAttendanceRepository MemberAttendanceRepo
+@inject IServiceRepository ServiceRepo
+@inject IPastoralContactRepository PastoralContactRepo
+
+<PageTitle>Dashboard</PageTitle>
+
+<div class="dash-head">
+    <div>
+        <h1>Dashboard</h1>
+        <div class="dash-sub">@(Configuration["Church:GroupName"] ?? "WAFIF Mandeville")</div>
+    </div>
+    <div class="dash-date">@AppClock.Today.ToString("dd MMM yyyy")</div>
+</div>
+
+@if (__error is not null)
+{
+    <div class="toast-bar toast-danger">@__error</div>
+}
+else if (!__loaded)
+{
+    <p class="hint">Loading the dashboard&hellip;</p>
+}
+else
+{
+    @* ---------- Headline numbers: ring badge with a soft drop shadow ---------- *@
+    <div class="dash-tiles">
+        <div class="dash-card dash-kpi">
+            <div class="dash-ring r-indigo" style="@RingStyle("#6366f1", 100)"><i style="color:#6366f1"><Icon Name="users" Size="22" /></i></div>
+            <div><div class="dash-label">Total members</div><div class="dash-value">@__totalMembers</div><div class="dash-note">All records</div></div>
+        </div>
+        <div class="dash-card dash-kpi">
+            <div class="dash-ring r-teal" style="@RingStyle("#0f766e", ActivePercent)"><i style="color:#0f766e"><Icon Name="check" Size="22" /></i></div>
+            <div><div class="dash-label">Active members</div><div class="dash-value">@__activeMembers</div><div class="dash-note">@ActivePercent% of members</div></div>
+        </div>
+        <div class="dash-card dash-kpi">
+            <div class="dash-ring r-grey" style="@RingStyle("#98a2b3", InactivePercent)"><i style="color:#667085"><Icon Name="pause" Size="22" /></i></div>
+            <div><div class="dash-label">Inactive members</div><div class="dash-value">@__inactiveMembers</div><div class="dash-note">@InactivePercent% of members</div></div>
+        </div>
+        <a class="dash-card dash-kpi dash-warn" href="connect">
+            <div class="dash-ring r-amber" style="@RingStyle("#f5a524", UnconnectedPercent)"><i style="color:#f5a524"><Icon Name="link" Size="22" /></i></div>
+            <div><div class="dash-label">Not connected</div><div class="dash-value">@__unconnected.Count</div><div class="dash-note">Visitors waiting for a connector</div></div>
+        </a>
+    </div>
+
+    @* ---------- Member attendance numbers ---------- *@
+    <div class="dash-tiles dash-tiles-3">
+        <div class="dash-card dash-kpi">
+            <div class="dash-ring r-teal" style="@RingStyle("#0f766e", LastServicePercent)"><i style="color:#0f766e"><Icon Name="check" Size="22" /></i></div>
+            <div><div class="dash-label">Present last service</div><div class="dash-value">@__lastServicePresent</div><div class="dash-note">@(__lastServiceDate is { } d ? d.ToString("ddd d MMM") : "No services yet")</div></div>
+        </div>
+        <div class="dash-card dash-kpi dash-warn">
+            <div class="dash-ring r-amber" style="@RingStyle("#f5a524", NotSeenPercent)"><i style="color:#b45309"><Icon Name="clock" Size="22" /></i></div>
+            <div><div class="dash-label">Not seen in 3+ weeks</div><div class="dash-value">@__notSeen.Count</div><div class="dash-note">Active members to visit or call</div></div>
+        </div>
+        <div class="dash-card dash-kpi">
+            <div class="dash-ring r-indigo" style="@RingStyle("#6366f1", __averageAttendance)"><i style="color:#6366f1"><Icon Name="users" Size="22" /></i></div>
+            <div><div class="dash-label">Average attendance</div><div class="dash-value">@__averageAttendance%</div><div class="dash-note">Of active members, recent services</div></div>
+        </div>
+    </div>
+
+    <div class="dash-row dash-row-wide">
+        @* ---------- Members present per service ---------- *@
+        <section class="dash-card">
+            <h2>Members present per service <span>Last @__membersPerService.Count @(__membersPerService.Count == 1 ? "service" : "services")</span></h2>
+            @if (__membersPerService.Count == 0)
+            {
+                <p class="hint">No member check-ins have been recorded yet.</p>
+            }
+            else
+            {
+                var maxPresent = Math.Max(1, __membersPerService.Max(p => p.Count));
+                <div class="dash-bars">
+                    @foreach (var p in __membersPerService)
+                    {
+                        <div class="dash-bar" style="height:@(Pct(p.Count, maxPresent))%"><b>@p.Count</b></div>
+                    }
+                </div>
+                <div class="dash-xl">
+                    @foreach (var p in __membersPerService)
+                    {
+                        <span>@p.Date.ToString("d MMM")</span>
+                    }
+                </div>
+            }
+        </section>
+
+        @* ---------- Members who need a visit or a call ---------- *@
+        <section class="dash-card">
+            <h2>Need a visit or a call <span>Not seen in 3+ weeks</span></h2>
+            @if (__notSeen.Count == 0)
+            {
+                <p class="hint">Everyone has been in recently.</p>
+            }
+            else
+            {
+                @foreach (var n in __notSeen.Take(5))
+                {
+                    <div class="dash-li">
+                        <span class="dash-avatar" style="background:@AvatarStyle.Colour(n.Member.flngKey)">@AvatarStyle.Initials(n.Member.fstrFirstname, n.Member.fstrLastname)</span>
+                        <div class="dash-li-text">
+                            <b>@n.Member.FullName</b>
+                            <small>@(n.LastSeen is { } ls ? "Last seen " + ls.ToString("d MMM") : "Never checked in")<span class="dash-carer"> &middot; @(string.IsNullOrWhiteSpace(n.Member.fstrCarerName) ? "No carer assigned" : "Carer: " + n.Member.fstrCarerName)</span></small>
+                        </div>
+                        <span class="dash-tag @(n.Weeks is null ? "never" : n.Weeks >= 4 ? "red" : "")">@(n.Weeks is { } w ? $"{w} wks" : "Never")</span>
+                    </div>
+                }
+                @if (__notSeen.Count > 5)
+                {
+                    <div class="hint">and @(__notSeen.Count - 5) more</div>
+                }
+            }
+            <a class="dash-link" href="members">View members &rarr;</a>
+        </section>
+    </div>
+
+    @* ---------- Pastoral care: flagged for the minister + who has a carer ---------- *@
+    <div class="dash-row">
+        <section class="dash-card">
+            <h2>Flagged for the minister <span>@__flagged.Count open</span></h2>
+            @if (__flagged.Count == 0)
+            {
+                <p class="hint">Nothing has been flagged. Carers can flag a member from the Pastoral Care page.</p>
+            }
+            else
+            {
+                @foreach (var f in __flagged.Take(4))
+                {
+                    <div class="dash-li">
+                        <span class="dash-avatar" style="background:@AvatarStyle.Colour(f.flngMemberKey)">@AvatarStyle.Initials(f.fstrMemberName ?? "?", string.Empty)</span>
+                        <div class="dash-li-text">
+                            <b>@f.fstrMemberName</b>
+                            <small>Flagged by @f.fstrCoreMemberName &middot; @f.fdtmContactDate.ToString("d MMM")</small>
+                        </div>
+                        <span class="dash-tag red">Minister</span>
+                    </div>
+                }
+                @if (__flagged.Count > 4)
+                {
+                    <div class="hint">and @(__flagged.Count - 4) more</div>
+                }
+            }
+            <a class="dash-link" href="pastoral">Open Pastoral Care &rarr;</a>
+        </section>
+
+        <section class="dash-card">
+            <h2>Care coverage <span class="dash-pill">@CarePercent% have a carer</span></h2>
+            <div class="care-cover">
+                <div class="care-track"><i style="width:@(CarePercent)%"></i></div>
+                <div class="care-nums">
+                    <div><b>@__careCovered</b><span>With a carer</span></div>
+                    <div><b>@(__careTotal - __careCovered)</b><span>Without a carer</span></div>
+                    <div><b>@__coreCount</b><span>Core members</span></div>
+                </div>
+            </div>
+            <a class="dash-link" href="pastoral">Assign carers &rarr;</a>
+        </section>
+    </div>
+
+    <div class="dash-row">
+        @* ---------- Active vs inactive: segmented ring ---------- *@
+        <section class="dash-card">
+            <h2>Active vs inactive members <span class="dash-pill">@ActivePercent% active</span></h2>
+            <div class="dash-donut">
+                <div class="dash-donut-ring">
+                    <svg width="200" height="200" viewBox="0 0 200 200" role="img" aria-label="@ActivePercent percent of members are active">
+                        <defs>
+                            <linearGradient id="donutActive" x1="0" y1="1" x2="1" y2="0">
+                                <stop offset="0" stop-color="#a99cf0" />
+                                <stop offset="1" stop-color="#8b82d8" />
+                            </linearGradient>
+                        </defs>
+                        <circle cx="100" cy="100" r="82" fill="none" stroke="#e4e7ee" stroke-width="20" />
+                        @if (__totalMembers > 0)
+                        {
+                            <circle cx="100" cy="100" r="82" fill="none" stroke="url(#donutActive)" stroke-width="20"
+                                    stroke-dasharray="@DonutActive 515.22" transform="rotate(-90 100 100)" />
+                            <circle cx="100" cy="100" r="82" fill="none" stroke="#7fb4e8" stroke-width="20"
+                                    stroke-dasharray="@DonutInactive 515.22" stroke-dashoffset="-@DonutActive" transform="rotate(-90 100 100)" />
+                        }
+                    </svg>
+                    <div class="dash-donut-center"><b>@ActivePercent%</b><small>active</small></div>
+                </div>
+                <div class="dash-legend">
+                    <div><i style="background:#9d92ea"></i>Active<b>@__activeMembers</b></div>
+                    <div><i style="background:#7fb4e8"></i>Inactive<b>@__inactiveMembers</b></div>
+                    <div class="dash-legend-total">Total<b>@__totalMembers</b></div>
+                </div>
+            </div>
+        </section>
+
+        @* ---------- Collection balance ---------- *@
+        <section class="dash-card">
+            <h2>Collection balance</h2>
+            <div class="dash-label">Current balance</div>
+            <div class="dash-big @(__balance < 0 ? "neg" : "")">@Money(__balance)</div>
+            <div class="dash-rw">
+                <span class="dash-tile" style="background:#6366f1"><Icon Name="wallet" Size="20" /></span>
+                <span class="dash-rw-name">Collected</span><b>@Money(__collected)</b>
+            </div>
+            <div class="dash-rw">
+                <span class="dash-tile" style="background:#c2410c"><Icon Name="receipt" Size="20" /></span>
+                <span class="dash-rw-name">Spent</span><b>@Money(__spent)</b>
+            </div>
+        </section>
+    </div>
+
+    <div class="dash-row dash-row-wide">
+        @* ---------- Visitors per service ---------- *@
+        <section class="dash-card">
+            <h2>Visitors per service <span>Last @__perService.Count @(__perService.Count == 1 ? "service" : "services")</span></h2>
+            @if (__perService.Count == 0)
+            {
+                <p class="hint">No visitor attendance has been recorded yet.</p>
+            }
+            else
+            {
+                var max = Math.Max(1, __perService.Max(p => p.Count));
+                <div class="dash-bars">
+                    @foreach (var p in __perService)
+                    {
+                        <div class="dash-bar" style="height:@(Pct(p.Count, max))%"><b>@p.Count</b></div>
+                    }
+                </div>
+                <div class="dash-xl">
+                    @foreach (var p in __perService)
+                    {
+                        <span>@p.Date.ToString("d MMM")</span>
+                    }
+                </div>
+            }
+        </section>
+
+        @* ---------- Visitors who are not connected ---------- *@
+        <section class="dash-card">
+            <h2>Visitors not yet connected <span>@__unconnected.Count total</span></h2>
+            @if (__unconnected.Count == 0)
+            {
+                <p class="hint">Everyone has a connector.</p>
+            }
+            else
+            {
+                @foreach (var v in __unconnected.Take(6))
+                {
+                    <div class="dash-li">
+                        <span class="dash-tile dash-tile-amber"><Icon Name="userplus" Size="20" /></span>
+                        <div class="dash-li-text">
+                            <b>@v.FullName</b>
+                            @if (v.fdtmLastAttended is { } seen)
+                            {
+                                <small>Last attended @seen.ToString("d MMM")</small>
+                            }
+                        </div>
+                        @if (v.fdtmLastAttended is { } last)
+                        {
+                            var days = Math.Max(0, (AppClock.Today - last.Date).Days);
+                            <span class="dash-tag">@(days == 0 ? "today" : $"{days} days")</span>
+                        }
+                    </div>
+                }
+                @if (__unconnected.Count > 6)
+                {
+                    <div class="hint">and @(__unconnected.Count - 6) more</div>
+                }
+            }
+            <a class="dash-link" href="connect">Assign connectors &rarr;</a>
+        </section>
+    </div>
+}
+
+@code {
+    #region Private fields
+
+    private readonly CancellationTokenSource __cts = new();
+
+    private bool __loaded;
+    private string? __error;
+
+    private int __totalMembers, __activeMembers, __inactiveMembers, __totalVisitors;
+    private decimal __collected, __spent;
+    private List<VisitorModel> __unconnected = [];
+    private List<(DateTime Date, int Count)> __perService = [];
+
+    // Member attendance
+    private List<(DateTime Date, int Count)> __membersPerService = [];
+    private List<NotSeenMember> __notSeen = [];
+    private int __lastServicePresent, __averageAttendance;
+    private DateTime? __lastServiceDate;
+
+    // Pastoral care
+    private List<PastoralContactModel> __flagged = [];
+    private int __careCovered, __careTotal, __coreCount;
+    private int CarePercent => __careTotal == 0 ? 0 : (int)Math.Round(100.0 * __careCovered / __careTotal);
+
+    /// <summary>An active member who has not checked in for a while (Weeks is null when they never have).</summary>
+    private sealed record NotSeenMember(MemberModel Member, DateTime? LastSeen, int? Weeks);
+
+    #endregion
+
+    #region Calculated values
+
+    private decimal __balance => __collected - __spent;
+    private int ActivePercent => __totalMembers == 0 ? 0 : (int)Math.Round(100.0 * __activeMembers / __totalMembers);
+    /// <summary>Bar height as a percentage of the tallest bar (never below 4 so a bar is always visible).</summary>
+    private static int Pct(int value, int max) => Math.Max(4, (int)Math.Round(100.0 * value / max));
+
+    private static string Money(decimal value) => "$" + value.ToString("N2");
+
+    private int UnconnectedPercent => __totalVisitors == 0 ? 0 : (int)Math.Round(100.0 * __unconnected.Count / __totalVisitors);
+
+    /// <summary>Length of the active arc and the inactive arc on the donut (circumference 515.22 = 2 x pi x 82).</summary>
+    private string DonutActive => Arc(__totalMembers == 0 ? 0 : (double)__activeMembers / __totalMembers);
+    private string DonutInactive => Arc(__totalMembers == 0 ? 0 : (double)__inactiveMembers / __totalMembers);
+    private static string Arc(double fraction) => (515.22 * fraction).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Inline style for a small progress ring badge: coloured arc over a pale track.</summary>
+    private static string RingStyle(string colour, int percent) =>
+        $"background:conic-gradient({colour} {Math.Clamp(percent, 0, 100)}%, #eceef3 0)";
+
+    private int LastServicePercent => __activeMembers == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * __lastServicePresent / __activeMembers));
+    private int NotSeenPercent => __activeMembers == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * __notSeen.Count / __activeMembers));
+
+    private int InactivePercent => __totalMembers == 0 ? 0 : 100 - ActivePercent;
+
+    #endregion
+
+    #region Member attendance
+
+    /// <summary>Works out present-per-service, the average, and who has not been seen in 3+ weeks.</summary>
+    private async Task LoadMemberAttendanceAsync(List<MemberModel> members, CancellationToken ct)
+    {
+        var today = AppClock.Today;
+        var services = await ServiceRepo.SelectService(fromDate: today.AddDays(-120), toDate: today, cancellationToken: ct);
+        var attendance = await MemberAttendanceRepo.SelectMemberAttendance(active: true, cancellationToken: ct);
+
+        // Present per service: only services that have at least one check-in, latest eight.
+        var counts = attendance.GroupBy(a => a.flngServiceKey).ToDictionary(g => g.Key, g => g.Select(a => a.flngMemberKey).Distinct().Count());
+        __membersPerService = services
+            .Where(s => counts.ContainsKey(s.flngKey))
+            .OrderByDescending(s => s.fdtmServiceDate).Take(8)
+            .Select(s => (Date: s.fdtmServiceDate.Date, Count: counts[s.flngKey]))
+            .OrderBy(x => x.Date).ToList();
+
+        if (__membersPerService.Count > 0)
+        {
+            __lastServiceDate = __membersPerService[^1].Date;
+            __lastServicePresent = __membersPerService[^1].Count;
+            __averageAttendance = __activeMembers == 0 ? 0
+                : (int)Math.Round(__membersPerService.Average(p => Math.Min(100.0, 100.0 * p.Count / __activeMembers)));
+        }
+
+        // Not seen in 3+ weeks. Skipped completely until some check-ins exist, so a new system does not list everyone.
+        if (attendance.Count == 0) return;
+
+        var lastSeen = attendance.GroupBy(a => a.flngMemberKey).ToDictionary(g => g.Key, g => g.Max(a => a.fdtmCheckedInAt));
+        var cutoff = today.AddDays(-21);
+
+        __notSeen = members
+            .Where(m => m.fstrMembershipStatus == "Active" && (m.fdtmJoinDate is null || m.fdtmJoinDate.Value.Date <= cutoff))
+            .Select(m => lastSeen.TryGetValue(m.flngKey, out var seen) ? new NotSeenMember(m, seen, (int)((today - seen.Date).TotalDays / 7)) : new NotSeenMember(m, null, null))
+            .Where(n => n.LastSeen is null || n.LastSeen.Value.Date < cutoff)
+            .OrderBy(n => n.LastSeen ?? DateTime.MinValue)
+            .ToList();
+    }
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        var ct = __cts.Token;
+        try
+        {
+            var members = await MemberRepo.SelectMember(active: true, cancellationToken: ct);
+            __totalMembers = members.Count;
+            __activeMembers = members.Count(m => m.fstrMembershipStatus == "Active");
+            __inactiveMembers = __totalMembers - __activeMembers;
+
+            await LoadMemberAttendanceAsync(members, ct);
+
+            // Pastoral care: members flagged for the minister, and how many active members have a carer
+            __flagged = await PastoralContactRepo.SelectPastoralContact(flaggedUnresolved: true, cancellationToken: ct);
+            var careable = members.Where(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember).ToList();
+            __careTotal = careable.Count;
+            __careCovered = careable.Count(m => m.flngCarerKey is not null);
+            __coreCount = members.Count(m => m.fblnCoreMember && m.fstrMembershipStatus == "Active");
+
+            // Visitors per service: group attendance by service date and keep the latest eight.
+            var attendance = await VisitorAttendanceRepo.SelectVisitorAttendance(active: true, cancellationToken: ct);
+            __perService = attendance
+                .GroupBy(a => a.fdtmServiceDate.Date)
+                .Select(g => (Date: g.Key, Count: g.Select(a => a.flngVisitorKey).Distinct().Count()))
+                .OrderByDescending(x => x.Date).Take(8).OrderBy(x => x.Date).ToList();
+
+            // Visitors who still have no connector (follow-up member).
+            __unconnected = (await VisitorRepo.SelectVisitor(unassigned: true, active: true, cancellationToken: ct))
+                .OrderBy(v => v.fdtmLastAttended ?? DateTime.MaxValue).ToList();
+
+            __totalVisitors = (await VisitorRepo.SelectVisitor(active: true, cancellationToken: ct)).Count;
+
+            // Current collection balance = everything collected minus everything spent.
+            __collected = (await FinanceRepo.SelectFinance(active: true, cancellationToken: ct)).Sum(f => f.fcurAmount);
+            __spent = (await ExpenditureRepo.SelectExpenditure(active: true, cancellationToken: ct)).Sum(e => e.fcurAmount);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex) { __error = "The dashboard could not be loaded: " + ex.Message; }
+
+        __loaded = true;
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #endregion
+}

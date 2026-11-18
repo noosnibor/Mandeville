@@ -1,0 +1,709 @@
+﻿@page "/members"
+@attribute [PageAccess(PageKeys.Members, "Members", "People", "users", Tint = "c2", Tabs = "Member list,Attendance,Celebrations", Bar = true, Order = 10)]
+@implements IDisposable
+@inject IMemberRepository MemberRepo
+@inject IMemberTypeRepository MemberTypeRepo
+@inject IServiceAssignmentRepository AssignmentRepo
+@inject IDepartmentRepository DepartmentRepo
+@inject IMemberDepartmentRepository MemberDepartmentRepo
+@inject IServiceRepository ServiceRepo
+@inject IMemberAttendanceRepository AttendanceRepo
+@inject IPastoralAssignmentRepository PastoralAssignmentRepo
+@inject ICelebrationRepository CelebrationRepo
+@inject IConfiguration Configuration
+@inject IMemberPhotoRepository PhotoRepo
+@inject IJSRuntime JS
+
+<PageTitle>Members</PageTitle>
+
+<PageBanner Title="Member Management" Subtitle="A complete overview of your members and their attendance" Icon="users" />
+
+<div class="tabs">
+    @if (__tabList)
+    {
+        <button class="tab @(__tab == "list" ? "active" : "")" @onclick='() => __tab = "list"'>Member list</button>
+    }
+    @if (__tabAttendance)
+    {
+        <button class="tab @(__tab == "attendance" ? "active" : "")" @onclick='() => __tab = "attendance"'>Attendance</button>
+    }
+    @if (__tabCelebrations)
+    {
+        <button class="tab @(__tab == "celebrations" ? "active" : "")" @onclick='OpenCelebrationsAsync'>Celebrations@(__celebrationCount > 0 ? $" ({__celebrationCount})" : "")</button>
+    }
+</div>
+
+@if (__tab == "attendance")
+{
+    <MemberAttendanceTab />
+}
+else if (__tab == "celebrations")
+{
+    <CelebrationsTab OnChanged="RefreshCelebrationCountAsync" />
+}
+else
+{
+    <ToastBar Toast="__toast" />
+
+    @* ---------- Summary bar graph ---------- *@
+    <div class="mgraph">
+        <div class="mgraph-total">
+            <div class="ring-chip" style="--c:#6366f1"><Icon Name="users" Size="22" /></div>
+            <b>@__members.Count</b>
+            <span>Members shown</span>
+        </div>
+        <div class="mgraph-body">
+            <div class="mgraph-bars">
+                @foreach (var bar in Bars())
+                {
+                    <div class="mgraph-col">
+                        <em>@bar.Value</em>
+                        <i style="height:@(BarHeight(bar.Value))%; --from:@bar.From; --to:@bar.To"></i>
+                    </div>
+                }
+            </div>
+            <div class="mgraph-labels">
+                @foreach (var bar in Bars()) { <span>@bar.Label</span> }
+            </div>
+        </div>
+    </div>
+
+    @* ---------- Filters ---------- *@
+    <div class="mfilter">
+        <input type="text" placeholder="Search name or email" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
+        <select @bind="__filterType">
+            <option value="">All types</option>
+            @foreach (var t in __types) { <option value="@t.flngKey">@t.fstrName</option> }
+        </select>
+        <select @bind="__filterAssignment">
+            <option value="">All assignments</option>
+            @foreach (var a in __assignments) { <option value="@a.flngKey">@a.fstrName</option> }
+        </select>
+        <select @bind="__filterStatus">
+            <option value="">All statuses</option>
+            @foreach (var s in FixedLists.MembershipStatuses) { <option value="@s">@s</option> }
+        </select>
+        <button class="btn btn-dark btn-sm" @onclick="SearchAsync">Search</button>
+    </div>
+
+    @* ---------- Profile cards ---------- *@
+    <div class="pcards">
+        @foreach (var m in PageItems())
+        {
+            var isActive = m.fstrMembershipStatus == "Active";
+            <div class="pcard @(isActive ? "" : "inact")" @onclick="() => OpenDetailAsync(m)">
+                <div class="pcard-cover" style="background:@AvatarStyle.Cover(m.flngKey)"></div>
+                <div class="pcard-avatar" style="background:@AvatarStyle.Colour(m.flngKey)">@AvatarStyle.Initials(m.fstrFirstname, m.fstrLastname)</div>
+                <b class="pcard-name">@m.FullName</b>
+                <small class="pcard-mail">@(string.IsNullOrWhiteSpace(m.fstrEmailAddress) ? "No email" : m.fstrEmailAddress)</small>
+                <div class="pcard-tags">
+                    @if (!string.IsNullOrWhiteSpace(m.fstrMemberTypeName)) { <span>@m.fstrMemberTypeName</span> }
+                    @if (!string.IsNullOrWhiteSpace(m.fstrServiceAssignmentName)) { <span class="g">@m.fstrServiceAssignmentName</span> }
+                    @if (m.fblnCoreMember) { <span class="core">Core member</span> }
+                    @if (!string.IsNullOrWhiteSpace(m.fstrCarerName)) { <span class="care">Cared for by @m.fstrCarerName</span> }
+                    else if (isActive && !m.fblnCoreMember) { <span class="nocare">No carer</span> }
+                </div>
+                <div class="pcard-foot">
+                    <button @onclick="() => EditMemberAsync(m)" @onclick:stopPropagation="true">Edit</button>
+                    <button @onclick="() => OpenDetailAsync(m)" @onclick:stopPropagation="true">Profile</button>
+                    <button class="d" @onclick="() => DeleteAsync(m)" @onclick:stopPropagation="true">Delete</button>
+                </div>
+            </div>
+        }
+    </div>
+    @if (__members.Count == 0)
+    {
+        <div class="card"><p class="empty" style="margin:0">No members found.</p></div>
+    }
+    <Pager Page="__page" PageSize="PageSize" Total="__members.Count" PageChanged="SetPage" />
+
+    <button class="fab" @onclick="NewMember"><Icon Name="plus" Size="16" />Add member</button>
+
+    @* ---------- Details panel ---------- *@
+    @if (__detail is not null)
+    {
+        var d = __detail;
+        var dActive = d.fstrMembershipStatus == "Active";
+        <div class="drawer-backdrop" @onclick="CloseDetail">
+            <aside class="drawer" role="dialog" aria-modal="true" aria-label="Member details" @onclick:stopPropagation="true">
+                <div class="drawer-cover @(dActive ? "" : "inact")" style="background:@(dActive ? AvatarStyle.Cover(d.flngKey) : "#e3e6ec")">
+                    <button class="drawer-close" aria-label="Close" @onclick="CloseDetail">&#10005;</button>
+                </div>
+                <div class="drawer-top">
+                    <div class="drawer-avatar" style="background:@(dActive ? AvatarStyle.Colour(d.flngKey) : "#cdd2db")">@AvatarStyle.Initials(d.fstrFirstname, d.fstrLastname)</div>
+                    <h3>@d.FullName</h3>
+                    <small>@(string.IsNullOrWhiteSpace(d.fstrEmailAddress) ? "No email" : d.fstrEmailAddress)</small>
+                    <div class="drawer-status"><span class="bd @(dActive ? "ok" : "off")">@d.fstrMembershipStatus</span></div>
+                    <div class="drawer-stats">
+                        <div><b>@__detailPresent of @__detailRecent.Count</b><span>Recent services</span></div>
+                        <div><b>@(__detailLastSeen?.ToString("MMM yyyy") ?? "Never")</b><span>Last seen</span></div>
+                        <div><b>@(string.IsNullOrWhiteSpace(d.fstrMemberTypeName) ? "-" : d.fstrMemberTypeName)</b><span>Type</span></div>
+                    </div>
+                </div>
+
+                <div class="drawer-card">
+                    <h4>Contact</h4>
+                    <div class="ir"><span>Phone</span><b>@(string.IsNullOrWhiteSpace(d.fstrPhoneNumber) ? "-" : d.fstrPhoneNumber)</b></div>
+                    <div class="ir"><span>Email</span><b>@(d.fstrEmailAddress ?? "-")</b></div>
+                    <div class="ir"><span>Address</span><b>@(d.fstrHomeAddress ?? "-")</b></div>
+                </div>
+
+                <div class="drawer-card">
+                    <h4>Membership</h4>
+                    <div class="ir"><span>Birthday</span><b>@(d.fdtmDateOfBirth?.ToString("dd MMM") ?? "-")</b></div>
+                    <div class="ir"><span>Marital status</span><b>@d.fstrMaritalStatus</b></div>
+                    @if (d.fstrMaritalStatus == "Married")
+                    {
+                        <div class="ir"><span>Spouse</span><b>@(d.SpouseDisplayName ?? "-")</b></div>
+                        <div class="ir"><span>Anniversary</span><b>@(d.fdtmAnniversaryDate?.ToString("dd MMM") ?? "-")</b></div>
+                    }
+                    else if (d.fstrMaritalStatus == "Divorced" && !string.IsNullOrWhiteSpace(d.fstrFormerSpouseName))
+                    {
+                        <div class="ir"><span>Former spouse</span><b>@d.fstrFormerSpouseName</b></div>
+                    }
+                    <div class="ir"><span>Gender</span><b>@(string.IsNullOrWhiteSpace(d.fstrGender) ? "-" : d.fstrGender)</b></div>
+                    <div class="ir"><span>Joined</span><b>@(d.fdtmJoinDate?.ToString("dd MMM yyyy") ?? "-")</b></div>
+                    @if (d.fdtmLeaveGroupOn.HasValue)
+                    {
+                        <div class="ir"><span>Left the group</span><b>@d.fdtmLeaveGroupOn.Value.ToString("dd MMM yyyy")</b></div>
+                    }
+                    <div class="ir"><span>Assignment</span><b>@(string.IsNullOrWhiteSpace(d.fstrServiceAssignmentName) ? "-" : d.fstrServiceAssignmentName)</b></div>
+                    <div class="ir"><span>Departments</span><b>@(string.IsNullOrWhiteSpace(d.fstrDepartments) ? "-" : d.fstrDepartments)</b></div>
+                </div>
+
+                <div class="drawer-card">
+                    <h4>Pastoral care</h4>
+                    @if (d.fblnCoreMember)
+                    {
+                        <div class="ir"><span>Role</span><b>Core member</b></div>
+                        <div class="ir"><span>Members in their care</span><b>@__detailCareCount</b></div>
+                    }
+                    <div class="ir"><span>Cared for by</span><b>@(string.IsNullOrWhiteSpace(d.fstrCarerName) ? "No carer assigned" : d.fstrCarerName)</b></div>
+                    <p class="hint" style="margin:8px 0 0">Carers are chosen on the Pastoral Care page.</p>
+                </div>
+
+                <div class="drawer-card">
+                    <h4>Recent attendance</h4>
+                    @if (__detailRecent.Count == 0)
+                    {
+                        <p class="hint" style="margin:0">No services recorded yet.</p>
+                    }
+                    else
+                    {
+                        @* Only the latest service is shown here. *@
+                        var latest = __detailRecent[^1];
+                        <div class="drawer-dots">
+                            <i class="@(latest.Present ? "" : "m")" title="@latest.Date.ToString("dd MMM yyyy")">@latest.Date.ToString("dd MMM") &middot; @(latest.Present ? "Present" : "Absent")</i>
+                        </div>
+                    }
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(d.fstrNotes))
+                {
+                    <div class="drawer-card">
+                        <h4>Notes</h4>
+                        <div class="drawer-note">@d.fstrNotes</div>
+                    </div>
+                }
+
+                <div class="drawer-foot">
+                    <button class="p" @onclick="() => EditFromDetailAsync(d)">Edit member</button>
+                    <button class="d" @onclick="() => DeleteFromDetailAsync(d)">Delete</button>
+                </div>
+            </aside>
+        </div>
+    }
+
+    @* ---------- Add / edit popup ---------- *@
+    @if (__edit is not null)
+    {
+        <Modal Title="@(__isNew ? "Add member" : "Edit member")" Subtitle="@(__isNew ? "Fill in their details to add them to the group" : "Update their details")" Icon="userplus" OnClose="() => __edit = null">
+            <ChildContent>
+                <div class="modal-sec">Personal</div>
+                <div class="form-grid">
+                    <div class="field"><label>First name</label><input type="text" maxlength="50" @bind="__edit.fstrFirstname" /></div>
+                    <div class="field"><label>Last name</label><input type="text" maxlength="50" @bind="__edit.fstrLastname" /></div>
+                    <div class="field">
+                        <label>Gender</label>
+                        <select @bind="__edit.fstrGender">
+                            @foreach (var g in FixedLists.Genders) { <option value="@g">@g</option> }
+                        </select>
+                    </div>
+                    <div class="field"><label>Birthday (day and month)</label><DayMonthField @bind-Value="__edit.fdtmDateOfBirth" /></div>
+                    <div class="field"><label>Phone number</label><input type="text" inputmode="tel" maxlength="30" placeholder="876-555-0123" @bind="__edit.fstrPhoneNumber" /></div>
+                    <div class="field"><label>Email address</label><input type="text" maxlength="150" @bind="__edit.fstrEmailAddress" /></div>
+                    <div class="field"><label>Home address</label><input type="text" maxlength="250" @bind="__edit.fstrHomeAddress" /></div>
+                </div>
+
+                <div class="modal-sec">Photo</div>
+                <div class="mem-photo">
+                    <div class="circle">
+                        @if (__photoData is not null) { <img src="@__photoData" alt="" /> } else { <span>&#128100;</span> }
+                    </div>
+                    <label class="btn btn-sm">
+                        @(__photoData is null ? "Add photo" : "Change photo")
+                        <input type="file" id="mem-photo-file" accept="image/*" hidden @onchange="PickMemberPhotoAsync" />
+                    </label>
+                    @if (__photoData is not null)
+                    {
+                        <button type="button" class="btn btn-sm" @onclick="RemoveMemberPhoto">Remove</button>
+                    }
+                </div>
+                <p class="hint">Used on their birthday and anniversary cards and emails. The photo is made small and saved when you press Save member.</p>
+
+                <div class="modal-sec">Membership</div>
+                <div class="form-grid">
+                    <div class="field">
+                        <label>Member type</label>
+                        <select @bind="__edit.flngMemberTypeKey">
+                            <option value="">-- none --</option>
+                            @foreach (var t in __types) { <option value="@t.flngKey">@t.fstrName</option> }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>Service assignment</label>
+                        <select @bind="__edit.flngServiceAssignmentKey">
+                            <option value="">-- none --</option>
+                            @foreach (var a in __assignments) { <option value="@a.flngKey">@a.fstrName</option> }
+                        </select>
+                    </div>
+                    <div class="field"><label>Join date</label><input type="date" @bind="__edit.fdtmJoinDate" /></div>
+                    <div class="field"><label>Left the group on</label><input type="date" @bind="__edit.fdtmLeaveGroupOn" /></div>
+                    <div class="field">
+                        <label>Membership status</label>
+                        <select @bind="__edit.fstrMembershipStatus">
+                            @foreach (var s in FixedLists.MembershipStatuses) { <option value="@s">@s</option> }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="modal-sec">Relationship</div>
+                <div class="form-grid">
+                    <div class="field">
+                        <label>Marital status</label>
+                        <select @bind="__edit.fstrMaritalStatus">
+                            @foreach (var ms in FixedLists.MaritalStatuses) { <option value="@ms">@ms</option> }
+                        </select>
+                    </div>
+                    @if (__edit.fstrMaritalStatus == "Married")
+                    {
+                        <div class="field"><label>Anniversary (day and month)</label><DayMonthField @bind-Value="__edit.fdtmAnniversaryDate" /></div>
+                        <div class="field">
+                            <label>Spouse</label>
+                            <select @bind="__edit.flngSpouseMemberKey">
+                                <option value="">-- not a member of the group --</option>
+                                @foreach (var sp in __spouseChoices.Where(x => x.flngKey != __edit.flngKey)) { <option value="@sp.flngKey">@sp.FullName</option> }
+                            </select>
+                        </div>
+                        @if (__edit.flngSpouseMemberKey is null)
+                        {
+                            <div class="field"><label>Spouse name</label><input type="text" maxlength="100" @bind="__edit.fstrSpouseName" /></div>
+                        }
+                    }
+                    else if (__edit.fstrMaritalStatus == "Divorced")
+                    {
+                        <div class="field"><label>Former spouse (optional)</label><input type="text" maxlength="100" @bind="__edit.fstrFormerSpouseName" /></div>
+                    }
+                </div>
+                @if (__edit.fstrMaritalStatus == "Married")
+                {
+                    <p class="hint">If the spouse is also a member, their record is updated to match and the couple gets one anniversary card.</p>
+                }
+                <div class="check-list">
+                    <label><input type="checkbox" @bind="__edit.fblnDontAnnounce" /> Don't announce their birthday or anniversary</label>
+                </div>
+
+                <div class="modal-sec">Departments</div>
+                <div class="check-list">
+                    @foreach (var d in __departments)
+                    {
+                        var key = d.flngKey;
+                        <label><input type="checkbox" checked="@__selectedDepartments.Contains(key)" @onchange="e => ToggleDepartment(key, e.Value is true)" /> @d.fstrName</label>
+                        @if (__selectedDepartments.Contains(key))
+                        {
+                            <label class="lead-tick"><input type="checkbox" checked="@__leadDepartments.Contains(key)" @onchange="e => ToggleLead(key, e.Value is true)" /> Team lead</label>
+                        }
+                    }
+                </div>
+
+                <div class="modal-sec">Pastoral care</div>
+                <div class="check-list">
+                    <label><input type="checkbox" @bind="__edit.fblnCoreMember" /> Core member (can be given members to care for)</label>
+                </div>
+
+                <div class="modal-sec">Notes</div>
+                <div class="field"><textarea maxlength="500" placeholder="Anything worth remembering" @bind="__edit.fstrNotes"></textarea></div>
+            </ChildContent>
+            <Footer>
+                <button class="btn btn-primary btn-sm" @onclick="SaveAsync">Save member</button>
+                <button class="btn btn-sm" @onclick="() => __edit = null">Cancel</button>
+            </Footer>
+        </Modal>
+    }
+}
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+
+    // Photo in the add / edit form: the picture shown, whether it was changed, and the saved one it replaces
+    private string? __photoData;
+    private bool __photoChanged;
+    private string __tab = "list";
+
+    // Which tabs this person's role may open
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private bool __tabList = true, __tabAttendance = true, __tabCelebrations = true;
+    private List<MemberModel> __members = [];
+    private List<MemberTypeModel> __types = [];
+    private List<ServiceAssignmentModel> __assignments = [];
+    private List<DepartmentModel> __departments = [];
+    private HashSet<Guid> __selectedDepartments = [];
+    private HashSet<Guid> __leadDepartments = [];
+    private MemberModel? __edit;
+    private bool __isNew;
+    private string? __search;
+    private Guid? __filterType;
+    private Guid? __filterAssignment;
+    private string? __filterStatus;
+    private ToastMessageModel? __toast;
+    private List<MemberModel> __spouseChoices = [];
+    private int __celebrationCount;
+
+    // Paging for the member cards
+    private const int PageSize = 10;
+    private int __page = 1;
+
+    // Details panel
+    private MemberModel? __detail;
+    private List<RecentService> __detailRecent = [];
+    private int __detailPresent;
+    private DateTime? __detailLastSeen;
+    private int __detailCareCount;
+
+    private sealed record RecentService(DateTime Date, bool Present);
+    private sealed record BarItem(string Label, int Value, string From, string To);
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthState is null ? null : (await AuthState).User;
+        __tabList = user?.CanTab(PageKeys.Members, "Member list") ?? false;
+        __tabAttendance = user?.CanTab(PageKeys.Members, "Attendance") ?? false;
+        __tabCelebrations = user?.CanTab(PageKeys.Members, "Celebrations") ?? false;
+        __tab = __tabList ? "list" : __tabAttendance ? "attendance" : "celebrations";
+
+        __types = await MemberTypeRepo.SelectMemberType(active: true, cancellationToken: __cts.Token);
+        __assignments = await AssignmentRepo.SelectServiceAssignment(active: true, cancellationToken: __cts.Token);
+        __departments = await DepartmentRepo.SelectDepartment(active: true, cancellationToken: __cts.Token);
+        await LoadSpouseChoicesAsync();
+        await RefreshCelebrationCountAsync();
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #endregion
+
+    #region Loading
+
+    private async Task LoadAsync()
+    {
+        __members = await MemberRepo.SelectMember(
+            memberTypeKey: __filterType,
+            serviceAssignmentKey: __filterAssignment,
+            membershipStatus: string.IsNullOrEmpty(__filterStatus) ? null : __filterStatus,
+            search: string.IsNullOrWhiteSpace(__search) ? null : __search.Trim(),
+            cancellationToken: __cts.Token);
+
+        // Names are shown as "First Last", so the list is ordered A to Z the same way
+        __members = ByName(__members);
+    }
+
+    /// <summary>Orders members A to Z by the name that is shown (first name, then last name).</summary>
+    private static List<MemberModel> ByName(IEnumerable<MemberModel> list) =>
+        list.OrderBy(m => m.fstrFirstname, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.fstrLastname, StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>All active members, used to pick a spouse.</summary>
+    private async Task LoadSpouseChoicesAsync() =>
+        __spouseChoices = ByName(await MemberRepo.SelectMember(cancellationToken: __cts.Token));
+
+    /// <summary>Counts the birthdays and anniversaries in the next Celebrations:DaysBefore days (default 3) that have not been sent yet.</summary>
+    private async Task RefreshCelebrationCountAsync()
+    {
+        var upcoming = await CelebrationRepo.SelectUpcoming(int.TryParse(Configuration["Celebrations:DaysBefore"], out var days) && days is >= 0 and <= 60 ? days : 3, __cts.Token);
+        __celebrationCount = upcoming.Count(c => !c.Sent);
+        StateHasChanged();
+    }
+
+    private async Task OpenCelebrationsAsync()
+    {
+        __tab = "celebrations";
+        await Task.CompletedTask;
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    /// <summary>A new search starts again on the first page.</summary>
+    private async Task SearchAsync()
+    {
+        __page = 1;
+        await LoadAsync();
+    }
+
+    private void SetPage(int page) => __page = page;
+
+    /// <summary>The members on the current page (the page is pulled back if records were removed).</summary>
+    private List<MemberModel> PageItems()
+    {
+        var pages = Math.Max(1, (__members.Count + PageSize - 1) / PageSize);
+        __page = Math.Min(Math.Max(1, __page), pages);
+        return __members.Skip((__page - 1) * PageSize).Take(PageSize).ToList();
+    }
+
+    #endregion
+
+    #region Summary bar graph
+
+    /// <summary>The four bars: active, inactive, male, female (for the members currently shown).</summary>
+    private List<BarItem> Bars() =>
+    [
+        new("Active", __members.Count(m => m.fstrMembershipStatus == "Active"), "#14b8a6", "#0f766e"),
+        new("Inactive", __members.Count(m => m.fstrMembershipStatus == "Inactive"), "#cbd2de", "#98a2b3"),
+        new("Male", __members.Count(m => m.fstrGender == "Male"), "#7db2ff", "#3b82f6"),
+        new("Female", __members.Count(m => m.fstrGender == "Female"), "#f9a8d4", "#ec4899")
+    ];
+
+    /// <summary>Bar height as a percentage; the tallest bar fills the chart.</summary>
+    private int BarHeight(int value)
+    {
+        var max = Bars().Max(b => b.Value);
+        if (max == 0 || value == 0) return 3;
+        return Math.Max(6, (int)Math.Round(value * 100.0 / max));
+    }
+
+    #endregion
+
+    #region Details panel
+
+    /// <summary>Opens the details panel and loads the member's attendance for the last services.</summary>
+    private async Task OpenDetailAsync(MemberModel m)
+    {
+        __detail = m;
+        __detailRecent = [];
+        __detailPresent = 0;
+        __detailLastSeen = null;
+        __detailCareCount = m.fblnCoreMember ? (await PastoralAssignmentRepo.SelectPastoralAssignment(coreMemberKey: m.flngKey, cancellationToken: __cts.Token)).Count : 0;
+
+        var attendance = await AttendanceRepo.SelectMemberAttendance(memberKey: m.flngKey, cancellationToken: __cts.Token);
+        var services = await ServiceRepo.SelectService(fromDate: AppClock.Today.AddDays(-120), toDate: AppClock.Today, cancellationToken: __cts.Token);
+
+        var presentServices = attendance.Select(a => a.flngServiceKey).ToHashSet();
+        __detailRecent = services
+            .OrderByDescending(s => s.fdtmServiceDate)
+            .Take(6)
+            .OrderBy(s => s.fdtmServiceDate)
+            .Select(s => new RecentService(s.fdtmServiceDate, presentServices.Contains(s.flngKey)))
+            .ToList();
+        __detailPresent = __detailRecent.Count(r => r.Present);
+        __detailLastSeen = attendance.Count == 0 ? null : attendance.Max(a => a.fdtmCheckedInAt);
+    }
+
+    private void CloseDetail() => __detail = null;
+
+    private async Task EditFromDetailAsync(MemberModel m)
+    {
+        __detail = null;
+        await EditMemberAsync(m);
+    }
+
+    private async Task DeleteFromDetailAsync(MemberModel m)
+    {
+        __detail = null;
+        await DeleteAsync(m);
+    }
+
+    #endregion
+
+    #region Add / Edit / Delete
+
+    private void NewMember()
+    {
+        __edit = new MemberModel { fstrGender = "Male", fstrMembershipStatus = "Active", fstrMaritalStatus = "Single", fdtmJoinDate = AppClock.Today };
+        __selectedDepartments = [];
+        __leadDepartments = [];
+        __photoData = null;
+        __photoChanged = false;
+        __isNew = true;
+    }
+
+    private async Task EditMemberAsync(MemberModel m)
+    {
+        // Work on a copy so Cancel leaves the list untouched.
+        __edit = new MemberModel
+        {
+            flngKey = m.flngKey, fstrFirstname = m.fstrFirstname, fstrLastname = m.fstrLastname, fstrGender = m.fstrGender,
+            fstrEmailAddress = m.fstrEmailAddress, fstrPhoneNumber = m.fstrPhoneNumber, fstrHomeAddress = m.fstrHomeAddress, fdtmDateOfBirth = m.fdtmDateOfBirth,
+            fdtmJoinDate = m.fdtmJoinDate, fdtmLeaveGroupOn = m.fdtmLeaveGroupOn, flngMemberTypeKey = m.flngMemberTypeKey,
+            flngServiceAssignmentKey = m.flngServiceAssignmentKey, fstrMembershipStatus = m.fstrMembershipStatus,
+            fstrNotes = m.fstrNotes, fblnCoreMember = m.fblnCoreMember, fblnActive = m.fblnActive,
+            fstrMaritalStatus = m.fstrMaritalStatus, flngSpouseMemberKey = m.flngSpouseMemberKey, fstrSpouseName = m.fstrSpouseName,
+            fdtmAnniversaryDate = m.fdtmAnniversaryDate, fstrFormerSpouseName = m.fstrFormerSpouseName, fblnDontAnnounce = m.fblnDontAnnounce
+        };
+        var links = await MemberDepartmentRepo.SelectMemberDepartment(memberKey: m.flngKey, cancellationToken: __cts.Token);
+        __selectedDepartments = links.Select(l => l.flngDepartmentKey).ToHashSet();
+        __leadDepartments = links.Where(l => l.fblnLead).Select(l => l.flngDepartmentKey).ToHashSet();
+        __photoData = (await PhotoRepo.SelectMemberPhoto(m.flngKey, __cts.Token))?.DataUrl;
+        __photoChanged = false;
+        __isNew = false;
+    }
+
+    /// <summary>A picture was chosen: the browser crops it to a square and shrinks it; it is saved with the member.</summary>
+    private async Task PickMemberPhotoAsync()
+    {
+        var picked = await JS.InvokeAsync<string?>("celebrate.pickPhoto", __cts.Token, "mem-photo-file");
+        if (picked is null) return;
+        __photoData = picked;
+        __photoChanged = true;
+    }
+
+    private void RemoveMemberPhoto()
+    {
+        __photoData = null;
+        __photoChanged = true;
+    }
+
+    /// <summary>Saves or removes the photo after the member itself was saved.</summary>
+    private async Task SavePhotoAsync(Guid memberKey)
+    {
+        if (!__photoChanged) return;
+
+        if (__photoData is null)
+        {
+            await PhotoRepo.DeleteMemberPhoto(memberKey, AppConstants.Who, __cts.Token);
+            return;
+        }
+
+        // The picture arrives as "data:image/jpeg;base64,...."
+        var comma = __photoData.IndexOf(',');
+        if (comma < 0) return;
+        var type = __photoData[5..__photoData.IndexOf(';')];
+        var bytes = Convert.FromBase64String(__photoData[(comma + 1)..]);
+
+        var result = await PhotoRepo.SaveMemberPhoto(memberKey, bytes, type, AppConstants.Who, __cts.Token);
+        if (!result.IsSuccess) __toast = result;
+    }
+
+    private void ToggleDepartment(Guid key, bool selected)
+    {
+        if (selected) __selectedDepartments.Add(key); else { __selectedDepartments.Remove(key); __leadDepartments.Remove(key); }
+    }
+
+    /// <summary>Tags the member as a team lead of a department they belong to.</summary>
+    private void ToggleLead(Guid key, bool lead)
+    {
+        if (lead) __leadDepartments.Add(key); else __leadDepartments.Remove(key);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (__edit is null) return;
+        if (string.IsNullOrWhiteSpace(__edit.fstrFirstname) || string.IsNullOrWhiteSpace(__edit.fstrLastname))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "First name and last name are required" };
+            return;
+        }
+
+        // A Core Member who still has people in their care cannot lose the role until those people are given to someone else
+        if (!__isNew && !__edit.fblnCoreMember)
+        {
+            var inCare = await PastoralAssignmentRepo.SelectPastoralAssignment(coreMemberKey: __edit.flngKey, cancellationToken: __cts.Token);
+            if (inCare.Count > 0)
+            {
+                __toast = new() { ToastType = ToastTypeModel.Warning, Message = $"{__edit.FullName} still cares for {inCare.Count} member(s). Give them to another Core Member on the Pastoral Care page first" };
+                return;
+            }
+        }
+
+        // Relationship details only apply to the status that was chosen
+        if (__edit.fstrMaritalStatus == "Married" && __edit.flngSpouseMemberKey == __edit.flngKey)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "A member cannot be their own spouse" };
+            return;
+        }
+        if (__edit.fstrMaritalStatus != "Married")
+        {
+            __edit.flngSpouseMemberKey = null;
+            __edit.fstrSpouseName = null;
+            __edit.fdtmAnniversaryDate = null;
+        }
+        if (__edit.flngSpouseMemberKey.HasValue) __edit.fstrSpouseName = null;
+        if (__edit.fstrMaritalStatus != "Divorced") __edit.fstrFormerSpouseName = null;
+
+        __edit.fstrWho = AppConstants.Who;
+        __toast = await MemberRepo.AddOrUpdateMember(__edit, __isNew, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        await SyncDepartmentsAsync(__edit.flngKey);
+        await SavePhotoAsync(__edit.flngKey);
+        __edit = null;
+        await LoadAsync();
+        await LoadSpouseChoicesAsync();
+        await RefreshCelebrationCountAsync();
+    }
+
+    /// <summary>Adds the newly ticked departments and removes the unticked ones.</summary>
+    private async Task SyncDepartmentsAsync(Guid memberKey)
+    {
+        var existing = await MemberDepartmentRepo.SelectMemberDepartment(memberKey: memberKey, cancellationToken: __cts.Token);
+
+        foreach (var link in existing.Where(l => !__selectedDepartments.Contains(l.flngDepartmentKey)))
+            await MemberDepartmentRepo.DeleteMemberDepartment(link.flngKey, AppConstants.Who, __cts.Token);
+
+        foreach (var departmentKey in __selectedDepartments.Where(d => existing.All(l => l.flngDepartmentKey != d)))
+        {
+            await MemberDepartmentRepo.AddMemberDepartment(
+                new MemberDepartmentModel { flngMemberKey = memberKey, flngDepartmentKey = departmentKey, fblnLead = __leadDepartments.Contains(departmentKey), fstrWho = AppConstants.Who },
+                __cts.Token);
+        }
+
+        // Lead tag changed on a department the member was already in
+        foreach (var link in existing.Where(l => __selectedDepartments.Contains(l.flngDepartmentKey) && l.fblnLead != __leadDepartments.Contains(l.flngDepartmentKey)))
+            await MemberDepartmentRepo.SetMemberDepartmentLead(link.flngKey, __leadDepartments.Contains(link.flngDepartmentKey), AppConstants.Who, __cts.Token);
+    }
+
+    private async Task DeleteAsync(MemberModel m)
+    {
+        if (m.fblnCoreMember)
+        {
+            var inCare = await PastoralAssignmentRepo.SelectPastoralAssignment(coreMemberKey: m.flngKey, cancellationToken: __cts.Token);
+            if (inCare.Count > 0)
+            {
+                __toast = new() { ToastType = ToastTypeModel.Warning, Message = $"{m.FullName} still cares for {inCare.Count} member(s). Give them to another Core Member on the Pastoral Care page first" };
+                return;
+            }
+        }
+
+        __toast = await MemberRepo.DeleteMember(m.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess)
+        {
+            await LoadAsync();
+            await LoadSpouseChoicesAsync();
+            await RefreshCelebrationCountAsync();
+        }
+    }
+
+    #endregion
+}

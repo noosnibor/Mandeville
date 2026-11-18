@@ -1,0 +1,130 @@
+@implements IDisposable
+@inject IVisitorRepository VisitorRepo
+@inject IVisitorAttendanceRepository AttendanceRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="att-layout">
+    @* ---------- Search ---------- *@
+    <div class="card att-services">
+        <h2>Find returning visitor</h2>
+        <div class="mfilter" style="margin-bottom:.6rem">
+            <input type="text" placeholder="Name, phone or email" @bind="__search" @bind:event="oninput" @onkeydown="OnKey" />
+            <button class="btn btn-dark btn-sm" @onclick="SearchAsync">Search</button>
+        </div>
+
+        @foreach (var v in __results)
+        {
+            <div class="ucard pick @(__selected?.flngKey == v.flngKey ? "selected" : "")" @onclick="() => SelectAsync(v)">
+                <div class="ucard-avatar" style="background:@AvatarStyle.Colour(v.flngKey)">@AvatarStyle.Initials(v.fstrFirstname, v.fstrLastname)</div>
+                <div class="ucard-text"><b>@v.FullName</b><small>@v.fstrPhoneNumber @v.fstrEmailAddress</small></div>
+                <span class="tag">@v.fstrStatus</span>
+            </div>
+        }
+        @if (__searched && __results.Count == 0)
+        {
+            <p class="empty">No visitor found. Use the Add visitor tab to register them.</p>
+        }
+    </div>
+
+    <div>
+        @if (__selected is null)
+        {
+            <div class="card"><p class="hint" style="margin:0">Search for a visitor and select them to record another visit.</p></div>
+        }
+        else
+        {
+            <div class="card">
+                <h2>@__selected.FullName <span class="pill-ok">@__selected.flngVisitCount @(__selected.flngVisitCount == 1 ? "visit" : "visits")</span></h2>
+                <p class="hint" style="margin-top:0">
+                    @__selected.fstrAgeGroup, @__selected.fstrGender
+                    @if (__selected.fdtmLastAttended.HasValue) { <text>- last attended @__selected.fdtmLastAttended.Value.ToString("dd MMM yyyy")</text> }
+                </p>
+                <div class="form-grid">
+                    <div class="field"><label>Service date</label><input type="date" max="@AppClock.Today.ToString("yyyy-MM-dd")" @bind="__serviceDate" /></div>
+                    <div class="field"><label>Notes</label><input type="text" maxlength="500" @bind="__notes" /></div>
+                </div>
+                <div class="actions" style="margin-top:.8rem"><button class="btn btn-primary btn-sm" @onclick="AddAttendanceAsync">Add attendance</button></div>
+                <p class="hint">A visitor can only be recorded once per service date.</p>
+            </div>
+
+            <div class="card">
+                <h2>Previous visits <span>@__history.Count shown</span></h2>
+                @foreach (var a in __history)
+                {
+                    <div class="ucard">
+                        <div class="scard-date"><b>@a.fdtmServiceDate.ToString("dd")</b><span>@a.fdtmServiceDate.ToString("MMM")</span></div>
+                        <div class="ucard-text">
+                            <b>@(string.IsNullOrWhiteSpace(a.fstrAltarReason) ? "Attended" : a.fstrAltarReason)</b>
+                            <small>@(string.IsNullOrWhiteSpace(a.fstrNotes) ? a.fdtmServiceDate.ToString("dddd yyyy") : a.fstrNotes)</small>
+                        </div>
+                    </div>
+                }
+                @if (__history.Count == 0) { <p class="empty">No visits recorded.</p> }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private string? __search;
+    private bool __searched;
+    private List<VisitorModel> __results = [];
+    private List<VisitorAttendanceModel> __history = [];
+    private VisitorModel? __selected;
+    private DateTime? __serviceDate = AppClock.Today;
+    private string? __notes;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(__search)) return;
+        __results = await VisitorRepo.SelectVisitor(search: __search.Trim(), cancellationToken: __cts.Token);
+        __searched = true;
+    }
+
+    private async Task SelectAsync(VisitorModel v)
+    {
+        __selected = v;
+        __serviceDate = AppClock.Today;
+        __notes = null;
+        __toast = null;
+        __history = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
+    }
+
+    private async Task AddAttendanceAsync()
+    {
+        if (__selected is null || __serviceDate is null) return;
+
+        var attendance = new VisitorAttendanceModel
+        {
+            flngVisitorKey = __selected.flngKey,
+            fdtmServiceDate = __serviceDate.Value.Date,
+            fstrNotes = __notes,
+            fstrWho = AppConstants.Who
+        };
+        __toast = await AttendanceRepo.AddOrUpdateVisitorAttendance(attendance, true, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __notes = null;
+        __history = await AttendanceRepo.SelectVisitorAttendance(visitorKey: __selected.flngKey, cancellationToken: __cts.Token);
+        var refreshed = await VisitorRepo.SelectVisitor(key: __selected.flngKey, cancellationToken: __cts.Token);
+        __selected = refreshed.FirstOrDefault() ?? __selected;
+    }
+}

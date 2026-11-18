@@ -1,0 +1,234 @@
+﻿@implements IDisposable
+@inject IVisitorRepository VisitorRepo
+@inject IVisitorAttendanceRepository AttendanceRepo
+@inject IDepartmentRepository DepartmentRepo
+@inject IMemberRepository MemberRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="mtools">
+    <label class="mlabel">Service date</label>
+    <input class="mdate" type="date" max="@AppClock.Today.ToString("yyyy-MM-dd")" @bind="__date" />
+    <button class="mchip" @onclick="LoadAsync">Load</button>
+</div>
+
+<div class="mstats">
+    <div class="mstat"><b>@__rows.Count</b><span>Visitors</span></div>
+    <div class="mstat"><b>@__rows.Count(r => r.Altar)</b><span>Went to the altar</span></div>
+    <div class="mstat hot"><b>@__rows.Count(r => r.Altar && r.AssignTo is null)</b><span>Altar, not assigned</span></div>
+</div>
+
+<div class="mwl">
+    @foreach (var w in __workload)
+    {
+        <div><i style="background:@AvatarStyle.Colour(w.flngMemberKey)">@InitialsOf(w.FullName)</i><span>@w.FullName &middot; @w.flngAssigned</span></div>
+    }
+    @if (__workload.Count == 0) { <span class="hint" style="margin:0">No one has been assigned yet.</span> }
+</div>
+
+<div class="mpanel">
+    <p class="hint" style="margin:0 0 .4rem">Tick the box for anyone who went to the altar, choose the reason, then choose who follows them up. For the reason Membership, the team member calls them and adds them to Incoming members once they confirm.</p>
+
+    @foreach (var r in __rows)
+    {
+        var row = r;
+        <div class="lrow @(row.Altar ? "altar" : "")">
+            <div class="ucard-avatar" style="background:@AvatarStyle.Colour(row.Visitor.flngKey)">@AvatarStyle.Initials(row.Visitor.fstrFirstname, row.Visitor.fstrLastname)</div>
+            <div class="ucard-text">
+                <b>@row.Visitor.FullName</b>
+                <small>@row.Visitor.fstrAgeGroup &middot; @row.Visitor.fstrGender &middot; @(string.IsNullOrWhiteSpace(row.Visitor.fstrPhoneNumber) ? "No phone" : row.Visitor.fstrPhoneNumber)</small>
+            </div>
+            <label class="lcheck"><input type="checkbox" class="mswitch" @bind="row.Altar" /> Altar</label>
+            @if (row.Altar)
+            {
+                <select @bind="row.Reason">
+                    <option value="">Reason for the altar...</option>
+                    @foreach (var reason in FixedLists.AltarReasons) { <option value="@reason">@reason</option> }
+                </select>
+                <select @bind="row.AssignTo">
+                    <option value="">-- assign to --</option>
+                    @foreach (var m in __connectors) { <option value="@m.flngKey">@m.FullName</option> }
+                </select>
+            }
+            else
+            {
+                <span class="hint lbasic">Basic card only</span>
+            }
+        </div>
+    }
+    @if (__rows.Count == 0) { <p class="empty">No visitors attended on this date.</p> }
+
+    @if (__rows.Count > 0)
+    {
+        <div class="lbar"><span>Membership people are called first, then added to Incoming members.</span><button class="btn btn-primary" @onclick="SaveAsync">Save changes</button></div>
+    }
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private DateTime? __date = AppClock.Today;
+    private List<LeadRow> __rows = [];
+    private List<MemberModel> __connectors = [];
+    private List<ConnectWorkloadModel> __workload = [];
+    private Guid? __teamDepartmentKey;
+    private ToastMessageModel? __toast;
+
+    /// <summary>One visitor for the chosen service, with what the team lead has decided so far.</summary>
+    private sealed class LeadRow
+    {
+        public required VisitorModel Visitor { get; init; }
+        public VisitorAttendanceModel? Attendance { get; init; }
+        public bool Altar { get; set; }
+        public string? Reason { get; set; }
+        public Guid? AssignTo { get; set; }
+
+        // What was saved when the list was loaded, used to find what changed.
+        public bool WasAltar { get; init; }
+        public string? WasReason { get; init; }
+        public Guid? WasAssignTo { get; init; }
+    }
+
+    #endregion
+
+    protected override async Task OnInitializedAsync()
+    {
+        // The connection team is the department whose name contains "connect" (when one exists); otherwise any active member can be chosen.
+        var departments = await DepartmentRepo.SelectDepartment(active: true, cancellationToken: __cts.Token);
+        __teamDepartmentKey = departments.FirstOrDefault(d => d.fstrName.Contains("connect", StringComparison.OrdinalIgnoreCase))?.flngKey;
+
+        __connectors = await MemberRepo.SelectMember(membershipStatus: "Active", departmentKey: __teamDepartmentKey, cancellationToken: __cts.Token);
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #region Display helpers
+
+    /// <summary>Two-letter initials from a full name.</summary>
+    private static string InitialsOf(string? name) =>
+        string.Concat((name ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(p => char.ToUpperInvariant(p[0])));
+
+    #endregion
+
+    #region Loading
+
+    /// <summary>Loads the visitors who attended the chosen service, with their altar reason and connector.</summary>
+    private async Task LoadAsync()
+    {
+        if (__date is null)
+        {
+            __rows = [];
+            return;
+        }
+
+        var visitors = await VisitorRepo.SelectVisitor(attendedOn: __date.Value.Date, cancellationToken: __cts.Token);
+        var attendance = await AttendanceRepo.SelectVisitorAttendance(serviceDate: __date.Value.Date, cancellationToken: __cts.Token);
+        var byVisitor = attendance.GroupBy(a => a.flngVisitorKey).ToDictionary(g => g.Key, g => g.First());
+
+        // People already moved to Incoming members (or already members) are no longer on this list.
+        __rows = visitors.Where(v => v.fstrStatus is "Visitor" or "Regular Visitor").Select(v =>
+        {
+            byVisitor.TryGetValue(v.flngKey, out var a);
+            var altar = !string.IsNullOrWhiteSpace(a?.fstrAltarReason);
+
+            // "Member" is the old name of the reason Membership.
+            var reason = FixedLists.IsMembershipReason(a?.fstrAltarReason) ? "Membership" : a?.fstrAltarReason;
+
+            return new LeadRow
+            {
+                Visitor = v, Attendance = a,
+                Altar = altar, WasAltar = altar,
+                Reason = reason, WasReason = reason,
+                AssignTo = v.flngFollowUpMemberKey, WasAssignTo = v.flngFollowUpMemberKey
+            };
+        }).ToList();
+
+        __workload = await VisitorRepo.SelectConnectWorkload(__teamDepartmentKey, __cts.Token);
+    }
+
+    #endregion
+
+    #region Saving
+
+    /// <summary>
+    /// Saves every row that changed: the altar reason on the attendance and the connector on the visitor.
+    /// Membership does not move the person: their team member calls first and adds them to Incoming members.
+    /// </summary>
+    private async Task SaveAsync()
+    {
+        var missing = __rows.Count(r => r.Altar && string.IsNullOrWhiteSpace(r.Reason));
+        if (missing > 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = $"Choose the reason for the altar for {missing} visitor(s)" };
+            return;
+        }
+
+        var saved = 0;
+        foreach (var row in __rows.Where(Changed))
+        {
+            var failure = await SaveRowAsync(row);
+            if (failure is not null)
+            {
+                __toast = failure;
+                await LoadAsync();
+                return;
+            }
+            saved++;
+        }
+
+        await LoadAsync();
+        __toast = new()
+        {
+            ToastType = saved == 0 ? ToastTypeModel.Primary : ToastTypeModel.Success,
+            Message = saved == 0 ? "Nothing to save" : $"Saved. {saved} visitor(s) updated and shown to the team"
+        };
+    }
+
+    private static bool Changed(LeadRow r) =>
+        r.Altar != r.WasAltar
+        || (r.Altar && (r.Reason != r.WasReason || r.AssignTo != r.WasAssignTo));
+
+    /// <summary>Returns a failure toast, or null when the row saved.</summary>
+    private async Task<ToastMessageModel?> SaveRowAsync(LeadRow row)
+    {
+        var ct = __cts.Token;
+
+        // 1. The altar reason lives on the visit.
+        if (row.Attendance is not null)
+        {
+            row.Attendance.fstrAltarReason = row.Altar ? row.Reason : null;
+            row.Attendance.fstrWho = AppConstants.Who;
+            var attendance = await AttendanceRepo.AddOrUpdateVisitorAttendance(row.Attendance, false, ct);
+            if (!attendance.IsSuccess) return attendance;
+        }
+
+        if (!row.Altar) return null;
+
+        // 2. The connector who follows the person up.
+        if (row.AssignTo != row.WasAssignTo)
+        {
+            var assign = await VisitorRepo.AssignVisitorConnect(row.Visitor.flngKey, row.AssignTo, AppConstants.Who, ct);
+            if (!assign.IsSuccess) return assign;
+        }
+
+        // 3. A new follow-up starts with a call due today.
+        var v = row.Visitor;
+        if (row.AssignTo is not null && v.fdtmNextContactDate is null)
+        {
+            v.fdtmNextContactDate = AppClock.Today;
+            v.fstrWho = AppConstants.Who;
+            var update = await VisitorRepo.AddOrUpdateVisitor(v, false, ct);
+            if (!update.IsSuccess) return update;
+        }
+
+        return null;
+    }
+
+    #endregion
+}

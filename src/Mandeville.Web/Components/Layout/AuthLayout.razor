@@ -1,0 +1,15 @@
+﻿@inherits LayoutComponentBase
+@inject IConfiguration Configuration
+
+<div class="auth-shell">
+    <div class="auth-card">
+        <div class="auth-brand">
+            <div class="brand-logo" aria-hidden="true"><Icon Name="house" Size="26" /></div>
+            <div>
+                <div class="brand-name">@(Configuration["Church:GroupName"] ?? "WAFIF Mandeville")</div>
+                <div class="brand-sub">@(Configuration["Church:Ministers"] ?? string.Empty)</div>
+            </div>
+        </div>
+        @Body
+    </div>
+</div>

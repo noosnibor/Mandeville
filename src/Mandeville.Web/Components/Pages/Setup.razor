@@ -1,0 +1,117 @@
+﻿@page "/setup"
+@attribute [PageAccess(PageKeys.Setup, "Setup", "Admin", "gear", Tint = "c1", Order = 320)]
+@inject IMemberTypeRepository MemberTypeRepo
+@inject IServiceAssignmentRepository AssignmentRepo
+@inject IDepartmentRepository DepartmentRepo
+@inject IPaymentTypeRepository PaymentTypeRepo
+@inject IExpenseCategoryRepository ExpenseCategoryRepo
+
+<PageTitle>Setup</PageTitle>
+
+<div class="page-head"><h1>Setup</h1></div>
+
+<div class="tabs">
+    @foreach (var t in __tabs)
+    {
+        <button class="tab @(__tab == t ? "active" : "")" @onclick="() => __tab = t">@t</button>
+    }
+    <button class="tab @(__tab == "Services" ? "active" : "")" @onclick='() => __tab = "Services"'>Services</button>
+    <button class="tab @(__tab == "Fixed lists" ? "active" : "")" @onclick='() => __tab = "Fixed lists"'>Fixed lists</button>
+    <button class="tab @(__tab == "Users" ? "active" : "")" @onclick='() => __tab = "Users"'>Users &amp; access</button>
+</div>
+
+@switch (__tab)
+{
+    case "Member types":
+        <LookupEditor @key="__tab" Title="Member types" Load="LoadMemberTypes" Save="SaveMemberType" Delete="DeleteMemberType" />
+        break;
+    case "Service assignments":
+        <LookupEditor @key="__tab" Title="Service assignments" Load="LoadAssignments" Save="SaveAssignment" Delete="DeleteAssignment" />
+        break;
+    case "Departments":
+        <LookupEditor @key="__tab" Title="Departments" Load="LoadDepartments" Save="SaveDepartment" Delete="DeleteDepartment" />
+        break;
+    case "Payment types":
+        <LookupEditor @key="__tab" Title="Payment types" ShowDues="true" Load="LoadPaymentTypes" Save="SavePaymentType" Delete="DeletePaymentType" />
+        break;
+    case "Expense categories":
+        <LookupEditor @key="__tab" Title="Expense categories" Load="LoadCategories" Save="SaveCategory" Delete="DeleteCategory" />
+        break;
+    case "Services":
+        <ServicesSetupTab />
+        break;
+    case "Users":
+        <div class="card">
+            <p class="hint">Sign-in accounts, roles (Administrator, Minister, Pastoral Care) and temporary passwords are managed on their own page.</p>
+            <a class="btn btn-primary btn-sm" href="users">Open Users &amp; access</a>
+        </div>
+        break;
+    default:
+        <FixedListsEditor />
+        break;
+}
+
+@code {
+    private readonly string[] __tabs = ["Member types", "Service assignments", "Departments", "Payment types", "Expense categories"];
+    private string __tab = "Member types";
+
+    #region Member types
+
+    private async Task<List<LookupItem>> LoadMemberTypes() =>
+        (await MemberTypeRepo.SelectMemberType()).Select(x => new LookupItem { Key = x.flngKey, Name = x.fstrName, Description = x.fstrDescription, Active = x.fblnActive }).ToList();
+
+    private Task<ToastMessageModel> SaveMemberType(LookupItem i, bool isNew) =>
+        MemberTypeRepo.AddOrUpdateMemberType(new MemberTypeModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fstrWho = AppConstants.Who }, isNew);
+
+    private Task<ToastMessageModel> DeleteMemberType(Guid key) => MemberTypeRepo.DeleteMemberType(key, AppConstants.Who);
+
+    #endregion
+
+    #region Service assignments
+
+    private async Task<List<LookupItem>> LoadAssignments() =>
+        (await AssignmentRepo.SelectServiceAssignment()).Select(x => new LookupItem { Key = x.flngKey, Name = x.fstrName, Description = x.fstrDescription, Active = x.fblnActive }).ToList();
+
+    private Task<ToastMessageModel> SaveAssignment(LookupItem i, bool isNew) =>
+        AssignmentRepo.AddOrUpdateServiceAssignment(new ServiceAssignmentModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fstrWho = AppConstants.Who }, isNew);
+
+    private Task<ToastMessageModel> DeleteAssignment(Guid key) => AssignmentRepo.DeleteServiceAssignment(key, AppConstants.Who);
+
+    #endregion
+
+    #region Departments
+
+    private async Task<List<LookupItem>> LoadDepartments() =>
+        (await DepartmentRepo.SelectDepartment()).Select(x => new LookupItem { Key = x.flngKey, Name = x.fstrName, Description = x.fstrDescription, Active = x.fblnActive }).ToList();
+
+    private Task<ToastMessageModel> SaveDepartment(LookupItem i, bool isNew) =>
+        DepartmentRepo.AddOrUpdateDepartment(new DepartmentModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fstrWho = AppConstants.Who }, isNew);
+
+    private Task<ToastMessageModel> DeleteDepartment(Guid key) => DepartmentRepo.DeleteDepartment(key, AppConstants.Who);
+
+    #endregion
+
+    #region Payment types
+
+    private async Task<List<LookupItem>> LoadPaymentTypes() =>
+        (await PaymentTypeRepo.SelectPaymentType()).Select(x => new LookupItem { Key = x.flngKey, Name = x.fstrName, Description = x.fstrDescription, Active = x.fblnActive, IsDues = x.fblnIsDues }).ToList();
+
+    private Task<ToastMessageModel> SavePaymentType(LookupItem i, bool isNew) =>
+        PaymentTypeRepo.AddOrUpdatePaymentType(new PaymentTypeModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fblnIsDues = i.IsDues, fstrWho = AppConstants.Who }, isNew);
+
+    private Task<ToastMessageModel> DeletePaymentType(Guid key) => PaymentTypeRepo.DeletePaymentType(key, AppConstants.Who);
+
+    #endregion
+
+    #region Expense categories
+
+    private async Task<List<LookupItem>> LoadCategories() =>
+        (await ExpenseCategoryRepo.SelectExpenseCategory()).Select(x => new LookupItem { Key = x.flngKey, Name = x.fstrName, Description = x.fstrDescription, Active = x.fblnActive }).ToList();
+
+    private Task<ToastMessageModel> SaveCategory(LookupItem i, bool isNew) =>
+        ExpenseCategoryRepo.AddOrUpdateExpenseCategory(new ExpenseCategoryModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fstrWho = AppConstants.Who }, isNew);
+
+    private Task<ToastMessageModel> DeleteCategory(Guid key) => ExpenseCategoryRepo.DeleteExpenseCategory(key, AppConstants.Who);
+
+    #endregion
+}

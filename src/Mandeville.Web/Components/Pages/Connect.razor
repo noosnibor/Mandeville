@@ -1,0 +1,63 @@
+﻿@page "/connect"
+@attribute [PageAccess(PageKeys.Connect, "Connections & Prayerline", "People", "link", Tint = "c4", Short = "Connections", Tabs = "Team lead,My team members", OwnOnlyOption = true, Bar = true, Order = 30)]
+@using System.Security.Claims
+
+<PageTitle>Connections &amp; Prayerline</PageTitle>
+
+<div class="with-side"><div class="side-main">
+
+<div class="mod">
+<div class="mhead"><div><h1>Connections &amp; Prayerline</h1><p>The team lead sorts the visitors. Team members follow them up.</p></div></div>
+
+@if (__ready)
+{
+    @if (__isLead && __showLeadTab && __showTeamTab)
+    {
+        <div class="tabs">
+            <button class="tab @(__tab == 0 ? "active" : "")" @onclick="() => __tab = 0">Team lead</button>
+            <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1">My team members</button>
+        </div>
+    }
+
+    @if (__isLead && __showLeadTab && __tab == 0)
+    {
+        <ConnectLeadTab />
+    }
+    else
+    {
+        @* A team member sees only their own list; the lead and administrators can look at any team member's list *@
+        <ConnectMemberTab MemberKey="__myKey" CanPick="__isLead" />
+    }
+}
+</div>
+
+</div>
+<aside><RoleSidePanel Kind="connect" /></aside>
+</div>
+
+@code {
+    #region Private Fields
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool __ready;
+    private bool __isLead, __showLeadTab, __showTeamTab;
+    private Guid? __myKey;
+    private int __tab;
+
+    #endregion
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthState is null ? null : (await AuthState).User;
+
+        // A role set to "own records only" sees just the people given to that member; any other role runs the team
+        // and sees the tabs it was given.
+        __isLead = user is not null && !user.OwnOnly(PageKeys.Connect);
+        __showLeadTab = user?.CanTab(PageKeys.Connect, "Team lead") ?? false;
+        __showTeamTab = user?.CanTab(PageKeys.Connect, "My team members") ?? false;
+        __tab = __showLeadTab ? 0 : 1;
+        __myKey = Guid.TryParse(user?.FindFirstValue(AppClaims.MemberKey), out var key) ? key : null;
+        __ready = true;
+    }
+}

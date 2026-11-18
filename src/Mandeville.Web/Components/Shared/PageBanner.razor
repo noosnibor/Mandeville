@@ -1,0 +1,22 @@
+@* Page banner: soft blue gradient card with a title, a subtitle and an icon chip on the right. *@
+<div class="pbanner">
+    <div class="pbanner-text">
+        <h1>@Title</h1>
+        @if (!string.IsNullOrWhiteSpace(Subtitle)) { <p>@Subtitle</p> }
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Icon))
+    {
+        <div class="pbanner-icon"><Icon Name="@Icon" Size="26" /></div>
+    }
+</div>
+
+@code {
+    #region Parameters
+
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Subtitle { get; set; }
+    /// <summary>Name of an icon known to <see cref="Icon"/>.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    #endregion
+}

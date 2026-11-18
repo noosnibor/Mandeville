@@ -1,0 +1,298 @@
+@implements IDisposable
+@inject IVisitorRepository VisitorRepo
+@inject IVisitorAttendanceRepository AttendanceRepo
+
+<ToastBar Toast="__toast" />
+
+@* ---------- Summary ---------- *@
+<div class="mstats">
+    <div class="mstat"><b>@__visitors.Count</b><span>Visitors</span></div>
+    <div class="mstat"><b>@__hereToday</b><span>Here today</span></div>
+    <div class="mstat hot"><b>@__todayReasons.Count</b><span>Altar call today</span></div>
+</div>
+
+@* ---------- Search and filters ---------- *@
+<div class="mtools">
+    <input class="msearch" type="text" placeholder="Search name, phone or email" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
+    <button class="mchip @(string.IsNullOrEmpty(__filterAge) ? "on" : "")" @onclick="() => SetAgeAsync(null)">All</button>
+    @foreach (var g in FixedLists.AgeGroups)
+    {
+        var group = g;
+        <button class="mchip @(__filterAge == group ? "on" : "")" @onclick="() => SetAgeAsync(group)">@group</button>
+    }
+    <button class="mchip" @onclick="LoadAsync">Search</button>
+</div>
+
+@* ---------- Visitor cards (basic details only) ---------- *@
+<div class="mgrid">
+    @foreach (var v in __visitors)
+    {
+        <div class="vcard" @onclick="() => OpenDetailAsync(v)">
+            <div class="vcard-body">
+                <div class="vcard-head">
+                    <div class="ucard-avatar" style="background:@AvatarStyle.Colour(v.flngKey)">@AvatarStyle.Initials(v.fstrFirstname, v.fstrLastname)</div>
+                    <div class="ucard-text">
+                        <b>@v.FullName</b>
+                        <small>@(string.IsNullOrWhiteSpace(v.fstrPhoneNumber) ? "No phone" : v.fstrPhoneNumber)@(string.IsNullOrWhiteSpace(v.fstrAddress) ? "" : " · " + v.fstrAddress)</small>
+                    </div>
+                    @if (__todayReasons.ContainsKey(v.flngKey))
+                    {
+                        <span class="inc-path ret">Altar call</span>
+                    }
+                    else if (v.fstrStatus != "Visitor")
+                    {
+                        <span class="inc-path new">@v.fstrStatus</span>
+                    }
+                </div>
+                <div class="vcard-line">
+                    <span>@v.fstrAgeGroup &middot; @v.fstrGender</span>
+                    <span><b>@v.flngVisitCount</b> @(v.flngVisitCount == 1 ? "visit" : "visits")</span>
+                </div>
+            </div>
+            <div class="vcard-foot">
+                <button @onclick="() => OpenDetailAsync(v)" @onclick:stopPropagation="true">Profile</button>
+                <button @onclick="() => EditVisitor(v)" @onclick:stopPropagation="true">Edit</button>
+            </div>
+        </div>
+    }
+</div>
+@if (__visitors.Count == 0)
+{
+    <div class="card"><p class="empty" style="margin:0">No visitors found.</p></div>
+}
+
+<button class="fab" @onclick="NewVisitor"><Icon Name="plus" Size="16" />Add visitor</button>
+
+@* ---------- Details panel ---------- *@
+@if (__detail is not null)
+{
+    var d = __detail;
+    <div class="drawer-backdrop" @onclick="CloseDetail">
+        <aside class="drawer" role="dialog" aria-modal="true" aria-label="Visitor details" @onclick:stopPropagation="true">
+            <div class="drawer-cover" style="background:@(d.fstrStatus == "Member" ? "#e3e6ec" : AvatarStyle.Cover(d.flngKey))">
+                <button class="drawer-close" aria-label="Close" @onclick="CloseDetail">&#10005;</button>
+            </div>
+            <div class="drawer-top">
+                <div class="drawer-avatar" style="background:@(d.fstrStatus == "Member" ? "#cdd2db" : AvatarStyle.Colour(d.flngKey))">@AvatarStyle.Initials(d.fstrFirstname, d.fstrLastname)</div>
+                <h3>@d.FullName</h3>
+                <small>@(string.IsNullOrWhiteSpace(d.fstrPhoneNumber) ? "No phone" : d.fstrPhoneNumber)</small>
+                <div class="drawer-stats">
+                    <div><b>@d.flngVisitCount</b><span>Visits</span></div>
+                    <div><b>@(d.fdtmLastAttended?.ToString("dd MMM") ?? "-")</b><span>Last attended</span></div>
+                </div>
+            </div>
+
+            <div class="drawer-card">
+                <h4>Contact</h4>
+                <div class="ir"><span>Phone</span><b>@(d.fstrPhoneNumber ?? "-")</b></div>
+                <div class="ir"><span>Email</span><b>@(d.fstrEmailAddress ?? "-")</b></div>
+                <div class="ir"><span>Address</span><b>@(d.fstrAddress ?? "-")</b></div>
+            </div>
+
+            <div class="drawer-card">
+                <h4>Details</h4>
+                <div class="ir"><span>Age group</span><b>@d.fstrAgeGroup</b></div>
+                <div class="ir"><span>Gender</span><b>@d.fstrGender</b></div>
+                @if (d.fstrStatus != "Visitor")
+                {
+                    <div class="ir"><span>Status</span><b>@d.fstrStatus</b></div>
+                }
+                @if (!string.IsNullOrWhiteSpace(d.fstrFollowUpName))
+                {
+                    <div class="ir"><span>Connected to</span><b>@d.fstrFollowUpName</b></div>
+                }
+            </div>
+
+            <div class="drawer-card">
+                <h4>Recent visits</h4>
+                @if (__detailVisits.Count == 0)
+                {
+                    <p class="hint" style="margin:0">No visits recorded yet.</p>
+                }
+                else
+                {
+                    foreach (var a in __detailVisits)
+                    {
+                        <div class="ir"><span>@a.fdtmServiceDate.ToString("dd MMM yyyy")</span><b>@(string.IsNullOrWhiteSpace(a.fstrAltarReason) ? "Attended" : a.fstrAltarReason)</b></div>
+                    }
+                }
+            </div>
+
+            <div class="drawer-foot">
+                <button class="p" @onclick="() => EditFromDetail(d)">Edit visitor</button>
+                <button class="d" @onclick="() => DeleteFromDetailAsync(d)">Delete</button>
+            </div>
+        </aside>
+    </div>
+}
+
+@* ---------- Add / edit popup ---------- *@
+@if (__edit is not null)
+{
+    <Modal Title="@(__isNew ? "Add visitor" : "Edit visitor")" Subtitle="Just the basics. The Connections team adds the rest" Icon="userplus" OnClose="() => __edit = null">
+        <ChildContent>
+            <div class="modal-sec">Personal</div>
+            <div class="form-grid">
+                <div class="field"><label>First name</label><input type="text" maxlength="50" @bind="__edit.fstrFirstname" /></div>
+                <div class="field"><label>Last name</label><input type="text" maxlength="50" @bind="__edit.fstrLastname" /></div>
+                <div class="field">
+                    <label>Gender</label>
+                    <select @bind="__edit.fstrGender">@foreach (var g in FixedLists.Genders) { <option value="@g">@g</option> }</select>
+                </div>
+                <div class="field">
+                    <label>Adult / Child</label>
+                    <select @bind="__edit.fstrAgeGroup">@foreach (var g in FixedLists.AgeGroups) { <option value="@g">@g</option> }</select>
+                </div>
+            </div>
+
+            <div class="modal-sec">Contact</div>
+            <div class="form-grid">
+                <div class="field"><label>Phone number</label><input type="text" maxlength="30" @bind="__edit.fstrPhoneNumber" /></div>
+                <div class="field"><label>Email address (optional)</label><input type="text" maxlength="150" @bind="__edit.fstrEmailAddress" /></div>
+                <div class="field" style="grid-column:1/-1"><label>Address</label><input type="text" maxlength="250" @bind="__edit.fstrAddress" /></div>
+            </div>
+
+            @if (__isNew)
+            {
+                <div class="check-list" style="margin-top:.6rem">
+                    <label><input type="checkbox" @bind="__attendedToday" /> Attended today</label>
+                </div>
+            }
+
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary btn-sm" @onclick="SaveAsync">Save visitor</button>
+            <button class="btn btn-sm" @onclick="() => __edit = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<VisitorModel> __visitors = [];
+    private Dictionary<Guid, string> __todayReasons = [];
+    private VisitorModel? __edit;
+    private bool __isNew;
+    private bool __attendedToday = true;
+    private string? __search;
+    private string? __filterAge;
+    private int __hereToday;
+    private ToastMessageModel? __toast;
+
+    // Details panel
+    private VisitorModel? __detail;
+    private List<VisitorAttendanceModel> __detailVisits = [];
+
+    #endregion
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task SetAgeAsync(string? ageGroup)
+    {
+        __filterAge = ageGroup;
+        await LoadAsync();
+    }
+
+    #region Details panel
+
+    private async Task OpenDetailAsync(VisitorModel v)
+    {
+        __detail = v;
+        var visits = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
+        __detailVisits = visits.OrderByDescending(a => a.fdtmServiceDate).Take(5).ToList();
+    }
+
+    private void CloseDetail() => __detail = null;
+
+    private void EditFromDetail(VisitorModel v)
+    {
+        __detail = null;
+        EditVisitor(v);
+    }
+
+    private async Task DeleteFromDetailAsync(VisitorModel v)
+    {
+        __detail = null;
+        await DeleteAsync(v);
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await LoadAsync();
+    }
+
+    #endregion
+
+    private async Task LoadAsync()
+    {
+        __visitors = await VisitorRepo.SelectVisitor(
+            ageGroup: string.IsNullOrEmpty(__filterAge) ? null : __filterAge,
+            search: string.IsNullOrWhiteSpace(__search) ? null : __search.Trim(),
+            cancellationToken: __cts.Token);
+
+        var today = AppClock.Today;
+        var todays = await AttendanceRepo.SelectVisitorAttendance(serviceDate: today, cancellationToken: __cts.Token);
+        __todayReasons = todays.Where(a => !string.IsNullOrEmpty(a.fstrAltarReason)).ToDictionary(a => a.flngVisitorKey, a => a.fstrAltarReason!);
+        __hereToday = todays.Select(a => a.flngVisitorKey).Distinct().Count();
+    }
+
+    private void NewVisitor()
+    {
+        __edit = new VisitorModel { fstrGender = "Male", fstrAgeGroup = "Adult", fstrStatus = "Visitor" };
+        __attendedToday = true;
+        __isNew = true;
+    }
+
+    private void EditVisitor(VisitorModel v)
+    {
+        __edit = new VisitorModel
+        {
+            flngKey = v.flngKey, fstrFirstname = v.fstrFirstname, fstrLastname = v.fstrLastname, fstrGender = v.fstrGender,
+            fstrAgeGroup = v.fstrAgeGroup, fstrPhoneNumber = v.fstrPhoneNumber, fstrEmailAddress = v.fstrEmailAddress,
+            fstrAddress = v.fstrAddress, fdtmLastContactDate = v.fdtmLastContactDate, fdtmNextContactDate = v.fdtmNextContactDate,
+            fstrStatus = v.fstrStatus, fstrJoinedChurch = v.fstrJoinedChurch, fstrMembershipTransferNote = v.fstrMembershipTransferNote,
+            fdtmBaptisedOn = v.fdtmBaptisedOn, fdtmClassStartedOn = v.fdtmClassStartedOn, fdtmTier2On = v.fdtmTier2On, fdtmInterviewOn = v.fdtmInterviewOn, fdtmInauguratedOn = v.fdtmInauguratedOn, fdtmDateOfBirth = v.fdtmDateOfBirth, fstrPath = v.fstrPath,
+            flngMemberKey = v.flngMemberKey, fblnActive = v.fblnActive
+        };
+        __isNew = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (__edit is null) return;
+        if (string.IsNullOrWhiteSpace(__edit.fstrFirstname) || string.IsNullOrWhiteSpace(__edit.fstrLastname))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "First name and last name are required" };
+            return;
+        }
+
+        __edit.fstrWho = AppConstants.Who;
+        __toast = await VisitorRepo.AddOrUpdateVisitor(__edit, __isNew, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        // A brand-new visitor who attended today gets today's attendance recorded straight away.
+        if (__isNew && __attendedToday)
+        {
+            var attendance = new VisitorAttendanceModel { flngVisitorKey = __edit.flngKey, fdtmServiceDate = AppClock.Today, fstrWho = AppConstants.Who };
+            var result = await AttendanceRepo.AddOrUpdateVisitorAttendance(attendance, true, __cts.Token);
+            if (!result.IsSuccess) __toast = result;
+        }
+
+        __edit = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(VisitorModel v)
+    {
+        __toast = await VisitorRepo.DeleteVisitor(v.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await LoadAsync();
+    }
+}

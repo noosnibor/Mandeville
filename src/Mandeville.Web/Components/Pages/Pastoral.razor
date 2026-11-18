@@ -1,0 +1,723 @@
+﻿@page "/pastoral"
+@attribute [PageAccess(PageKeys.Pastoral, "Pastoral Care", "People", "heart", Tint = "c5", Short = "Pastoral", OwnOnlyOption = true, Order = 50)]
+@implements IDisposable
+@using System.Security.Claims
+@inject IMemberRepository MemberRepo
+@inject IPastoralAssignmentRepository AssignmentRepo
+@inject IPastoralContactRepository ContactRepo
+@inject IMemberAttendanceRepository AttendanceRepo
+
+<PageTitle>Pastoral Care</PageTitle>
+
+<div class="with-side"><div class="side-main">
+
+<PageBanner Title="Pastoral Care" Subtitle="@(__staff ? "Core members caring for members, supporting the minister" : "The members you care for and your private care log")" Icon="heart" />
+
+<ToastBar Toast="__toast" />
+
+@if (!__ready)
+{
+    <p class="hint">Loading&hellip;</p>
+}
+else if (!__staff && __myKey is null)
+{
+    <div class="card"><p class="empty" style="margin:0">Your account is not linked to a Core Member yet. Please ask the administrator to link it.</p></div>
+}
+else
+{
+    @if (__staff)
+    {
+        <div class="tabs">
+            <button class="tab @(__tab == "caseloads" ? "active" : "")" @onclick='() => __tab = "caseloads"'>Caseloads</button>
+            <button class="tab @(__tab == "assign" ? "active" : "")" @onclick='() => __tab = "assign"'>Assign members</button>
+            <button class="tab @(__tab == "log" ? "active" : "")" @onclick='() => __tab = "log"'>Care log</button>
+            <button class="tab @(__tab == "minister" ? "active" : "")" @onclick='() => SwitchTabAsync("minister")'>Minister's list</button>
+        </div>
+    }
+    else
+    {
+        <div class="tabs">
+            <button class="tab @(__tab == "mine" ? "active" : "")" @onclick='() => __tab = "mine"'>My caseload</button>
+            <button class="tab @(__tab == "log" ? "active" : "")" @onclick='() => __tab = "log"'>My log</button>
+        </div>
+    }
+
+    @* ======================= Caseloads (administrator / minister) ======================= *@
+    @if (__staff && __tab == "caseloads")
+    {
+        <div class="mgraph">
+            <div class="mgraph-total">
+                <div class="ring-chip" style="--c:#ec4899"><Icon Name="heart" Size="22" /></div>
+                <b>@__care.Count</b>
+                <span>Members in care</span>
+            </div>
+            <div class="mgraph-body">
+                <div class="mgraph-bars">
+                    @foreach (var bar in Bars())
+                    {
+                        <div class="mgraph-col">
+                            <em>@bar.Value</em>
+                            <i style="height:@(BarHeight(bar.Value))%; --from:@bar.From; --to:@bar.To"></i>
+                        </div>
+                    }
+                </div>
+                <div class="mgraph-labels">
+                    @foreach (var bar in Bars()) { <span>@bar.Label</span> }
+                </div>
+            </div>
+        </div>
+
+        @if (CoreMembers.Count == 0)
+        {
+            <div class="card"><p class="empty" style="margin:0">No Core Members yet. Tick "Core member" on a member's record (Members page) and they will appear here.</p></div>
+        }
+        <div class="care-grid">
+            @foreach (var core in CoreMembers)
+            {
+                var mine = CareOf(core.flngKey);
+                var state = WorstState(mine);
+                var lastLog = LastLogOf(core.flngKey);
+                <div class="care-card" @onclick="() => __openCarer = core.flngKey">
+                    <div class="care-top">
+                        <div class="care-av" style="background:@AvatarStyle.Colour(core.flngKey)">@AvatarStyle.Initials(core.fstrFirstname, core.fstrLastname)</div>
+                        <div class="care-nm"><b>@core.FullName</b><small>Core member</small></div>
+                        <span class="care-tag @state.Css">@state.Text</span>
+                    </div>
+                    <div class="care-stats">
+                        <div><b>@mine.Count</b><span>Members</span></div>
+                        <div><b>@mine.Count(c => c.State is "w" or "o")</b><span>Due now</span></div>
+                        <div><b>@(lastLog is null ? "-" : lastLog.Value.ToString("d MMM"))</b><span>Last log</span></div>
+                    </div>
+                    <div class="care-faces">
+                        @foreach (var c in mine.Take(4))
+                        {
+                            <i style="background:@AvatarStyle.Colour(c.MemberKey)" title="@c.Name">@Initials(c.Name)</i>
+                        }
+                        @if (mine.Count > 4) { <small>+@(mine.Count - 4) more</small> }
+                        @if (mine.Count == 0) { <small>No members assigned yet</small> }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @* ======================= Assign members (administrator / minister) ======================= *@
+    @if (__staff && __tab == "assign")
+    {
+        <div class="mfilter">
+            <input type="text" placeholder="Search name" @bind="__assignSearch" @bind:event="oninput" />
+            <select @bind="__assignFilter">
+                <option value="none">Without a carer</option>
+                <option value="has">With a carer</option>
+                <option value="all">Everyone</option>
+            </select>
+        </div>
+        <div class="card care-assign">
+            @{ var assignList = AssignList(); }
+            @if (CoreMembers.Count == 0)
+            {
+                <p class="empty" style="margin:0">Mark at least one member as a Core Member first (Members page).</p>
+            }
+            else if (assignList.Count == 0)
+            {
+                <p class="empty" style="margin:0">No members match.</p>
+            }
+            @foreach (var m in assignList.Take(60))
+            {
+                <div class="care-u">
+                    <div class="care-av sm" style="background:@AvatarStyle.Colour(m.flngKey)">@AvatarStyle.Initials(m.fstrFirstname, m.fstrLastname)</div>
+                    <div class="care-ut">
+                        <b>@m.FullName</b>
+                        <small>@(string.IsNullOrWhiteSpace(m.fstrCarerName) ? "No carer yet" : "Cared for by " + m.fstrCarerName)</small>
+                    </div>
+                    <select class="care-sel" @onchange="e => AssignAsync(m.flngKey, e.Value?.ToString())" aria-label="Carer for @m.FullName">
+                        <option value="" selected="@(m.flngCarerKey is null)">Assign to&hellip;</option>
+                        @foreach (var core in CoreMembers.Where(c => c.flngKey != m.flngKey))
+                        {
+                            <option value="@core.flngKey" selected="@(m.flngCarerKey == core.flngKey)">@core.FullName (@CareOf(core.flngKey).Count)</option>
+                        }
+                        @if (m.flngCarerKey is not null) { <option value="remove">Remove carer</option> }
+                    </select>
+                </div>
+            }
+            @if (assignList.Count > 60) { <p class="hint">Showing the first 60. Use the search to narrow the list.</p> }
+        </div>
+    }
+
+    @* ======================= My caseload (Pastoral Care account) ======================= *@
+    @if (!__staff && __tab == "mine")
+    {
+        var mine = CareOf(__myKey!.Value);
+        <div class="care-hero">
+            <div><b>@mine.Count</b><span>Members in your care</span></div>
+            <div><b>@mine.Count(c => c.State is "w" or "o")</b><span>Due for a contact</span></div>
+            <div><b>@(LastLogOf(__myKey.Value)?.ToString("d MMM") ?? "-")</b><span>Your last log</span></div>
+        </div>
+        <div class="card care-assign">
+            @if (mine.Count == 0)
+            {
+                <p class="empty" style="margin:0">No members have been given to you yet.</p>
+            }
+            @foreach (var c in mine)
+            {
+                <div class="care-u">
+                    <div class="care-av sm" style="background:@AvatarStyle.Colour(c.MemberKey)">@Initials(c.Name)</div>
+                    <div class="care-ut">
+                        <b>@c.Name</b>
+                        <small>@c.Detail</small>
+                    </div>
+                    <span class="care-tag @c.State">@c.StateText</span>
+                    <button class="btn btn-sm" @onclick="() => StartLog(__myKey, c.MemberKey, null)">Log</button>
+                    <button class="btn btn-sm" @onclick="() => __history = c">History</button>
+                </div>
+            }
+        </div>
+    }
+
+    @* ======================= Care log ======================= *@
+    @if (__tab == "log")
+    {
+        @if (__staff)
+        {
+            <div class="mfilter">
+                <select @bind="__logFilterCarer">
+                    <option value="">All carers</option>
+                    @foreach (var core in CoreMembers) { <option value="@core.flngKey">@core.FullName</option> }
+                </select>
+            </div>
+        }
+        <div class="card">
+            @{ var entries = LogEntries(); }
+            @if (entries.Count == 0)
+            {
+                <p class="empty" style="margin:0">No care contacts have been logged yet.</p>
+            }
+            @foreach (var c in entries.Take(80))
+            {
+                <div class="care-tl">
+                    <i></i>
+                    <div class="care-tl-head">
+                        <b>@(__staff ? c.fstrCoreMemberName + " → " + c.fstrMemberName : c.fstrMemberName)</b>
+                        <small>@c.fstrMethod &middot; @c.fdtmContactDate.ToString("d MMM yyyy")</small>
+                        @if (c.fblnFlagForMinister)
+                        {
+                            <span class="care-flag-chip">@(c.fblnFlagResolved ? "Flag resolved" : "Flagged for the minister")</span>
+                        }
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(c.fstrNotes)) { <p>@c.fstrNotes</p> }
+                    @if (c.fdtmNextContactDate is { } nx) { <small class="care-next">Next contact: @nx.ToString("d MMM yyyy")</small> }
+                    @if (CanEdit(c) || __isAdmin)
+                    {
+                        <div class="care-tl-act">
+                            @if (CanEdit(c)) { <button class="btn btn-sm" @onclick="() => StartLog(c.flngCoreMemberKey, c.flngMemberKey, c)">Edit</button> }
+                            @if (CanEdit(c) || __isAdmin) { <button class="btn btn-sm care-del" @onclick="() => DeleteContactAsync(c)">Delete</button> }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @* ======================= Minister's list ======================= *@
+    @if (__staff && __tab == "minister")
+    {
+        <div class="card">
+            <h2>Flagged by carers <span>@FlaggedContacts().Count open</span></h2>
+            @if (FlaggedContacts().Count == 0)
+            {
+                <p class="empty" style="margin:0">Nothing is flagged right now.</p>
+            }
+            @foreach (var c in FlaggedContacts())
+            {
+                <div class="care-u">
+                    <div class="care-av sm" style="background:@AvatarStyle.Colour(c.flngMemberKey)">@Initials(c.fstrMemberName)</div>
+                    <div class="care-ut">
+                        <b>@c.fstrMemberName</b>
+                        <small>Flagged by @c.fstrCoreMemberName &middot; @c.fdtmContactDate.ToString("d MMM")</small>
+                        @if (!string.IsNullOrWhiteSpace(c.fstrNotes)) { <p class="care-note">@c.fstrNotes</p> }
+                    </div>
+                    <button class="btn btn-sm" @onclick="() => ResolveAsync(c)">Mark resolved</button>
+                </div>
+            }
+        </div>
+
+        <div class="card">
+            <h2>Needs attention <span>Not seen in 3+ weeks and no recent care contact</span></h2>
+            @{ var attention = NeedsAttention(); }
+            @if (attention.Count == 0)
+            {
+                <p class="empty" style="margin:0">Everyone who has been away is being looked after.</p>
+            }
+            @foreach (var a in attention.Take(30))
+            {
+                <div class="care-u">
+                    <div class="care-av sm" style="background:@AvatarStyle.Colour(a.Member.flngKey)">@AvatarStyle.Initials(a.Member.fstrFirstname, a.Member.fstrLastname)</div>
+                    <div class="care-ut">
+                        <b>@a.Member.FullName</b>
+                        <small>@(a.LastSeen is { } ls ? "Last seen " + ls.ToString("d MMM") : "Never checked in") &middot; @(string.IsNullOrWhiteSpace(a.Member.fstrCarerName) ? "No carer assigned" : "Carer: " + a.Member.fstrCarerName)</small>
+                    </div>
+                    <span class="care-tag @(a.Member.flngCarerKey is null ? "o" : "w")">@(a.Member.flngCarerKey is null ? "No carer" : "No contact")</span>
+                </div>
+            }
+        </div>
+    }
+
+    @if ((__tab is "caseloads" or "mine" or "log") && (__staff ? CoreMembers.Count > 0 : CareOf(__myKey!.Value).Count > 0))
+    {
+        <button class="fab" @onclick="() => StartLog(__staff ? null : __myKey, null, null)"><Icon Name="plus" Size="16" />Log contact</button>
+    }
+
+    @* ======================= Core member caseload drawer ======================= *@
+    @if (__openCarer is { } carerKey && CoreMembers.FirstOrDefault(c => c.flngKey == carerKey) is { } carer)
+    {
+        var list = CareOf(carerKey);
+        <div class="drawer-backdrop" @onclick="() => __openCarer = null">
+            <aside class="drawer" role="dialog" aria-modal="true" aria-label="Caseload" @onclick:stopPropagation="true">
+                <div class="drawer-cover" style="background:@AvatarStyle.Cover(carer.flngKey)">
+                    <button class="drawer-close" aria-label="Close" @onclick="() => __openCarer = null">&#10005;</button>
+                </div>
+                <div class="drawer-top">
+                    <div class="drawer-avatar" style="background:@AvatarStyle.Colour(carer.flngKey)">@AvatarStyle.Initials(carer.fstrFirstname, carer.fstrLastname)</div>
+                    <h3>@carer.FullName</h3>
+                    <small>Core member</small>
+                    <div class="drawer-stats">
+                        <div><b>@list.Count</b><span>Members</span></div>
+                        <div><b>@list.Count(c => c.State is "w" or "o")</b><span>Due now</span></div>
+                        <div><b>@(LastLogOf(carerKey)?.ToString("d MMM") ?? "-")</b><span>Last log</span></div>
+                    </div>
+                </div>
+                <div class="drawer-card">
+                    <h4>Members in their care</h4>
+                    @if (list.Count == 0) { <p class="hint" style="margin:0">Nobody assigned yet. Use the Assign members tab.</p> }
+                    @foreach (var c in list)
+                    {
+                        <div class="care-u tight">
+                            <div class="care-av sm" style="background:@AvatarStyle.Colour(c.MemberKey)">@Initials(c.Name)</div>
+                            <div class="care-ut"><b>@c.Name</b><small>@c.Detail</small></div>
+                            <span class="care-tag @c.State">@c.StateText</span>
+                        </div>
+                    }
+                </div>
+                <div class="drawer-foot">
+                    <button class="p" @onclick="() => { var k = carerKey; __openCarer = null; StartLog(k, null, null); }">Log contact</button>
+                </div>
+            </aside>
+        </div>
+    }
+
+    @* ======================= One member's history (carer) ======================= *@
+    @if (__history is not null)
+    {
+        <Modal Title="@__history.Name" Subtitle="Your care history (private)" Icon="heart" OnClose="() => __history = null">
+            <ChildContent>
+                @{ var past = __contacts.Where(c => c.flngMemberKey == __history.MemberKey && c.flngCoreMemberKey == __history.CarerKey).OrderByDescending(c => c.fdtmContactDate).ToList(); }
+                @if (past.Count == 0) { <p class="hint">Nothing logged yet.</p> }
+                @foreach (var c in past)
+                {
+                    <div class="care-tl">
+                        <i></i>
+                        <div class="care-tl-head"><b>@c.fstrMethod</b><small>@c.fdtmContactDate.ToString("d MMM yyyy")</small>
+                            @if (c.fblnFlagForMinister) { <span class="care-flag-chip">@(c.fblnFlagResolved ? "Flag resolved" : "Flagged for the minister")</span> }</div>
+                        @if (!string.IsNullOrWhiteSpace(c.fstrNotes)) { <p>@c.fstrNotes</p> }
+                    </div>
+                }
+            </ChildContent>
+            <Footer>
+                <button class="btn btn-sm" @onclick="() => __history = null">Close</button>
+            </Footer>
+        </Modal>
+    }
+
+    @* ======================= Log contact popup ======================= *@
+    @if (__log is not null)
+    {
+        <Modal Title="@(__logIsEdit ? "Edit contact" : "Log contact")" Subtitle="Record how you cared for a member" Icon="heart" OnClose="() => __log = null">
+            <ChildContent>
+                <div class="modal-sec">Who</div>
+                <div class="form-grid">
+                    @if (__staff)
+                    {
+                        <div class="field">
+                            <label>Core member</label>
+                            <select @bind="__logCarer" disabled="@__logIsEdit">
+                                <option value="">-- choose --</option>
+                                @foreach (var core in CoreMembers) { <option value="@core.flngKey">@core.FullName</option> }
+                            </select>
+                        </div>
+                    }
+                    <div class="field">
+                        <label>Member</label>
+                        <select @bind="__logMember" disabled="@__logIsEdit">
+                            <option value="">-- choose --</option>
+                            @foreach (var c in LogMemberChoices()) { <option value="@c.MemberKey">@c.Name</option> }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="modal-sec">How</div>
+                <div class="care-pills">
+                    @foreach (var method in FixedLists.CareMethods)
+                    {
+                        var chosen = method;
+                        <button type="button" class="care-pill @(__log.fstrMethod == chosen ? "on" : "")" @onclick="() => __log.fstrMethod = chosen">@chosen</button>
+                    }
+                </div>
+
+                <div class="modal-sec">Details</div>
+                <div class="form-grid">
+                    <div class="field"><label>Date</label><input type="date" @bind="__log.fdtmContactDate" /></div>
+                    <div class="field"><label>Next contact</label><input type="date" @bind="__log.fdtmNextContactDate" /></div>
+                </div>
+                <div class="field"><label>Notes (private)</label><textarea maxlength="1000" placeholder="Only you, the minister and the administrator can read this" @bind="__log.fstrNotes"></textarea></div>
+
+                <label class="care-flag">
+                    <input type="checkbox" @bind="__log.fblnFlagForMinister" />
+                    <span><b>Flag for the minister</b><br />Adds this member to the minister's list for follow-up</span>
+                </label>
+            </ChildContent>
+            <Footer>
+                <button class="btn btn-primary btn-sm" @onclick="SaveLogAsync">Save contact</button>
+                <button class="btn btn-sm" @onclick="() => __log = null">Cancel</button>
+            </Footer>
+        </Modal>
+    }
+}
+
+</div>
+<aside><RoleSidePanel Kind="pastoral" /></aside>
+</div>
+
+@code {
+    #region Private Fields
+
+    private const int DefaultGapDays = 21;
+
+    private readonly CancellationTokenSource __cts = new();
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool __ready, __staff, __isAdmin;
+    private Guid? __myKey;
+    private string __tab = "mine";
+    private ToastMessageModel? __toast;
+
+    private List<MemberModel> __members = [];
+    private List<PastoralAssignmentModel> __assignments = [];
+    private List<PastoralContactModel> __contacts = [];
+    private List<CareItem> __care = [];
+    private Dictionary<Guid, DateTime> __lastSeen = [];
+    private bool __hasAttendance;
+
+    private Guid? __openCarer;
+    private CareItem? __history;
+    private string __assignFilter = "none";
+    private string? __assignSearch;
+    private Guid? __logFilterCarer;
+
+    // Log popup
+    private PastoralContactModel? __log;
+    private bool __logIsEdit;
+    private Guid? __logCarer, __logMember;
+
+    /// <summary>One member in a carer's care, with the state of the relationship.</summary>
+    private sealed record CareItem(Guid MemberKey, Guid CarerKey, string Name, DateTime AssignedOn, PastoralContactModel? Last, string State, string StateText, string Detail);
+    private sealed record BarItem(string Label, int Value, string From, string To);
+    private sealed record AttentionItem(MemberModel Member, DateTime? LastSeen);
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthState is null ? null : (await AuthState).User;
+        __isAdmin = user?.IsInRole(AppRoles.Administrator) ?? false;
+
+        // A role set to "own records only" sees just its caseload; any other role sees every caseload (staff view)
+        __staff = user is not null && !user.OwnOnly(PageKeys.Pastoral);
+        __myKey = Guid.TryParse(user?.FindFirstValue(AppClaims.MemberKey), out var k) ? k : null;
+        __tab = __staff ? "caseloads" : "mine";
+
+        await LoadAsync();
+        __ready = true;
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #endregion
+
+    #region Loading
+
+    /// <summary>
+    /// Privacy: a Pastoral Care account only ever loads its own caseload and its own log. The filter is applied
+    /// here in the query, never by hiding things on screen.
+    /// </summary>
+    private async Task LoadAsync()
+    {
+        var ct = __cts.Token;
+        if (__staff)
+        {
+            __members = await MemberRepo.SelectMember(active: true, cancellationToken: ct);
+            __assignments = await AssignmentRepo.SelectPastoralAssignment(cancellationToken: ct);
+            __contacts = await ContactRepo.SelectPastoralContact(cancellationToken: ct);
+
+            if (__tab == "minister")
+                await LoadAttendanceAsync(ct);
+        }
+        else if (__myKey is Guid mine)
+        {
+            __assignments = await AssignmentRepo.SelectPastoralAssignment(coreMemberKey: mine, cancellationToken: ct);
+            __contacts = await ContactRepo.SelectPastoralContact(coreMemberKey: mine, cancellationToken: ct);
+        }
+
+        BuildCare();
+    }
+
+    private async Task LoadAttendanceAsync(CancellationToken ct)
+    {
+        var attendance = await AttendanceRepo.SelectMemberAttendance(active: true, cancellationToken: ct);
+        __hasAttendance = attendance.Count > 0;
+        __lastSeen = attendance.GroupBy(a => a.flngMemberKey).ToDictionary(g => g.Key, g => g.Max(a => a.fdtmCheckedInAt));
+    }
+
+    /// <summary>Works out, for every assignment, when the carer last made contact and what is due next.</summary>
+    private void BuildCare()
+    {
+        var today = AppClock.Today;
+        __care = __assignments.Select(a =>
+        {
+            var last = __contacts
+                .Where(c => c.flngMemberKey == a.flngMemberKey && c.flngCoreMemberKey == a.flngCoreMemberKey)
+                .OrderByDescending(c => c.fdtmContactDate).FirstOrDefault();
+
+            string state, text, detail;
+            if (last is null)
+            {
+                var overdue = (today - a.fdtmAssignedOn.Date).TotalDays > DefaultGapDays;
+                state = overdue ? "o" : "i";
+                text = overdue ? "Overdue" : "New";
+                detail = "Not contacted yet";
+            }
+            else
+            {
+                var due = (last.fdtmNextContactDate ?? last.fdtmContactDate.AddDays(DefaultGapDays)).Date;
+                (state, text) = due < today ? ("o", "Overdue") : due <= today.AddDays(7) ? ("w", "Due soon") : ("ok", "On track");
+                detail = $"{last.fstrMethod} {last.fdtmContactDate:d MMM} · next {due:d MMM}";
+            }
+
+            return new CareItem(a.flngMemberKey, a.flngCoreMemberKey, a.fstrMemberName ?? "Member", a.fdtmAssignedOn, last, state, text, detail);
+        }).OrderBy(c => c.Name).ToList();
+    }
+
+    private async Task SwitchTabAsync(string tab)
+    {
+        __tab = tab;
+        if (tab == "minister") await LoadAttendanceAsync(__cts.Token);
+    }
+
+    #endregion
+
+    #region Calculated lists
+
+    private List<MemberModel> CoreMembers => __members
+        .Where(m => m.fblnCoreMember && m.fstrMembershipStatus == "Active")
+        .OrderBy(m => m.fstrFirstname).ThenBy(m => m.fstrLastname).ToList();
+
+    private List<CareItem> CareOf(Guid carerKey) => __care.Where(c => c.CarerKey == carerKey).ToList();
+
+    private DateTime? LastLogOf(Guid carerKey) =>
+        __contacts.Where(c => c.flngCoreMemberKey == carerKey).Select(c => (DateTime?)c.fdtmContactDate).Max();
+
+    private static (string Css, string Text) WorstState(List<CareItem> items)
+    {
+        if (items.Count == 0) return ("i", "No members");
+        if (items.Any(i => i.State == "o")) return ("o", "Overdue");
+        if (items.Any(i => i.State == "w")) return ("w", "Due soon");
+        return ("ok", "On track");
+    }
+
+    private static string Initials(string? name)
+    {
+        var parts = (name ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch { 0 => "?", 1 => AvatarStyle.Initials(parts[0], null), _ => AvatarStyle.Initials(parts[0], parts[^1]) };
+    }
+
+    private List<MemberModel> AssignList()
+    {
+        var q = __members.Where(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember);
+        q = __assignFilter switch
+        {
+            "none" => q.Where(m => m.flngCarerKey is null),
+            "has" => q.Where(m => m.flngCarerKey is not null),
+            _ => q
+        };
+        if (!string.IsNullOrWhiteSpace(__assignSearch))
+            q = q.Where(m => m.FullName.Contains(__assignSearch.Trim(), StringComparison.OrdinalIgnoreCase));
+        return q.OrderBy(m => m.fstrFirstname).ThenBy(m => m.fstrLastname).ToList();
+    }
+
+    private List<PastoralContactModel> LogEntries()
+    {
+        var q = __contacts.AsEnumerable();
+        if (!__staff && __myKey is Guid mine) q = q.Where(c => c.flngCoreMemberKey == mine);
+        if (__staff && __logFilterCarer is Guid f) q = q.Where(c => c.flngCoreMemberKey == f);
+        return q.OrderByDescending(c => c.fdtmContactDate).ToList();
+    }
+
+    private List<PastoralContactModel> FlaggedContacts() =>
+        __contacts.Where(c => c.fblnFlagForMinister && !c.fblnFlagResolved).OrderByDescending(c => c.fdtmContactDate).ToList();
+
+    /// <summary>Active members not seen for 3+ weeks whose carer (if any) has not made contact in that time either.</summary>
+    private List<AttentionItem> NeedsAttention()
+    {
+        if (!__hasAttendance) return [];
+        var cutoff = AppClock.Today.AddDays(-21);
+
+        return __members
+            .Where(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember && (m.fdtmJoinDate is null || m.fdtmJoinDate.Value.Date <= cutoff))
+            .Select(m => new AttentionItem(m, __lastSeen.TryGetValue(m.flngKey, out var seen) ? seen : null))
+            .Where(a => a.LastSeen is null || a.LastSeen.Value.Date < cutoff)
+            .Where(a => !__contacts.Any(c => c.flngMemberKey == a.Member.flngKey && c.fdtmContactDate.Date >= cutoff))
+            .OrderBy(a => a.LastSeen ?? DateTime.MinValue)
+            .ToList();
+    }
+
+    private List<BarItem> Bars()
+    {
+        var today = AppClock.Today;
+        var careable = __members.Count(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember);
+        return
+        [
+            new("Assigned", __care.Count, "#14b8a6", "#0f766e"),
+            new("Unassigned", Math.Max(0, careable - __care.Count), "#cbd2de", "#98a2b3"),
+            new("Contacted", __care.Count(c => c.Last is not null && (today - c.Last.fdtmContactDate.Date).TotalDays <= DefaultGapDays), "#7db2ff", "#3b82f6"),
+            new("Overdue", __care.Count(c => c.State == "o"), "#f87171", "#b42318"),
+            new("Flagged", FlaggedContacts().Count, "#fbbf24", "#b45309")
+        ];
+    }
+
+    private int BarHeight(int value)
+    {
+        var max = Bars().Max(b => b.Value);
+        if (max == 0 || value == 0) return 3;
+        return Math.Max(6, (int)Math.Round(value * 100.0 / max));
+    }
+
+    #endregion
+
+    #region Assign
+
+    private async Task AssignAsync(Guid memberKey, string? choice)
+    {
+        if (!__staff) return; // only the administrator and the minister give members to carers
+
+        Guid? carer = Guid.TryParse(choice, out var g) ? g : null;
+        if (carer is null && choice != "remove") return; // "Assign to..." placeholder
+
+        __toast = await AssignmentRepo.AssignPastoralCare(memberKey, carer, AppConstants.Who, __cts.Token);
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Log a contact
+
+    private bool CanEdit(PastoralContactModel c) => !__staff && __myKey == c.flngCoreMemberKey;
+
+    /// <summary>Members a chosen carer looks after (the choices in the Member drop-down).</summary>
+    private List<CareItem> LogMemberChoices()
+    {
+        var carer = __staff ? __logCarer : __myKey;
+        return carer is Guid k ? CareOf(k) : [];
+    }
+
+    private void StartLog(Guid? carerKey, Guid? memberKey, PastoralContactModel? existing)
+    {
+        __logIsEdit = existing is not null;
+        __logCarer = __staff ? carerKey : __myKey;
+        __logMember = memberKey;
+        __log = existing is null
+            ? new PastoralContactModel { fdtmContactDate = AppClock.Today, fdtmNextContactDate = AppClock.Today.AddDays(14), fstrMethod = "Phone call" }
+            : new PastoralContactModel
+            {
+                flngKey = existing.flngKey, flngCoreMemberKey = existing.flngCoreMemberKey, flngMemberKey = existing.flngMemberKey,
+                fdtmContactDate = existing.fdtmContactDate, fstrMethod = existing.fstrMethod, fstrNotes = existing.fstrNotes,
+                fdtmNextContactDate = existing.fdtmNextContactDate, fblnFlagForMinister = existing.fblnFlagForMinister,
+                fblnFlagResolved = existing.fblnFlagResolved
+            };
+    }
+
+    private async Task SaveLogAsync()
+    {
+        if (__log is null) return;
+        var ct = __cts.Token;
+
+        // Privacy: a Pastoral Care account can only ever write as itself, about someone in its own care
+        var carer = __staff ? __logCarer : __myKey;
+        if (carer is null || __logMember is null)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Choose the member you contacted" };
+            return;
+        }
+
+        var link = await AssignmentRepo.SelectPastoralAssignment(coreMemberKey: carer, memberKey: __logMember, cancellationToken: ct);
+        if (link.Count == 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "That member is not in this carer's care" };
+            return;
+        }
+
+        if (__logIsEdit)
+        {
+            var own = await ContactRepo.SelectPastoralContact(key: __log.flngKey, coreMemberKey: __myKey, cancellationToken: ct);
+            if (!__staff && own.Count == 0)
+            {
+                __toast = new() { ToastType = ToastTypeModel.Danger, Message = "You can only change your own entries" };
+                return;
+            }
+        }
+
+        __log.flngCoreMemberKey = carer.Value;
+        __log.flngMemberKey = __logMember.Value;
+        __log.fstrWho = AppConstants.Who;
+
+        __toast = await ContactRepo.AddOrUpdatePastoralContact(__log, insert: !__logIsEdit, ct);
+        if (!__toast.IsSuccess) return;
+
+        __log = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteContactAsync(PastoralContactModel c)
+    {
+        var ct = __cts.Token;
+        if (!__isAdmin)
+        {
+            // A carer may only remove their own entries
+            var own = await ContactRepo.SelectPastoralContact(key: c.flngKey, coreMemberKey: __myKey, cancellationToken: ct);
+            if (__myKey is null || own.Count == 0)
+            {
+                __toast = new() { ToastType = ToastTypeModel.Danger, Message = "You can only remove your own entries" };
+                return;
+            }
+        }
+
+        __toast = await ContactRepo.DeletePastoralContact(c.flngKey, AppConstants.Who, ct);
+        await LoadAsync();
+    }
+
+    private async Task ResolveAsync(PastoralContactModel c)
+    {
+        if (!__staff) return;
+        c.fblnFlagResolved = true;
+        c.fstrWho = AppConstants.Who;
+        __toast = await ContactRepo.AddOrUpdatePastoralContact(c, insert: false, __cts.Token);
+        await LoadAsync();
+    }
+
+    #endregion
+}

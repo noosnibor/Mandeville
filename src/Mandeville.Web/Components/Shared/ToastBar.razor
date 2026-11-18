@@ -1,0 +1,17 @@
+@if (Toast is not null && !string.IsNullOrWhiteSpace(Toast.Message))
+{
+    <div class="toast-bar @CssClass" role="alert">@Toast.Message</div>
+}
+
+@code {
+    /// <summary>The result of the last repository call (success, warning or danger).</summary>
+    [Parameter] public ToastMessageModel? Toast { get; set; }
+
+    private string CssClass => Toast?.ToastType switch
+    {
+        ToastTypeModel.Success => "toast-success",
+        ToastTypeModel.Warning => "toast-warning",
+        ToastTypeModel.Danger => "toast-danger",
+        _ => "toast-info"
+    };
+}

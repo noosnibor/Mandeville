@@ -1,0 +1,233 @@
+@implements IDisposable
+@inject IServiceRepository ServiceRepo
+@inject IVisitorRepository VisitorRepo
+@inject IVisitorAttendanceRepository AttendanceRepo
+@inject IVisitorNoteRepository NoteRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="card">
+    <h2>Thank you messages</h2>
+    <p class="hint" style="margin-top:0">Pick the service, check the messages, then tap WhatsApp beside each visitor. WhatsApp opens with the message ready to send.</p>
+
+    <div class="form-grid">
+        <div class="field">
+            <label>Service the visitors attended</label>
+            <select @onchange="OnServiceChanged">
+                @foreach (var s in __past)
+                {
+                    <option value="@s.flngKey" selected="@(s.flngKey == __serviceKey)">@s.fstrServiceName - @s.fdtmServiceDate.ToString("dd MMM yyyy")</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label>Invite them to</label>
+            <input type="text" readonly value="@(__next is null ? "No upcoming service found" : NextText())" />
+        </div>
+        <div class="field"><label>Your name (signature)</label><input type="text" maxlength="80" @bind="__yourName" /></div>
+    </div>
+    @if (__next is null)
+    {
+        <p class="hint">No later service has been added, so the invitation line is left out. Add the next service on the Services page.</p>
+    }
+</div>
+
+<div class="card">
+    <h2>Messages</h2>
+    <p class="hint" style="margin-top:0">Use {name}, {date}, {next} and {sender}; they are filled in for each visitor.</p>
+    <div class="field"><label>First visit</label><textarea rows="5" @bind="__firstTemplate" @bind:event="oninput"></textarea></div>
+    <div class="field"><label>Returning (2nd visit)</label><textarea rows="5" @bind="__returnTemplate" @bind:event="oninput"></textarea></div>
+    <div class="field"><label>Returning (3rd visit onward, invites to membership class or a cell group)</label><textarea rows="6" @bind="__thirdTemplate" @bind:event="oninput"></textarea></div>
+</div>
+
+<div class="card">
+    <h2>Visitors <span>@__rows.Count at this service</span></h2>
+    @if (__loading)
+    {
+        <p class="hint">Loading...</p>
+    }
+    else if (__rows.Count == 0)
+    {
+        <p class="empty">No visitors were recorded for this service.</p>
+    }
+    else
+    {
+        <table class="tbl">
+            <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Thanked</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var r in __rows)
+                {
+                    <tr>
+                        <td>@r.Visitor.FullName</td>
+                        <td>@(string.IsNullOrWhiteSpace(r.Visitor.fstrPhoneNumber) ? "-" : r.Visitor.fstrPhoneNumber)</td>
+                        <td><span class="tag">@VisitLabel(r.Visits)</span></td>
+                        <td>
+                            @if (r.ThankedOn.HasValue) { <text>Thanked by @r.ThankedBy, @r.ThankedOn.Value.ToString("dd MMM yyyy")</text> }
+                            else { <text>-</text> }
+                        </td>
+                        <td>
+                            @if (r.Link is null)
+                            {
+                                <span class="hint">Can't send</span>
+                            }
+                            else
+                            {
+                                <a class="btn btn-primary btn-sm" href="@r.Link" target="_blank" rel="noopener" @onclick="() => MarkThankedAsync(r)">@(r.ThankedOn.HasValue ? "Send again" : "WhatsApp")</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private ToastMessageModel? __toast;
+    private List<ServiceModel> __past = [], __all = [];
+    private ServiceModel? __next;
+    private Guid __serviceKey;
+    private bool __loading;
+    private List<Row> __rows = [];
+    private string __yourName = AppConstants.Who;
+
+        private const string Team = "Members Care Team, WAFIF Mandeville";
+    private const string Behalf = "on behalf of our Apostle, Dr. Courtney McLean, First Lady Reverend Nadine McLean, and our campus pastors, Pastors Christopher Samuels and Nickiann Samuels";
+
+    private string __firstTemplate = $"Hello {{name}}, {Behalf}, we thank you for coming and worshipping with us on {{date}}. We were truly blessed to have you. We would love to see you again.{{next}} Please join us, and feel free to bring someone with you. God bless you.\n{{sender}}, {Team}";
+    private string __returnTemplate = $"Hello {{name}}, it was so good to see you again on {{date}}! {char.ToUpper(Behalf[0])}{Behalf[1..]}, thank you for worshipping with us again. We are glad you are growing with us.{{next}} If there is anything we can pray about with you, or if you would like to know more about becoming part of the church family, just reply to this message. God bless you.\n{{sender}}, {Team}";
+    private string __thirdTemplate = $"Hello {{name}}, it was so good to see you again on {{date}}! {char.ToUpper(Behalf[0])}{Behalf[1..]}, thank you for worshipping with us again. We are glad you are growing with us.{{next}} We would love to invite you to our membership class, or to join a cell group, so you can connect more closely with the church family. Just reply to this message and we will share the details. God bless you.\n{{sender}}, {Team}";
+
+    private sealed class Row
+    {
+        public VisitorModel Visitor { get; set; } = new();
+        public int Visits { get; set; }
+        public string? Link { get; set; }
+        public DateTime? ThankedOn { get; set; }
+        public string? ThankedBy { get; set; }
+    }
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            __all = (await ServiceRepo.SelectService(cancellationToken: __cts.Token)).OrderBy(s => s.fdtmServiceDate).ToList();
+            __past = __all.Where(s => s.fdtmServiceDate.Date <= AppClock.Today).OrderByDescending(s => s.fdtmServiceDate).ToList();
+            if (__past.Count > 0)
+            {
+                __serviceKey = __past[0].flngKey;
+                await LoadAsync();
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    public void Dispose() { __cts.Cancel(); __cts.Dispose(); }
+
+    #endregion
+
+    #region Loading
+
+    private async Task OnServiceChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var key)) { __serviceKey = key; await LoadAsync(); }
+    }
+
+    private async Task LoadAsync()
+    {
+        __loading = true;
+        __rows = [];
+        try
+        {
+            var service = __past.First(s => s.flngKey == __serviceKey);
+            var date = service.fdtmServiceDate.Date;
+
+            // Next upcoming service: the first one after the chosen service that has not happened yet
+            __next = __all.Where(s => s.fdtmServiceDate.Date > date && s.fdtmServiceDate.Date >= AppClock.Today)
+                          .OrderBy(s => s.fdtmServiceDate).FirstOrDefault();
+
+            var attended = await AttendanceRepo.SelectVisitorAttendance(serviceDate: date, cancellationToken: __cts.Token);
+            var every = await AttendanceRepo.SelectVisitorAttendance(cancellationToken: __cts.Token);
+            var visitors = (await VisitorRepo.SelectVisitor(cancellationToken: __cts.Token)).ToDictionary(v => v.flngKey);
+
+            foreach (var a in attended)
+            {
+                if (!visitors.TryGetValue(a.flngVisitorKey, out var v)) continue;
+                var row = new Row { Visitor = v, Visits = every.Count(x => x.flngVisitorKey == v.flngKey && x.fdtmServiceDate.Date <= date) };
+
+                // A thank-you note for this service means they were already messaged
+                var notes = await NoteRepo.SelectVisitorNote(visitorKey: v.flngKey, cancellationToken: __cts.Token);
+                var sent = notes.Where(n => ThankYouNotes.IsFor(n.fstrNote, date))
+                                .OrderByDescending(n => n.fdtmNoteDate).FirstOrDefault();
+                row.ThankedOn = sent?.fdtmNoteDate;
+                row.ThankedBy = sent?.fstrWho;
+                __rows.Add(row);
+            }
+            __rows = __rows.OrderBy(r => r.Visitor.fstrFirstname).ToList();
+        }
+        catch (OperationCanceledException) { }
+        finally { __loading = false; }
+    }
+
+    #endregion
+
+    #region Message building
+
+    private string NextText() => __next is null ? "" :
+        $"{__next.fstrServiceName}, {__next.fdtmServiceDate:dddd d MMMM}" +
+        (__next.ftimStartTime.HasValue ? $" at {DateTime.Today.Add(__next.ftimStartTime.Value):h:mm tt}" : "") +
+        (string.IsNullOrWhiteSpace(__next.fstrLocation) ? "" : $", {__next.fstrLocation}");
+
+    private string BuildMessage(Row r)
+    {
+        var template = r.Visits <= 1 ? __firstTemplate : r.Visits == 2 ? __returnTemplate : __thirdTemplate;
+        var date = __past.First(s => s.flngKey == __serviceKey).fdtmServiceDate;
+        var next = __next is null ? "" : $" Our next service is {NextText()}.";
+        return template.Replace("{name}", r.Visitor.fstrFirstname).Replace("{date}", date.ToString("dddd d MMMM"))
+                       .Replace("{next}", next).Replace("{sender}", __yourName);
+    }
+
+    private static string VisitLabel(int visits) => visits <= 1 ? "First visit" : $"Returning ({Ordinal(visits)} visit)";
+
+    private static string Ordinal(int n) => n % 100 is 11 or 12 or 13 ? $"{n}th" : (n % 10) switch { 1 => $"{n}st", 2 => $"{n}nd", 3 => $"{n}rd", _ => $"{n}th" };
+
+    /// <summary>Turns a local Jamaican number (876 555 0101) into the international form WhatsApp needs.</summary>
+    private static string? Normalise(string? phone)
+    {
+        var d = new string((phone ?? "").Where(char.IsDigit).ToArray());
+        if (d.StartsWith("00")) d = d[2..];
+        if (d.Length == 7) return "1876" + d;
+        if (d.Length == 10) return "1" + d;
+        return d.Length >= 11 ? d : null;
+    }
+
+    #endregion
+
+    #region Sending
+
+    // Builds the links just before rendering so edits to the messages are always used
+    protected override bool ShouldRender() { foreach (var r in __rows) { var n = Normalise(r.Visitor.fstrPhoneNumber); r.Link = n is null ? null : $"https://wa.me/{n}?text={Uri.EscapeDataString(BuildMessage(r))}"; } return true; }
+
+    private async Task MarkThankedAsync(Row r)
+    {
+        var date = __past.First(s => s.flngKey == __serviceKey).fdtmServiceDate.Date;
+        var note = new VisitorNoteModel
+        {
+            flngVisitorKey = r.Visitor.flngKey,
+            fdtmNoteDate = AppClock.Now,
+            fstrNote = ThankYouNotes.Text(date),
+            fstrWho = AppConstants.Who
+        };
+        __toast = await NoteRepo.AddVisitorNote(note, __cts.Token);
+        if (__toast.IsSuccess) { r.ThankedOn = note.fdtmNoteDate; r.ThankedBy = note.fstrWho; }
+    }
+
+    #endregion
+}

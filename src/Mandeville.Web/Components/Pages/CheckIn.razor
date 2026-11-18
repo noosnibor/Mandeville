@@ -1,0 +1,152 @@
+@page "/checkin/{Token}"
+@attribute [AllowAnonymous]
+@layout CheckInLayout
+@implements IDisposable
+@inject IServiceRepository ServiceRepo
+
+<PageTitle>Check in</PageTitle>
+
+<div class="card">
+    @if (!__loaded)
+    {
+        <p>Loading...</p>
+    }
+    else if (__service is null || !__service.IsOpenNow)
+    {
+        <h2>Check-in is closed</h2>
+        <p class="hint">@ClosedReason</p>
+    }
+    else if (__done)
+    {
+        <div class="big-ok">&#10003;</div>
+        <h2 style="text-align:center">@__message</h2>
+        <p class="hint" style="text-align:center">@__service.fstrServiceName</p>
+    }
+    else if (__picked is null)
+    {
+        <h2>@__service.fstrServiceName</h2>
+        <p class="hint">Find your name to check in.</p>
+        <div class="field">
+            <input type="text" placeholder="Type your first or last name" @bind="__search" @bind:event="oninput" @onkeydown="OnKey" />
+        </div>
+        <button class="btn btn-primary" @onclick="SearchAsync">Find me</button>
+
+        @foreach (var m in __results)
+        {
+            var member = m;
+            <button class="btn pick" disabled="@member.fblnAlreadyCheckedIn" @onclick="() => Pick(member)">
+                @member.FullName @(member.fblnAlreadyCheckedIn ? "(already checked in)" : "")
+            </button>
+        }
+        @if (__searched && __results.Count == 0)
+        {
+            <p class="hint">No match. Check the spelling or see an usher.</p>
+        }
+    }
+    else
+    {
+        <h2>Hi @__picked.fstrFirstname</h2>
+        <p class="hint">To confirm it is you, choose your birth day and month.</p>
+        <div class="form-grid">
+            <div class="field">
+                <label>Day</label>
+                <select @bind="__day">@for (var d = 1; d <= 31; d++) { <option value="@d">@d</option> }</select>
+            </div>
+            <div class="field">
+                <label>Month</label>
+                <select @bind="__monthNumber">@for (var m = 1; m <= 12; m++) { <option value="@m">@FixedLists.Months[m - 1]</option> }</select>
+            </div>
+        </div>
+        <button class="btn btn-primary" @onclick="ConfirmAsync">Check me in</button>
+        <button class="btn" @onclick="() => __picked = null">Not me</button>
+    }
+
+    <ToastBar Toast="__toast" />
+</div>
+
+@code {
+    #region Parameters
+
+    /// <summary>The rotating check-in token from the QR code.</summary>
+    [Parameter] public string Token { get; set; } = string.Empty;
+
+    #endregion
+
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private ServiceModel? __service;
+    private bool __loaded;
+    private bool __done;
+    private bool __searched;
+    private string? __search;
+    private string __message = string.Empty;
+    private List<CheckInMemberModel> __results = [];
+    private CheckInMemberModel? __picked;
+    private int __day = 1;
+    private int __monthNumber = 1;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    /// <summary>Tells the person why check-in is closed, so they know whether to scan again or see an usher.</summary>
+    private string ClosedReason
+    {
+        get
+        {
+            if (__service is null)
+                return "This link has expired. Please scan the QR code at the venue again, or see an usher.";
+            if (!__service.fblnCheckInOpen)
+                return "Check-in has been closed for this service. Please see an usher.";
+            if (__service.fdtmCheckInOpens is { } opens && AppClock.Now < opens)
+                return $"Check-in opens at {opens:h:mm tt}. Please try again then.";
+            if (__service.fdtmCheckInCloses is { } closes && AppClock.Now > closes)
+                return $"Check-in closed at {closes:h:mm tt}. Please see an usher.";
+            return "Check-in is not open right now. Please see an usher.";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var services = await ServiceRepo.SelectService(token: Token, cancellationToken: __cts.Token);
+        __service = services.FirstOrDefault();
+        __loaded = true;
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        __toast = null;
+        __results = string.IsNullOrWhiteSpace(__search) ? [] : await ServiceRepo.SearchMembersForCheckIn(Token, __search.Trim(), __cts.Token);
+        __searched = true;
+    }
+
+    private void Pick(CheckInMemberModel member)
+    {
+        __picked = member;
+        __toast = null;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (__picked is null) return;
+
+        __toast = await ServiceRepo.CheckInMember(Token, __picked.flngMemberKey, __day, __monthNumber, "QR", __picked.FullName, __cts.Token);
+        if (__toast.IsSuccess)
+        {
+            __message = __toast.Message ?? "You are checked in";
+            __toast = null;
+            __done = true;
+        }
+    }
+}

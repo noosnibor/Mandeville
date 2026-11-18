@@ -1,0 +1,177 @@
+@page "/collections"
+@attribute [PageAccess(PageKeys.Collections, "Collections", "Finance", "wallet", Tint = "c5", Short = "Money", Bar = true, Order = 110)]
+@implements IDisposable
+@inject IFinanceRepository FinanceRepo
+@inject IPaymentTypeRepository PaymentTypeRepo
+@inject IMemberRepository MemberRepo
+
+<PageTitle>Collections</PageTitle>
+
+<div class="page-head">
+    <h1>Collections</h1>
+    <button class="btn btn-primary" @onclick="NewCollection">+ Add collection</button>
+</div>
+
+<ToastBar Toast="__toast" />
+
+<div class="tiles">
+    <div class="tile"><div class="tile-value">@(__rows.Sum(r => r.fcurAmount).ToString("N2"))</div><div class="tile-label">Total for @FixedLists.Months[__month - 1] @__year</div></div>
+    <div class="tile"><div class="tile-value">@DuesTotal.ToString("N2")</div><div class="tile-label">Member dues</div></div>
+    <div class="tile"><div class="tile-value">@__rows.Count</div><div class="tile-label">Entries</div></div>
+</div>
+
+@if (__edit is not null)
+{
+    <Modal Title="@(__isNew ? "Add collection" : "Edit collection")" Subtitle="Record a collection received" Icon="wallet" OnClose="() => __edit = null">
+        <ChildContent>
+        <div class="form-grid">
+            <div class="field">
+                <label>Month</label>
+                <select @bind="__edit.flngMonth">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
+            </div>
+            <div class="field"><label>Year</label><input type="number" min="2000" max="2100" @bind="__edit.flngYear" /></div>
+            <div class="field">
+                <label>Member (optional)</label>
+                <select value="@__edit.flngMemberKey" @onchange="OnMemberPicked">
+                    <option value="">-- not a member / type below --</option>
+                    @foreach (var m in __members) { <option value="@m.flngKey">@m.FullName</option> }
+                </select>
+            </div>
+            <div class="field"><label>Name on record</label><input type="text" maxlength="100" @bind="__edit.fstrMemberName" /></div>
+            <div class="field">
+                <label>Payment type</label>
+                <select @bind="__edit.flngPaymentTypeKey">
+                    <option value="">-- choose --</option>
+                    @foreach (var t in __paymentTypes) { <option value="@t.flngKey">@t.fstrName</option> }
+                </select>
+            </div>
+            <div class="field">
+                <label>Payment method</label>
+                <select @bind="__edit.fstrPaymentMethod">@foreach (var p in FixedLists.PaymentMethods) { <option value="@p">@p</option> }</select>
+            </div>
+            <div class="field"><label>Amount</label><input type="number" step="0.01" min="0" @bind="__edit.fcurAmount" /></div>
+            <div class="field"><label>Received by</label><input type="text" maxlength="100" @bind="__edit.fstrReceivedBy" /></div>
+        </div>
+        <div class="field" style="margin-bottom:.75rem"><label>Notes</label><textarea maxlength="500" @bind="__edit.fstrNotes"></textarea></div>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" @onclick="SaveAsync">Save</button>
+                <button class="btn" @onclick="() => __edit = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+<div class="card">
+    <div class="toolbar">
+        <select @bind="__month">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
+        <input type="number" style="max-width:100px" @bind="__year" />
+        <input type="text" placeholder="Search name or notes" @bind="__search" @bind:event="oninput" />
+        <button class="btn" @onclick="LoadAsync">Show</button>
+    </div>
+
+    <table class="table table-cards">
+        <thead><tr><th>Name</th><th>Payment type</th><th>Method</th><th class="num">Amount</th><th>Received by</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var r in __rows)
+            {
+                <tr>
+                    <td data-label="Name">@(string.IsNullOrWhiteSpace(r.fstrMemberName) ? "-" : r.fstrMemberName) @if (r.fblnLocked) { <span class="badge badge-warn" title="Reconciled">Locked</span> }</td>
+                    <td data-label="Payment type">@r.fstrPaymentTypeName</td>
+                    <td data-label="Method">@r.fstrPaymentMethod</td>
+                    <td data-label="Amount" class="num">@r.fcurAmount.ToString("N2")</td>
+                    <td data-label="Received by">@r.fstrReceivedBy</td>
+                    <td data-label="" class="row-actions">
+                        <button class="btn btn-sm" disabled="@r.fblnLocked" @onclick="() => Edit(r)">Edit</button>
+                        <button class="btn btn-sm btn-danger" disabled="@r.fblnLocked" @onclick="() => DeleteAsync(r)">Delete</button>
+                    </td>
+                </tr>
+            }
+            @if (__rows.Count == 0) { <tr><td colspan="6" class="empty">No collections for this month.</td></tr> }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<FinanceModel> __rows = [];
+    private List<PaymentTypeModel> __paymentTypes = [];
+    private List<MemberModel> __members = [];
+    private FinanceModel? __edit;
+    private bool __isNew;
+    private int __month = AppClock.Today.Month;
+    private int __year = AppClock.Today.Year;
+    private string? __search;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    private decimal DuesTotal => __rows.Where(r => __paymentTypes.Any(t => t.flngKey == r.flngPaymentTypeKey && t.fblnIsDues)).Sum(r => r.fcurAmount);
+
+    protected override async Task OnInitializedAsync()
+    {
+        __paymentTypes = await PaymentTypeRepo.SelectPaymentType(active: true, cancellationToken: __cts.Token);
+        __members = await MemberRepo.SelectMember(membershipStatus: "Active", cancellationToken: __cts.Token);
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync() =>
+        __rows = await FinanceRepo.SelectFinance(month: __month, year: __year, search: string.IsNullOrWhiteSpace(__search) ? null : __search.Trim(), cancellationToken: __cts.Token);
+
+    private void NewCollection()
+    {
+        __edit = new FinanceModel { flngMonth = __month, flngYear = __year, fstrPaymentMethod = "Cash", fstrReceivedBy = AppConstants.Who };
+        __isNew = true;
+    }
+
+    private void Edit(FinanceModel r)
+    {
+        __edit = new FinanceModel
+        {
+            flngKey = r.flngKey, flngMonth = r.flngMonth, flngYear = r.flngYear, flngMemberKey = r.flngMemberKey, fstrMemberName = r.fstrMemberName,
+            fstrPaymentMethod = r.fstrPaymentMethod, flngPaymentTypeKey = r.flngPaymentTypeKey, fcurAmount = r.fcurAmount,
+            fstrReceivedBy = r.fstrReceivedBy, fstrNotes = r.fstrNotes, fblnActive = r.fblnActive
+        };
+        __isNew = false;
+    }
+
+    /// <summary>Picking a member fills in the name that is stored on the collection.</summary>
+    private void OnMemberPicked(ChangeEventArgs e)
+    {
+        if (__edit is null) return;
+        if (!Guid.TryParse(e.Value?.ToString(), out var key)) { __edit.flngMemberKey = null; return; }
+
+        __edit.flngMemberKey = key;
+        var member = __members.FirstOrDefault(m => m.flngKey == key);
+        if (member is not null) __edit.fstrMemberName = member.FullName;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (__edit is null) return;
+        if (__edit.flngPaymentTypeKey == Guid.Empty) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Choose a payment type" }; return; }
+        if (__edit.fcurAmount <= 0) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Enter an amount greater than zero" }; return; }
+
+        __edit.fstrWho = AppConstants.Who;
+        __toast = await FinanceRepo.AddOrUpdateFinance(__edit, __isNew, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __month = __edit.flngMonth;
+        __year = __edit.flngYear;
+        __edit = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(FinanceModel r)
+    {
+        __toast = await FinanceRepo.DeleteFinance(r.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await LoadAsync();
+    }
+}

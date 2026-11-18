@@ -1,0 +1,235 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject IConfiguration Configuration
+@inject NavigationManager Navigation
+@using System.Security.Claims
+
+@if (!__authed)
+{
+    @* Not signed in (the sign-in redirect is on its way): show only the page itself *@
+    @Body
+}
+else
+{
+<div class="app">
+    @* Desktop: full sidebar. Tablet: collapses to an icon rail (CSS). Phone: hidden, bottom bar is used instead. *@
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-logo" aria-hidden="true"><Icon Name="house" Size="26" /></div>
+            <div class="brand-text">
+                <div class="brand-name">@GroupName</div>
+                <div class="brand-sub">@Ministers</div>
+            </div>
+        </div>
+
+        @* Menu filter (desktop only, hidden on the tablet icon rail). Press / to jump to it. *@
+        <div class="menu-filter">
+            <Icon Name="search" Size="18" />
+            <input id="menu-filter" type="text" placeholder="Filter menu" autocomplete="off" aria-label="Filter menu"
+                   @bind="__filter" @bind:event="oninput" />
+            @if (__filter.Length > 0)
+            {
+                <button type="button" class="menu-filter-clear" aria-label="Clear filter" @onclick="() => __filter = string.Empty">&#10005;</button>
+            }
+            else
+            {
+                <span class="kbd">/</span>
+            }
+        </div>
+
+        <nav aria-label="Main" class="side-nav">
+            @if (ShowDashboard)
+            {
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All" title="Dashboard" hidden="@(!Matches("Dashboard"))"><span class="nav-ico c1"><Icon Name="dashboard" Size="22" /></span><span class="nav-label">Dashboard</span></NavLink>
+            }
+
+            @foreach (var group in Groups)
+            {
+                var items = group.Where(i => Matches(i.Name)).ToList();
+                if (items.Count == 0) { continue; }
+                var collapsed = __filter.Length == 0 && __collapsed.Contains(group.Key);
+                <button type="button" class="nav-group" aria-expanded="@(!collapsed)" @onclick="() => ToggleGroup(group.Key)">
+                    <span>@group.Key</span><span class="nav-chevron @(collapsed ? "closed" : "")"><Icon Name="chevron" Size="12" /></span>
+                </button>
+                <div class="nav-items @(collapsed ? "collapsed" : "")">
+                    @foreach (var item in items)
+                    {
+                        <NavLink class="nav-link" href="@item.Href" title="@item.Name"><span class="nav-ico @item.Tint"><Icon Name="@item.Icon" Size="22" /></span><span class="nav-label">@item.Name</span></NavLink>
+                    }
+                </div>
+            }
+
+            @if (__filter.Length > 0 && !(ShowDashboard && Matches("Dashboard")) && !__allowed.Any(i => i.Key != PageKeys.Dashboard && Matches(i.Name)))
+            {
+                <p class="nav-none">No menu items match.</p>
+            }
+        </nav>
+
+        @* Footer: month progress card and who is signed in (hidden on the tablet icon rail) *@
+        <div class="side-foot">
+            <div class="month-card">
+                <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+                    <circle cx="22" cy="22" r="18" fill="none" stroke="#e4e7ec" stroke-width="4" />
+                    <circle cx="22" cy="22" r="18" fill="none" stroke="#0f766e" stroke-width="4" stroke-linecap="round"
+                            stroke-dasharray="@MonthDash 113.1" transform="rotate(-90 22 22)" />
+                </svg>
+                <div>
+                    <div class="month-name">@AppClock.Today.ToString("MMMM yyyy")</div>
+                    <div class="month-day">Day @AppClock.Today.Day of @DateTime.DaysInMonth(AppClock.Today.Year, AppClock.Today.Month)</div>
+                </div>
+            </div>
+            <div class="user-card">
+                <div class="user-avatar" aria-hidden="true">@Initial</div>
+                <div class="user-text">
+                    <div class="user-name">@__name</div>
+                    <div class="user-role">@__roleLabel</div>
+                </div>
+                <button type="button" class="user-act" title="Change password" aria-label="Change password" @onclick="ChangePassword"><Icon Name="lock" Size="16" /></button>
+                <button type="button" class="user-act" title="Sign out" aria-label="Sign out" @onclick="SignOut"><Icon Name="logout" Size="16" /></button>
+            </div>
+        </div>
+    </aside>
+
+    <div class="content">
+        <header class="mobile-bar">
+            <div class="brand-logo" aria-hidden="true">W</div>
+            <div class="mobile-title">@GroupName</div>
+        </header>
+
+        <main class="main">
+            @Body
+        </main>
+    </div>
+
+    @* Phone only: bottom tab bar *@
+    <nav class="bottom-nav" aria-label="Main">
+        @foreach (var pg in __bar)
+        {
+            <NavLink class="bn-item" href="@pg.Href"><Icon Name="@pg.Icon" Size="24" /><span>@pg.Short</span></NavLink>
+        }
+        <button type="button" class="bn-item @(IsMore ? "active" : "")" aria-expanded="@__moreOpen" @onclick="() => __moreOpen = !__moreOpen"><Icon Name="dots" Size="24" /><span>More</span></button>
+    </nav>
+
+    @if (__moreOpen)
+    {
+        <div class="sheet-backdrop" @onclick="() => __moreOpen = false"></div>
+        <div class="sheet" role="dialog" aria-label="More">
+            @foreach (var pg in __more)
+            {
+                <a class="sheet-link" href="@("/" + pg.Href)"><Icon Name="@pg.Icon" Size="22" />@pg.Name</a>
+            }
+            <button type="button" class="sheet-link" @onclick="ChangePassword"><Icon Name="lock" Size="22" />Change password</button>
+            <button type="button" class="sheet-link" @onclick="SignOut"><Icon Name="logout" Size="22" />Sign out (@__name)</button>
+        </div>
+    }
+</div>
+
+}
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    #region Private Fields
+
+    private bool __authed;
+    private string __name = string.Empty;
+    private string? __role;
+    private bool __moreOpen;
+    private string __filter = string.Empty;
+    private readonly HashSet<string> __collapsed = new(StringComparer.OrdinalIgnoreCase);
+
+    // The menu builds itself from the pages' own [PageAccess] lines, so a new page needs no edit here.
+    private List<PageInfo> __allowed = [];   // every page this person may open, in menu order
+    private List<PageInfo> __bar = [];       // the phone bottom bar (up to four)
+    private List<PageInfo> __more = [];      // the rest, in the phone "More" sheet
+    private string __roleLabel = string.Empty;
+
+    #endregion
+
+    #region Display values
+
+    /// <summary>Length of the progress ring for the month card (circumference 113.1 = 2 x pi x 18).</summary>
+    private string MonthDash => (113.1 * AppClock.Today.Day / DateTime.DaysInMonth(AppClock.Today.Year, AppClock.Today.Month))
+        .ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private string GroupName => Configuration["Church:GroupName"] ?? "WAFIF Mandeville";
+    private string Ministers => Configuration["Church:Ministers"] ?? string.Empty;
+
+    /// <summary>Current page path relative to the site root, used to light up the right bottom-bar tab.</summary>
+    private string CurrentPath => Navigation.ToBaseRelativePath(Navigation.Uri);
+
+    /// <summary>True while the open page lives in the "More" sheet, so the More tab lights up.</summary>
+    private bool IsMore => __more.Any(p => p.Href.Length > 0 && CurrentPath.StartsWith(p.Href, StringComparison.OrdinalIgnoreCase));
+
+    private bool ShowDashboard => __allowed.Any(p => p.Key == PageKeys.Dashboard);
+
+    /// <summary>The menu headings with their pages (the dashboard has its own link at the top).</summary>
+    private IEnumerable<IGrouping<string, PageInfo>> Groups => __allowed.Where(p => p.Key != PageKeys.Dashboard).GroupBy(p => p.Group);
+
+    #endregion
+
+    #region Menu filter
+
+    /// <summary>True when the label matches the filter text (an empty filter matches everything).</summary>
+    private bool Matches(string label) =>
+        __filter.Length == 0 || label.Contains(__filter.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private void ToggleGroup(string name)
+    {
+        if (!__collapsed.Remove(name)) __collapsed.Add(name);
+    }
+
+    #endregion
+
+    #region Who is signed in
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string Initial => __name.Length > 0 ? __name[..1].ToUpperInvariant() : "?";
+
+    private void ChangePassword() => Navigation.NavigateTo("account/password", forceLoad: true);
+
+    private void SignOut() => Navigation.NavigateTo("account/signout", forceLoad: true);
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+
+        var user = AuthState is null ? null : (await AuthState).User;
+        __authed = user?.Identity?.IsAuthenticated == true;
+        if (!__authed || user is null) return;
+
+        __name = user.Identity?.Name ?? string.Empty;
+        __role = user.FindFirstValue(ClaimTypes.Role);
+        __roleLabel = user.FindFirstValue(AppClaims.RoleLabel) ?? AppRoles.Label(__role);
+
+        // Only the pages this person's role may open; the Administrator gets every page
+        __allowed = [.. PageRegistry.All.Where(p => user.CanPage(p.Key))];
+        var bar = __allowed.Where(p => p.Key != PageKeys.Dashboard).OrderByDescending(p => p.Bar).ThenBy(p => p.Order).Take(4).ToList();
+        __bar = [.. bar.OrderBy(p => p.Order)];
+        __more = [.. __allowed.Where(p => !bar.Contains(p))];
+
+        // A temporary password has to be replaced before anything else can be opened
+        if (user.HasClaim(AppClaims.MustChange, "1"))
+            Navigation.NavigateTo("account/password", forceLoad: true);
+    }
+
+    /// <summary>Closes the More sheet and refreshes the active tab after every navigation.</summary>
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        __moreOpen = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+
+    #endregion
+}

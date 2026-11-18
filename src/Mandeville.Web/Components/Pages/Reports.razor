@@ -1,0 +1,179 @@
+@page "/reports"
+@attribute [PageAccess(PageKeys.Reports, "Reports", "Admin", "report", Tint = "c4", Order = 310)]
+@using global::Mandeville.Web.Reports
+@implements IDisposable
+@inject IServiceRepository ServiceRepo
+@inject ServiceReportBuilder Builder
+@inject ReportMailer Mailer
+
+<PageTitle>Reports</PageTitle>
+
+<PageBanner Title="Service reports" Subtitle="One PDF per service date, ready for the Minister's meetings" Icon="report" />
+
+<ToastBar Toast="__toast" />
+
+<div class="mfilter">
+    <select @bind="__serviceKey" @bind:after="LoadReportAsync" aria-label="Service">
+        @foreach (var s in __services)
+        {
+            <option value="@s.flngKey">@s.fdtmServiceDate.ToString("ddd d MMM yyyy") - @s.fstrServiceName</option>
+        }
+    </select>
+    @if (__report is not null)
+    {
+        <a class="btn btn-primary btn-sm" href="reports/service/@__report.ServiceKey" target="_blank" download>Download PDF</a>
+    }
+</div>
+
+@if (!__loaded)
+{
+    <p class="hint">Loading&hellip;</p>
+}
+else if (__services.Count == 0)
+{
+    <div class="card"><p class="empty" style="margin:0">No services have been created yet. Add one on the Members page, Attendance tab.</p></div>
+}
+else if (__report is not null)
+{
+    var r = __report;
+
+    <div class="rep-grid">
+        <section class="card">
+            <h2>Visitors <span>@r.VisitorsAttended attended</span></h2>
+            <div class="rep-row"><span>Male / Female</span><b>@r.VisitorsMale / @r.VisitorsFemale</b></div>
+            <div class="rep-row"><span>Adult / Child</span><b>@r.VisitorsAdult / @r.VisitorsChild</b></div>
+            <div class="rep-row"><span>Went to the altar</span><b>@r.WentToAltar</b></div>
+            @foreach (var (reason, count) in r.AltarReasons)
+            {
+                <div class="rep-row sub"><span>@reason</span><b>@count</b></div>
+            }
+            <div class="rep-row"><span>Baptised</span><b>@r.Baptised</b></div>
+            <div class="rep-row"><span>Called / contacted</span><b>@r.Called of @r.VisitorsAttended</b></div>
+            <div class="rep-row"><span>Started membership class</span><b>@r.StartedClass</b></div>
+            <div class="rep-row"><span>Waiting for a connector</span><b>@r.WaitingForConnector</b></div>
+        </section>
+
+        <section class="card">
+            <h2>Incoming members <span>@r.IncomingTotal in the process</span></h2>
+            <div class="rep-row"><span>New believers</span><b>@r.IncomingNewBelievers</b></div>
+            <div class="rep-row"><span>Returning (backsliders)</span><b>@r.IncomingReturning</b></div>
+            <div class="rep-row"><span>Joining the church</span><b>@r.IncomingJoining</b></div>
+            <div class="rep-row"><span>Partners</span><b>@r.IncomingPartners</b></div>
+            <div class="rep-row"><span>Tier 1 / Tier 2 done</span><b>@r.Tier1Done / @r.Tier2Done</b></div>
+            <div class="rep-row"><span>Interview / Inauguration done</span><b>@r.InterviewDone / @r.InauguratedDone</b></div>
+            <div class="rep-row"><span>Baptised this week</span><b>@r.WeekBaptised</b></div>
+            <div class="rep-row"><span>Ready to convert</span><b>@r.ReadyToConvert</b></div>
+            <div class="rep-row"><span>Waiting for a connector</span><b>@r.IncomingWaitingForConnector</b></div>
+        </section>
+
+        <section class="card">
+            <h2>Members and pastoral care <span>@r.TotalMembers members</span></h2>
+            <div class="rep-row"><span>Active / Inactive</span><b>@r.ActiveMembers / @r.InactiveMembers</b></div>
+            <div class="rep-row"><span>Present at this service</span><b>@r.MembersPresent (@r.PresentPercent%)</b></div>
+            <div class="rep-row"><span>Persons connected to a carer</span><b>@r.Connected of @r.Careable</b></div>
+            <div class="rep-row"><span>Core members caring</span><b>@r.CoreMembers</b></div>
+            <div class="rep-row"><span>Care contacts this week</span><b>@r.CareContactsThisWeek</b></div>
+            <div class="rep-row"><span>Not seen in 3+ weeks</span><b>@r.NotSeen3Weeks</b></div>
+            <div class="rep-row"><span>Overdue for a care contact</span><b>@r.OverdueForContact</b></div>
+            <div class="rep-row"><span>Flagged for the Minister</span><b>@r.FlaggedForMinister</b></div>
+        </section>
+
+        <section class="card">
+            <h2>Financial overview <span>@r.FinanceMonth to date</span></h2>
+            <div class="rep-row"><span>Dues collected</span><b>@Money(r.DuesCollected)</b></div>
+            <div class="rep-row"><span>Other collections</span><b>@Money(r.OtherCollected)</b></div>
+            <div class="rep-row"><span>Total collected</span><b>@Money(r.TotalCollected)</b></div>
+            <div class="rep-row"><span>Expenses (@r.ExpensesFrom.ToString("d MMM") to @r.ServiceDate.ToString("d MMM"))</span><b>@Money(r.Expenses)</b></div>
+            @foreach (var (category, amount) in r.TopExpenses)
+            {
+                <div class="rep-row sub"><span>@category</span><b>@Money(amount)</b></div>
+            }
+            <p class="hint">Collections are recorded by month, so they show the month so far.</p>
+        </section>
+
+        <section class="card">
+            <h2>Email this report</h2>
+            @if (!Mailer.IsConfigured)
+            {
+                <p class="hint" style="margin-top:0">Email is not set up yet. Add the Smtp settings (host, user, password, from address) and it will work here. Downloading the PDF works now.</p>
+            }
+            <div class="field">
+                <label>Send to (separate addresses with commas)</label>
+                <input type="text" maxlength="400" placeholder="minister@example.com" @bind="__recipients" />
+            </div>
+            <button class="btn btn-primary btn-sm" style="margin-top:.8rem" disabled="@(__sending || !Mailer.IsConfigured)" @onclick="EmailAsync">@(__sending ? "Sending..." : "Email now")</button>
+        </section>
+    </div>
+}
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<ServiceModel> __services = [];
+    private Guid __serviceKey;
+    private ServiceReport? __report;
+    private bool __loaded, __sending;
+    private string? __recipients;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        __recipients = Mailer.DefaultRecipients;
+        __services = (await ServiceRepo.SelectService(fromDate: AppClock.Today.AddDays(-365), toDate: AppClock.Today, active: true, cancellationToken: __cts.Token))
+            .OrderByDescending(s => s.fdtmServiceDate).ToList();
+
+        if (__services.Count > 0)
+        {
+            __serviceKey = __services[0].flngKey;
+            await LoadReportAsync();
+        }
+        __loaded = true;
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #endregion
+
+    #region Actions
+
+    private async Task LoadReportAsync() =>
+        __report = await Builder.BuildAsync(__serviceKey, __cts.Token);
+
+    private async Task EmailAsync()
+    {
+        if (__report is null) return;
+
+        var to = ReportMailer.ParseRecipients(__recipients, out var invalid);
+        if (invalid.Count > 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "These do not look like email addresses: " + string.Join(", ", invalid) };
+            return;
+        }
+
+        __sending = true;
+        try
+        {
+            var error = await Mailer.SendAsync(__report, ServiceReportPdf.Create(__report), to, __cts.Token);
+            __toast = error is null
+                ? new() { ToastType = ToastTypeModel.Success, Message = $"Report emailed to {to.Count} address(es)" }
+                : new() { ToastType = ToastTypeModel.Danger, Message = error };
+        }
+        finally
+        {
+            __sending = false;
+        }
+    }
+
+    private static string Money(decimal value) => "$" + value.ToString("N2");
+
+    #endregion
+}

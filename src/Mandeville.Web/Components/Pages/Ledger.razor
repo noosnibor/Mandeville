@@ -1,0 +1,237 @@
+﻿@page "/ledger"
+@attribute [PageAccess(PageKeys.Ledger, "Financial Ledger", "Finance", "recon", Tint = "c3", Short = "Ledger", Order = 130)]
+@implements IDisposable
+@inject ILedgerRepository LedgerRepo
+
+<PageTitle>Financial Ledger</PageTitle>
+
+<div class="mod">
+    <div class="mhead">
+        <div>
+            <h1>Financial Ledger</h1>
+            <p>Balance per month, brought forward, and period close</p>
+        </div>
+        <div class="lg-head-actions">
+            <button class="mchip" @onclick="OpenOpening">Opening balance</button>
+            <div class="lg-year">
+                <button aria-label="Previous year" @onclick="() => ChangeYearAsync(-1)">&#8249;</button>
+                <b>@__year</b>
+                <button aria-label="Next year" @onclick="() => ChangeYearAsync(1)">&#8250;</button>
+            </div>
+        </div>
+    </div>
+
+    <ToastBar Toast="__toast" />
+
+    <div class="mstats">
+        <div class="mstat"><b>@FirstBroughtForward.ToString("N2")</b><span>Brought forward into @__year</span></div>
+        <div class="mstat hot"><b>@YearEndBalance.ToString("N2")</b><span>Balance at end of @__year (so far)</span></div>
+        <div class="mstat"><b>@__months.Count(m => m.IsClosed)</b><span>Periods closed</span></div>
+        <div class="mstat"><b>@__months.Count(m => !m.IsClosed && !m.NotStarted)</b><span>Periods open</span></div>
+    </div>
+
+    <div class="lg-grid">
+        @foreach (var m in __months)
+        {
+            var month = m;
+            <div class="lg-card @(month.IsCurrent ? "cur" : "") @(month.NotStarted ? "off" : "")" @onclick="() => OpenMonth(month)">
+                <div class="lg-top">
+                    <div>
+                        <h3>@FixedLists.Months[month.Month - 1] @month.Year</h3>
+                    </div>
+                    <span class="lg-pill @PillClass(month)">@PillText(month)</span>
+                </div>
+
+                @if (month.NotStarted)
+                {
+                    <div class="lg-label" style="margin-top:22px">No transactions yet</div>
+                }
+                else
+                {
+                    <div class="lg-label">Balance carried forward</div>
+                    <div class="lg-big"><small>JMD</small>@month.Balance.ToString("N2")</div>
+                    <div class="lg-rows">
+                        <div><span>Brought forward</span><span>@month.BroughtForward.ToString("N2")</span></div>
+                        <div class="in"><span>Collections</span><span>+ @month.Collections.ToString("N2")</span></div>
+                        <div class="out"><span>Expenses</span><span>&#8722; @month.Expenses.ToString("N2")</span></div>
+                    </div>
+                    <div class="lg-foot">
+                        <span>@FootText(month)</span>
+                        @if (month.IsClosed)
+                        {
+                            <button class="btn" @onclick="() => ReopenAsync(month)" @onclick:stopPropagation="true">Reopen</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-primary" disabled="@(!month.CanClose)" @onclick="() => CloseAsync(month)" @onclick:stopPropagation="true">Close period</button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (__selected is not null)
+{
+    var s = __selected;
+    <Modal Title="@(FixedLists.Months[s.Month - 1] + " " + s.Year)" Subtitle="@PillText(s)" Icon="recon" OnClose="() => __selected = null">
+        <ChildContent>
+            <div class="summary-box">
+                <span>Brought forward@(s.IsStart ? " (opening balance)" : "")</span><span class="num">@s.BroughtForward.ToString("N2")</span>
+                <span>+ Collections (@s.CollectionRecords)</span><span class="num pos">@s.Collections.ToString("N2")</span>
+                <span>- Expenses (@s.ExpenseRecords)</span><span class="num neg">@s.Expenses.ToString("N2")</span>
+                <span class="total">Closing balance</span><span class="num total">@s.Balance.ToString("N2")</span>
+            </div>
+
+            @if (s.IsClosed)
+            {
+                <p class="hint">Closed by @s.ClosedBy on @s.ClosedOn?.ToString("dd MMM yyyy HH:mm"). Its collections and expenses are locked.</p>
+            }
+            else
+            {
+                <p class="hint">Closing this period locks its collections and expenses, and carries @s.Balance.ToString("N2") forward as the brought forward of @NextMonthName(s).</p>
+                @if (!s.CanClose)
+                {
+                    <p class="hint">@(s.NotStarted ? "This month has not started." : "Close the earlier periods first.")</p>
+                }
+            }
+        </ChildContent>
+        <Footer>
+            @if (s.IsClosed)
+            {
+                <button class="btn" @onclick="() => ReopenAsync(s)">Reopen period</button>
+            }
+            else
+            {
+                <button class="btn btn-primary" disabled="@(!s.CanClose)" @onclick="() => CloseAsync(s)">Close period</button>
+            }
+            <button class="btn" @onclick="() => __selected = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@if (__showOpening)
+{
+    <Modal Title="Opening balance" Subtitle="The balance the church started the ledger with" Icon="wallet" OnClose="() => __showOpening = false">
+        <ChildContent>
+            <div class="form-grid">
+                <div class="field">
+                    <label>Starting month</label>
+                    <select @bind="__openMonth">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
+                </div>
+                <div class="field"><label>Year</label><input type="number" @bind="__openYear" /></div>
+                <div class="field"><label>Opening balance</label><input type="number" step="0.01" @bind="__openAmount" /></div>
+            </div>
+            <p class="hint">This becomes the brought forward of the starting month. It can only be changed while no period is closed.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" @onclick="SaveOpeningAsync">Save</button>
+            <button class="btn" @onclick="() => __showOpening = false">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<LedgerMonthModel> __months = [];
+    private LedgerMonthModel? __selected;
+    private ToastMessageModel? __toast;
+    private int __year = AppClock.Today.Year;
+
+    private bool __showOpening;
+    private int __openMonth = 1;
+    private int __openYear = AppClock.Today.Year;
+    private decimal __openAmount;
+
+    #endregion
+
+    #region Calculated values
+
+    private decimal FirstBroughtForward => __months.FirstOrDefault(m => !m.NotStarted)?.BroughtForward ?? 0;
+    private decimal YearEndBalance => __months.LastOrDefault(m => !m.NotStarted)?.Balance ?? FirstBroughtForward;
+
+    #endregion
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #region Loading
+
+    private async Task LoadAsync() => __months = await LedgerRepo.SelectLedger(__year, __cts.Token);
+
+    private async Task ChangeYearAsync(int by)
+    {
+        __year += by;
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Display helpers
+
+    private static string PillText(LedgerMonthModel m) =>
+        m.IsClosed ? "Closed" : m.IsCurrent ? "Current" : m.NotStarted ? "Not started" : "Open";
+
+    private static string PillClass(LedgerMonthModel m) =>
+        m.IsClosed ? "closed" : m.IsCurrent ? "cur" : m.NotStarted ? "ns" : "open";
+
+    private static string FootText(LedgerMonthModel m) =>
+        m.IsClosed ? "Locked" : m.CanClose ? (m.IsCurrent ? "In progress" : "Ready to close") : "Close earlier month first";
+
+    private static string NextMonthName(LedgerMonthModel m) => FixedLists.Months[m.Month % 12];
+
+    #endregion
+
+    #region Open / close / reopen
+
+    private void OpenMonth(LedgerMonthModel m)
+    {
+        if (!m.NotStarted) __selected = m;
+    }
+
+    private async Task CloseAsync(LedgerMonthModel m)
+    {
+        __toast = await LedgerRepo.ClosePeriod(m.Year, m.Month, AppConstants.Who, __cts.Token);
+        __selected = null;
+        await LoadAsync();
+    }
+
+    private async Task ReopenAsync(LedgerMonthModel m)
+    {
+        __toast = await LedgerRepo.ReopenPeriod(m.Year, m.Month, AppConstants.Who, __cts.Token);
+        __selected = null;
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Opening balance
+
+    private async Task OpenOpening()
+    {
+        var start = await LedgerRepo.SelectLedgerStart(__cts.Token);
+        __openYear = start.Year;
+        __openMonth = start.Month;
+        __openAmount = start.Amount;
+        __showOpening = true;
+    }
+
+    private async Task SaveOpeningAsync()
+    {
+        __toast = await LedgerRepo.SetOpeningBalance(__openYear, __openMonth, __openAmount, AppConstants.Who, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __showOpening = false;
+        await LoadAsync();
+    }
+
+    #endregion
+}

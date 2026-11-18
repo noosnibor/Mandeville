@@ -1,0 +1,52 @@
+name: Build (Release)
+
+# Runs every time code is pushed to the Testing branch: a Release build of the web app.
+# "Promote Testing to Production" also calls this workflow to re-check the commit before it moves.
+#
+# Only the web project is built here (it pulls in Mandeville.Library and Mandeville.Data). The SSDT database project
+# (Mandeville.Database) needs Visual Studio / SSDT to build, so it is not part of this pipeline.
+
+on:
+  push:
+    branches: [Testing]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch or commit to build
+        type: string
+        default: Testing
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and publish (Release)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore src/Mandeville.Web/Mandeville.Web.csproj
+
+      - name: Build (Release)
+        run: dotnet build src/Mandeville.Web/Mandeville.Web.csproj --configuration Release --no-restore
+
+      - name: Publish
+        run: dotnet publish src/Mandeville.Web/Mandeville.Web.csproj --configuration Release --no-build --output ./publish
+
+      - name: Keep the published output
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mandeville-release-${{ github.sha }}
+          path: ./publish
+          retention-days: 14

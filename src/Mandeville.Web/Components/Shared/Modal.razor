@@ -1,0 +1,79 @@
+@* Popup dialog used for add/edit forms.
+   Desktop and tablet: centred dialog. Phone: bottom sheet.
+   The parent decides when it is shown, by rendering it inside an @if. *@
+@implements IDisposable
+
+<div class="modal-backdrop" @onclick="CloseAsync">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="@Title"
+         @onclick:stopPropagation="true" @onkeydown="OnKeyDown" tabindex="-1" @ref="__box">
+        <div class="modal-grip" aria-hidden="true"></div>
+        <header class="modal-head">
+            <div class="modal-icon"><Icon Name="@Icon" Size="24" /></div>
+            <div class="modal-titles">
+                <div class="modal-title">@Title</div>
+                @if (!string.IsNullOrWhiteSpace(Subtitle))
+                {
+                    <div class="modal-sub">@Subtitle</div>
+                }
+            </div>
+            <button type="button" class="modal-close" aria-label="Close" @onclick="CloseAsync">&#10005;</button>
+        </header>
+
+        <div class="modal-body">
+            @ChildContent
+        </div>
+
+        @if (Footer is not null)
+        {
+            <footer class="modal-foot">@Footer</footer>
+        }
+    </div>
+</div>
+
+@code {
+    #region Parameters
+
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string? Subtitle { get; set; }
+    /// <summary>Name of an icon known to <see cref="Icon"/>.</summary>
+    [Parameter] public string Icon { get; set; } = "userplus";
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+
+    #endregion
+
+    #region Private fields
+
+    private ElementReference __box;
+    private bool __focused;
+
+    #endregion
+
+    #region Lifecycle
+
+    // Move focus into the dialog once so the Esc key works straight away.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !__focused)
+        {
+            __focused = true;
+            try { await __box.FocusAsync(); } catch (InvalidOperationException) { /* circuit gone */ }
+        }
+    }
+
+    public void Dispose() { }
+
+    #endregion
+
+    #region Closing
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") await CloseAsync();
+    }
+
+    #endregion
+}

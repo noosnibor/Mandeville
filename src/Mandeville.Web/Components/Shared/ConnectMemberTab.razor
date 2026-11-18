@@ -1,0 +1,337 @@
+﻿@implements IDisposable
+@inject IVisitorRepository VisitorRepo
+@inject IVisitorNoteRepository NoteRepo
+@inject IVisitorAttendanceRepository AttendanceRepo
+@inject IMemberRepository MemberRepo
+@inject IDepartmentRepository DepartmentRepo
+
+<ToastBar Toast="__toast" />
+
+@if (CanPick)
+{
+    <div class="mtools">
+        <div class="toolbar" style="margin:0">
+            <label class="mlabel">Viewing the list of</label>
+            <select style="max-width:260px" @bind="__viewKey" @bind:after="LoadAsync">
+                <option value="">-- choose a team member --</option>
+                @foreach (var m in __team) { <option value="@m.flngKey">@m.FullName</option> }
+            </select>
+        </div>
+        <span class="hint" style="margin:0">A team member only sees their own list when they sign in.</span>
+    </div>
+}
+
+@if (__viewKey is null)
+{
+    <div class="card"><p class="empty" style="margin:0">@(CanPick ? "Choose a team member to see who is assigned to them." : "Your account is not linked to a member yet. Ask the administrator.")</p></div>
+}
+else
+{
+    <div class="mgrid">
+        @foreach (var p in __mine)
+        {
+            var person = p;
+            var due = person.fdtmNextContactDate is { } d && d.Date <= AppClock.Today;
+            <div class="vcard">
+                <div class="vcard-body">
+                    <div class="vcard-head">
+                        <div class="ucard-avatar" style="background:@AvatarStyle.Colour(person.flngKey)">@AvatarStyle.Initials(person.fstrFirstname, person.fstrLastname)</div>
+                        <div class="ucard-text">
+                            <b>@person.FullName</b>
+                            <small>@(string.IsNullOrWhiteSpace(person.fstrPhoneNumber) ? "No phone" : person.fstrPhoneNumber)</small>
+                        </div>
+                        <span class="inc-path @(IsMembership(person) ? "join" : "new")">@(__reasons.GetValueOrDefault(person.flngKey) ?? "Visitor")</span>
+                    </div>
+                    <div class="vcard-line">
+                        <span>Last contact: @(person.fdtmLastContactDate?.ToString("d MMM") ?? "not yet")</span>
+                        <span class="@(due ? "vdue" : "")">Next: @(person.fdtmNextContactDate?.ToString("d MMM") ?? "not set")@(due ? " (due)" : "")</span>
+                    </div>
+                </div>
+                <div class="vcard-foot">
+                    <button class="p" @onclick="() => CalledAsync(person)">Called</button>
+                    <button @onclick="() => OpenAsync(person)">Update</button>
+                    @if (IsMembership(person))
+                    {
+                        <button class="acc" @onclick="() => AddToIncomingAsync(person)">Add to incoming</button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+    @if (__mine.Count == 0)
+    {
+        <div class="card"><p class="empty" style="margin:0">Nobody is assigned to this team member yet.</p></div>
+    }
+}
+
+@* ---------- Update drawer ---------- *@
+@if (__open is not null)
+{
+    var e = __open;
+    <div class="drawer-backdrop" @onclick="Close">
+        <aside class="drawer" role="dialog" aria-modal="true" aria-label="Update contact" @onclick:stopPropagation="true">
+            <div class="drawer-cover" style="background:@AvatarStyle.Cover(e.flngKey)">
+                <button class="drawer-close" aria-label="Close" @onclick="Close">&#10005;</button>
+            </div>
+            <div class="drawer-top">
+                <div class="drawer-avatar" style="background:@AvatarStyle.Colour(e.flngKey)">@AvatarStyle.Initials(e.fstrFirstname, e.fstrLastname)</div>
+                <h3>@e.FullName</h3>
+                <small>@(string.IsNullOrWhiteSpace(e.fstrPhoneNumber) ? "No phone" : e.fstrPhoneNumber)</small>
+            </div>
+
+            <div class="drawer-card">
+                <h4>Contact dates</h4>
+                <div class="ir"><span>Last contact</span><b>@(e.fdtmLastContactDate?.ToString("dd MMM yyyy") ?? "Not yet")</b></div>
+                <div class="ir"><span>Next contact</span><b>@(e.fdtmNextContactDate?.ToString("dd MMM yyyy") ?? "Not set")</b></div>
+                <p class="hint">Press Called after you speak to them. That sets the last contact to today and the next contact to a week later.</p>
+            </div>
+
+            <div class="drawer-card">
+                <h4>Details</h4>
+                <div class="field">
+                    <label>Reason for going to the altar</label>
+                    <select @bind="__editReason" disabled="@(__reasonVisit is null)">
+                        <option value="">Not recorded</option>
+                        @foreach (var r in ReasonChoices()) { <option value="@r">@r</option> }
+                    </select>
+                    @if (__reasonVisit is null) { <small class="hint">No altar visit is recorded for this person yet.</small> }
+                </div>
+                <div class="field"><label>Birthday (day and month)</label><DayMonthField @bind-Value="e.fdtmDateOfBirth" /></div>
+                <div style="margin-top:.6rem"><button class="btn btn-primary btn-sm" @onclick="SaveDetailsAsync">Save</button></div>
+            </div>
+
+            <div class="drawer-card">
+                <h4>Notes for @e.fstrFirstname</h4>
+                <div class="vnote-add">
+                    <input type="text" maxlength="500" placeholder="Add a note about this contact" @bind="__newNote" @bind:event="oninput" @onkeydown="OnNoteKey" />
+                    <button class="btn btn-primary btn-sm" @onclick="AddNoteAsync">Add</button>
+                </div>
+                @foreach (var n in __notes)
+                {
+                    <div class="ir vnote"><span>@n.fdtmNoteDate.ToString("d MMM")</span><b>@n.fstrNote</b></div>
+                }
+                @if (__notes.Count == 0) { <p class="hint">No notes yet.</p> }
+            </div>
+        </aside>
+    </div>
+}
+
+@code {
+    #region Private Fields
+
+    /// <summary>The signed-in member whose list this is (a team member), or null for the lead and administrators.</summary>
+    [Parameter] public Guid? MemberKey { get; set; }
+
+    /// <summary>True for the lead and administrators, who can look at any team member's list.</summary>
+    [Parameter] public bool CanPick { get; set; }
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<MemberModel> __team = [];
+    private List<VisitorModel> __mine = [];
+    private Guid? __viewKey;
+    private VisitorModel? __open;
+    private List<VisitorNoteModel> __notes = [];
+    private Dictionary<Guid, string> __reasons = [];
+    private VisitorAttendanceModel? __reasonVisit;
+    private string __editReason = string.Empty;
+    private string? __newNote;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (CanPick)
+        {
+            var departments = await DepartmentRepo.SelectDepartment(active: true, cancellationToken: __cts.Token);
+            var teamKey = departments.FirstOrDefault(d => d.fstrName.Contains("connect", StringComparison.OrdinalIgnoreCase))?.flngKey;
+            __team = await MemberRepo.SelectMember(membershipStatus: "Active", departmentKey: teamKey, cancellationToken: __cts.Token);
+            __viewKey = MemberKey;
+        }
+        else
+        {
+            // A team member can only ever see their own list.
+            __viewKey = MemberKey;
+        }
+
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #region Loading
+
+    /// <summary>The people assigned to this team member (people who became members drop off the list).</summary>
+    private async Task LoadAsync()
+    {
+        if (__viewKey is null)
+        {
+            __mine = [];
+            return;
+        }
+
+        var list = await VisitorRepo.SelectVisitor(followUpMemberKey: __viewKey, cancellationToken: __cts.Token);
+        // People added to Incoming members (or already members) leave this list: the incoming team follows them from there.
+        __mine = list.Where(v => v.fstrStatus is "Visitor" or "Regular Visitor")
+                     .OrderBy(v => v.fdtmNextContactDate ?? DateTime.MaxValue)
+                     .ThenBy(v => v.fstrLastname).ToList();
+
+        // The latest altar reason for each person (Member is the old name of Membership).
+        __reasons = [];
+        foreach (var v in __mine)
+        {
+            var visits = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
+            var reason = visits.Where(a => !string.IsNullOrWhiteSpace(a.fstrAltarReason))
+                               .OrderByDescending(a => a.fdtmServiceDate).Select(a => a.fstrAltarReason).FirstOrDefault();
+            if (reason is not null) __reasons[v.flngKey] = FixedLists.IsMembershipReason(reason) ? "Membership" : reason;
+        }
+    }
+
+    #endregion
+
+    #region Add to incoming
+
+    /// <summary>True when the person came to the altar for membership, so the team member can add them to Incoming members.</summary>
+    private bool IsMembership(VisitorModel v) => __reasons.GetValueOrDefault(v.flngKey) == "Membership";
+
+    /// <summary>After the call confirms they want to join, moves the person to Incoming members and off this list.</summary>
+    private async Task AddToIncomingAsync(VisitorModel v)
+    {
+        if (!Owns(v) || !IsMembership(v)) return;
+
+        v.fstrStatus = "Incoming Member";
+        if (string.IsNullOrWhiteSpace(v.fstrPath)) v.fstrPath = "Joining the church";
+        v.fstrWho = AppConstants.Who;
+
+        __toast = await VisitorRepo.AddOrUpdateVisitor(v, false, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        await NoteRepo.AddVisitorNote(new VisitorNoteModel
+        {
+            flngVisitorKey = v.flngKey,
+            fdtmNoteDate = AppClock.Today,
+            fstrNote = "Confirmed they want to join. Added to Incoming members.",
+            fstrWho = AppConstants.Who
+        }, __cts.Token);
+
+        __toast = new() { ToastType = ToastTypeModel.Success, Message = $"{v.FullName} was added to Incoming members and removed from your list" };
+        __open = null;
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Called
+
+    /// <summary>Logs a call for today: last contact is today, next contact is a week later, and the call is noted.</summary>
+    private async Task CalledAsync(VisitorModel v)
+    {
+        if (!Owns(v)) return;
+
+        v.fdtmLastContactDate = AppClock.Today;
+        v.fdtmNextContactDate = AppClock.Today.AddDays(7);
+        v.fstrWho = AppConstants.Who;
+
+        __toast = await VisitorRepo.AddOrUpdateVisitor(v, false, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        await NoteRepo.AddVisitorNote(new VisitorNoteModel
+        {
+            flngVisitorKey = v.flngKey,
+            fdtmNoteDate = AppClock.Today,
+            fstrNote = "Called.",
+            fstrWho = AppConstants.Who
+        }, __cts.Token);
+
+        __toast = new() { ToastType = ToastTypeModel.Success, Message = $"Called. Next contact with {v.fstrFirstname} is {v.fdtmNextContactDate:d MMM}" };
+        await LoadAsync();
+    }
+
+    /// <summary>A team member may only change people on their own list.</summary>
+    private bool Owns(VisitorModel v) => v.flngFollowUpMemberKey is not null && v.flngFollowUpMemberKey == __viewKey && (CanPick || __viewKey == MemberKey);
+
+    #endregion
+
+    #region Update drawer
+
+    private async Task OpenAsync(VisitorModel v)
+    {
+        __open = v;
+        __newNote = null;
+        await LoadNotesAsync();
+
+        // The visit the altar reason belongs to: the latest one with a reason, otherwise the latest visit
+        var visits = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
+        __reasonVisit = visits.Where(a => !string.IsNullOrWhiteSpace(a.fstrAltarReason)).OrderByDescending(a => a.fdtmServiceDate).FirstOrDefault()
+                        ?? visits.OrderByDescending(a => a.fdtmServiceDate).FirstOrDefault();
+        __editReason = __reasonVisit?.fstrAltarReason ?? string.Empty;
+    }
+
+    private void Close() => __open = null;
+
+    private async Task LoadNotesAsync()
+    {
+        if (__open is null) return;
+        __notes = await NoteRepo.SelectVisitorNote(visitorKey: __open.flngKey, cancellationToken: __cts.Token);
+    }
+
+    private async Task SaveDetailsAsync()
+    {
+        if (__open is null || !Owns(__open)) return;
+        __open.fstrWho = AppConstants.Who;
+        __toast = await VisitorRepo.AddOrUpdateVisitor(__open, false, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        // Save a changed altar reason on the visit it belongs to
+        if (__reasonVisit is not null && (__reasonVisit.fstrAltarReason ?? string.Empty) != __editReason)
+        {
+            __reasonVisit.fstrAltarReason = string.IsNullOrWhiteSpace(__editReason) ? null : __editReason;
+            __reasonVisit.fstrWho = AppConstants.Who;
+            __toast = await AttendanceRepo.AddOrUpdateVisitorAttendance(__reasonVisit, false, __cts.Token);
+            if (!__toast.IsSuccess) return;
+
+            // Show the new reason on the card (and the Add to Incoming members button when it is membership)
+            if (__reasonVisit.fstrAltarReason is null) __reasons.Remove(__open.flngKey);
+            else __reasons[__open.flngKey] = FixedLists.IsMembershipReason(__reasonVisit.fstrAltarReason) ? "Membership" : __reasonVisit.fstrAltarReason;
+        }
+    }
+
+    /// <summary>The altar reasons to pick from, plus the current one when it is an old value no longer in the list.</summary>
+    private IEnumerable<string> ReasonChoices() =>
+        string.IsNullOrWhiteSpace(__reasonVisit?.fstrAltarReason) || FixedLists.AltarReasons.Contains(__reasonVisit.fstrAltarReason)
+            ? FixedLists.AltarReasons
+            : FixedLists.AltarReasons.Append(__reasonVisit.fstrAltarReason);
+
+    private async Task OnNoteKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddNoteAsync();
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (__open is null || !Owns(__open)) return;
+        if (string.IsNullOrWhiteSpace(__newNote))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Write a note first" };
+            return;
+        }
+
+        __toast = await NoteRepo.AddVisitorNote(new VisitorNoteModel
+        {
+            flngVisitorKey = __open.flngKey,
+            fdtmNoteDate = AppClock.Today,
+            fstrNote = __newNote.Trim(),
+            fstrWho = AppConstants.Who
+        }, __cts.Token);
+
+        if (!__toast.IsSuccess) return;
+        __newNote = null;
+        await LoadNotesAsync();
+    }
+
+    #endregion
+}

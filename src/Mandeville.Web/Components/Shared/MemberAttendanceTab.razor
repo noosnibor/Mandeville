@@ -1,0 +1,371 @@
+﻿@using System.Security.Cryptography
+@using QRCoder
+@implements IDisposable
+@inject IServiceRepository ServiceRepo
+@inject IMemberAttendanceRepository AttendanceRepo
+@inject IMemberRepository MemberRepo
+@inject NavigationManager Navigation
+@inject IConfiguration Configuration
+
+<ToastBar Toast="__toast" />
+
+<div class="att-layout">
+    @* ---------- Services as cards ---------- *@
+    <div class="card att-services">
+        <h2>Services <span>@FilteredServices().Count @(FilteredServices().Count == 1 ? "service" : "services")</span></h2>
+
+        <input type="text" class="att-search" placeholder="Search by name or date, e.g. Sunday or 08 Nov" value="@__serviceSearch" @oninput="OnServiceSearch" />
+
+        @foreach (var s in PageServices())
+        {
+            <div class="scard @(__service?.flngKey == s.flngKey ? "selected" : "")" @onclick="() => SelectServiceAsync(s)">
+                <div class="scard-date"><b>@s.fdtmServiceDate.ToString("dd")</b><span>@s.fdtmServiceDate.ToString("MMM")</span></div>
+                <div class="scard-text">
+                    <b>@s.fstrServiceName</b>
+                    <small>@s.fdtmServiceDate.ToString("ddd dd MMM yyyy")</small>
+                    <div class="scard-meta">
+                        @if (s.ftimStartTime.HasValue) { <span><Icon Name="clock" Size="13" /> @(s.ftimStartTime.Value.ToString("hh\\:mm"))</span> }
+                        <span><Icon Name="users" Size="13" /> @PresentCount(s.flngKey) present</span>
+                    </div>
+                </div>
+                @if (s.IsOpenNow) { <span class="pill-ok">Open</span> }
+            </div>
+        }
+        @if (__services.Count == 0) { <p class="empty">No services yet.</p> }
+        else if (FilteredServices().Count == 0) { <p class="empty">No service matches your search.</p> }
+
+        <Pager Page="__servicePage" PageSize="ServicePageSize" Total="FilteredServices().Count" PageChanged="SetServicePage" />
+
+        @if (__loadingAll)
+        {
+            <div class="load-box">
+                Loading all services&hellip;
+                <div class="loadbar" role="progressbar" aria-label="Loading services"><i></i></div>
+            </div>
+        }
+        else if (!__allLoaded)
+        {
+            <div class="load-box">
+                Showing the last 120 days. Older services are not loaded yet.
+                <div><button class="btn btn-primary btn-sm" @onclick="LoadAllServicesAsync">Load all services</button></div>
+            </div>
+        }
+    </div>
+
+    <div>
+        @if (__service is null)
+        {
+            <div class="card"><p class="hint" style="margin:0">Pick a service on the left, or add one.</p></div>
+        }
+        else
+        {
+            @* ---------- Selected service + QR ---------- *@
+            <div class="card">
+                <h2>@__service.fstrServiceName &middot; @__service.fdtmServiceDate.ToString("dd MMM yyyy")
+                    @if (__service.fblnCheckInOpen) { <span class="pill-ok">Check-in open</span> }
+                </h2>
+
+                @if (__service.fblnCheckInOpen)
+                {
+                    <div class="qr-box">
+                        @if (!string.IsNullOrEmpty(__qrImage))
+                        {
+                            <img class="qr-img" src="@__qrImage" alt="Check-in QR code" width="240" height="240" />
+                        }
+                        <div>
+                            <p class="hint" style="margin-top:0">Window: @__service.fdtmCheckInOpens?.ToString("HH:mm") to @__service.fdtmCheckInCloses?.ToString("HH:mm"). The code stays the same for this service, so it can be printed or put on a screen.</p>
+                            <p class="qr-link"><a href="@__checkInUrl" target="_blank" rel="noopener">@__checkInUrl</a></p>
+                            @if (__localOnly)
+                            {
+                                <div class="qr-warn">
+                                    This address only works on this computer, so a phone cannot open it after scanning.
+                                    Set <b>Church:PublicBaseUrl</b> in appsettings.json to your website address (or run the
+                                    <b>network</b> profile and use this PC's network address), then open check-in again.
+                                </div>
+                            }
+                            <div class="actions">
+                                <button class="btn btn-sm" @onclick="RotateAsync">Refresh code now</button>
+                                <button class="btn btn-sm btn-danger" @onclick="CloseAsync">Close check-in</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="hint" style="margin-top:0">Check-in is closed. Opening it shows a QR code members scan with their phones. It stays open until 90 minutes after the start time (or at least two hours), and you can close it any time.</p>
+                    <button class="btn btn-primary btn-sm" @onclick="OpenAsync">Open check-in</button>
+                }
+            </div>
+
+            @* ---------- Checked in people as cards ---------- *@
+            <div class="card">
+                <h2>Checked in @if (__service.fblnCheckInOpen) { <span class="live-badge">Live</span> } else { <span>@__attendance.Count present</span> }</h2>
+
+                <div class="live-count">
+                    <b>@__attendance.Count</b>
+                    <div class="live-track"><i style="width:@(LivePercent)%"></i></div>
+                    <div class="live-line"><span>of @__members.Count active members</span><span>@LivePercent%</span></div>
+                </div>
+
+                <div class="mfilter" style="margin-bottom:.4rem">
+                    <select @bind="__manualMember">
+                        <option value="">Mark a member by hand...</option>
+                        @foreach (var m in __members) { <option value="@m.flngKey">@m.FullName</option> }
+                    </select>
+                    <button class="btn btn-dark btn-sm" @onclick="AddManualAsync">Mark present</button>
+                </div>
+
+                @foreach (var a in __attendance)
+                {
+                    <div class="ucard @(__fresh.Contains(a.flngKey) ? "fresh" : "")">
+                        <div class="ucard-avatar" style="background:@AvatarStyle.Colour(a.flngMemberKey)">@AvatarStyle.Initials(a.fstrMemberFirstname, a.fstrMemberLastname)</div>
+                        <div class="ucard-text"><b>@a.MemberName</b><small>@a.fdtmCheckedInAt.ToString("HH:mm")</small></div>
+                        <span class="tag @(a.fstrMethod == "QR" ? "" : "m")">@a.fstrMethod</span>
+                        <button class="ucard-remove" title="Remove" aria-label="Remove" @onclick="() => RemoveAsync(a)">&#10005;</button>
+                    </div>
+                }
+                @if (__attendance.Count == 0) { <p class="empty">Nobody has checked in yet.</p> }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<ServiceModel> __services = [];
+    private List<MemberModel> __members = [];
+    private List<MemberAttendanceModel> __attendance = [];
+    private ServiceModel? __service;
+    private Guid? __manualMember;
+    private ToastMessageModel? __toast;
+    private string __qrImage = string.Empty;   // the QR code as a PNG picture (data address)
+    private string __checkInUrl = string.Empty;
+    private bool __localOnly;
+    private Timer? __liveTimer;
+    private bool __refreshing;
+    private readonly HashSet<Guid> __fresh = [];
+    private Dictionary<Guid, int> __counts = [];
+
+    // Service list paging, search and "load all"
+    private const int ServicePageSize = 6;
+    private int __servicePage = 1;
+    private string __serviceSearch = string.Empty;
+    private bool __allLoaded, __loadingAll;
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        __members = await MemberRepo.SelectMember(membershipStatus: "Active", cancellationToken: __cts.Token);
+        await LoadServicesAsync();
+        await LoadCountsAsync();
+
+        // Pull in new check-ins every few seconds while check-in is open, so the usher sees people appear as they scan.
+        __liveTimer = new Timer(_ => _ = InvokeAsync(OnLiveTickAsync), null, AppConstants.LiveRefreshEvery, AppConstants.LiveRefreshEvery);
+    }
+
+    public void Dispose()
+    {
+        __liveTimer?.Dispose();
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    /// <summary>Quietly refreshes the checked-in list and highlights anybody new.</summary>
+    private async Task OnLiveTickAsync()
+    {
+        if (__refreshing || __service is not { fblnCheckInOpen: true }) return;
+        __refreshing = true;
+        try
+        {
+            var before = __attendance.Select(a => a.flngKey).ToHashSet();
+            await RefreshAttendanceAsync();
+            __fresh.Clear();
+            foreach (var a in __attendance.Where(a => !before.Contains(a.flngKey))) __fresh.Add(a.flngKey);
+            StateHasChanged();
+        }
+        catch (OperationCanceledException) { /* page closed */ }
+        catch (ObjectDisposedException) { /* page closed */ }
+        finally { __refreshing = false; }
+    }
+
+    private int LivePercent => __members.Count == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * __attendance.Count / __members.Count));
+
+    #endregion
+
+    #region Services
+
+    private async Task LoadServicesAsync()
+    {
+        // The last 120 days to start with; every service once "Load all services" has been pressed.
+        __services = await ServiceRepo.SelectService(fromDate: __allLoaded ? null : AppClock.Today.AddDays(-120), cancellationToken: __cts.Token);
+        if (__service is not null)
+            __service = __services.FirstOrDefault(s => s.flngKey == __service.flngKey);
+        BuildQr();
+    }
+
+    /// <summary>How many people were present at each service (shown on the service cards).</summary>
+    private async Task LoadCountsAsync()
+    {
+        var all = await AttendanceRepo.SelectMemberAttendance(cancellationToken: __cts.Token);
+        __counts = all.GroupBy(a => a.flngServiceKey).ToDictionary(g => g.Key, g => g.Count());
+    }
+
+    /// <summary>Gets every service, not just the recent ones, while a loading bar shows.</summary>
+    private async Task LoadAllServicesAsync()
+    {
+        __loadingAll = true;
+        StateHasChanged();
+        try
+        {
+            __allLoaded = true;
+            await LoadServicesAsync();
+            await LoadCountsAsync();
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception)
+        {
+            __allLoaded = false;
+            __toast = new() { ToastType = ToastTypeModel.Danger, Message = "Could not load all services. Try again." };
+        }
+        finally
+        {
+            __loadingAll = false;
+        }
+    }
+
+    private void OnServiceSearch(ChangeEventArgs e)
+    {
+        __serviceSearch = e.Value?.ToString() ?? string.Empty;
+        __servicePage = 1;
+    }
+
+    private void SetServicePage(int page) => __servicePage = page;
+
+    /// <summary>Services matching the search box (service name or the date as written on the card).</summary>
+    private List<ServiceModel> FilteredServices()
+    {
+        var q = __serviceSearch.Trim();
+        if (q.Length == 0) return __services;
+
+        return __services.Where(s =>
+            s.fstrServiceName.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+            s.fdtmServiceDate.ToString("ddd dd MMM yyyy").Contains(q, StringComparison.OrdinalIgnoreCase) ||
+            s.fdtmServiceDate.ToString("dd MMMM yyyy").Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private List<ServiceModel> PageServices()
+    {
+        var all = FilteredServices();
+        var pages = Math.Max(1, (all.Count + ServicePageSize - 1) / ServicePageSize);
+        __servicePage = Math.Min(Math.Max(1, __servicePage), pages);
+        return all.Skip((__servicePage - 1) * ServicePageSize).Take(ServicePageSize).ToList();
+    }
+
+    private int PresentCount(Guid serviceKey) => __counts.TryGetValue(serviceKey, out var n) ? n : 0;
+
+    private async Task SelectServiceAsync(ServiceModel s)
+    {
+        __service = s;
+        BuildQr();
+        await RefreshAttendanceAsync();
+    }
+
+    private async Task RefreshAttendanceAsync()
+    {
+        __attendance = __service is null ? [] : await AttendanceRepo.SelectMemberAttendance(serviceKey: __service.flngKey, cancellationToken: __cts.Token);
+        if (__service is not null) __counts[__service.flngKey] = __attendance.Count;
+    }
+
+    #endregion
+
+    #region Check-in (QR)
+
+    private static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(8));
+
+    private async Task OpenAsync()
+    {
+        if (__service is null) return;
+        var start = __service.fdtmServiceDate.Date + (__service.ftimStartTime ?? new TimeSpan(9, 0, 0));
+        var now = AppClock.Now;
+
+        // Pressing Open means "open now": the window starts 30 minutes before the service, or right now if that time has already
+        // passed, and it stays open until 90 minutes after the start, or two hours from now if that is later. (Before, a service on
+        // another day or at an earlier time got a window that was already over, so scanning said "Check-in is closed".)
+        var opens = start.AddMinutes(-30) < now ? start.AddMinutes(-30) : now;
+        var closes = start.AddMinutes(90) > now.AddHours(2) ? start.AddMinutes(90) : now.AddHours(2);
+        __toast = await ServiceRepo.OpenCheckIn(__service.flngKey, NewToken(), opens, closes, AppConstants.Who, __cts.Token);
+        await LoadServicesAsync();
+    }
+
+    private async Task RotateAsync()
+    {
+        if (__service is null) return;
+        __toast = await ServiceRepo.RotateCheckInToken(__service.flngKey, NewToken(), AppConstants.Who, __cts.Token);
+        await LoadServicesAsync();
+    }
+
+    private async Task CloseAsync()
+    {
+        if (__service is null) return;
+        __toast = await ServiceRepo.CloseCheckIn(__service.flngKey, AppConstants.Who, __cts.Token);
+        await LoadServicesAsync();
+    }
+
+    /// <summary>Builds the check-in link and its QR code (a PNG picture, so it scales cleanly and needs no System.Drawing).</summary>
+    private void BuildQr()
+    {
+        if (__service is null || !__service.fblnCheckInOpen || string.IsNullOrEmpty(__service.fstrCheckInToken))
+        {
+            __qrImage = string.Empty;
+            __checkInUrl = string.Empty;
+            return;
+        }
+
+        // Use the public address from settings when there is one, because phones cannot reach "localhost".
+        var configured = Configuration["Church:PublicBaseUrl"]?.Trim().TrimEnd('/');
+        var baseUri = string.IsNullOrWhiteSpace(configured) ? Navigation.BaseUri.TrimEnd('/') : configured;
+        __checkInUrl = $"{baseUri}/checkin/{__service.fstrCheckInToken}";
+
+        var host = Uri.TryCreate(__checkInUrl, UriKind.Absolute, out var uri) ? uri.Host : string.Empty;
+        __localOnly = host is "localhost" or "127.0.0.1" or "::1" or "[::1]";
+
+        // Medium error correction + big modules + black on white with a quiet border keeps the code easy to scan.
+        // A picture is used instead of inline SVG: the SVG had no viewBox, so the page's CSS size cut the code off and it could not be read.
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(__checkInUrl, QRCodeGenerator.ECCLevel.M);
+        var png = new PngByteQRCode(data).GetGraphic(12, [0, 0, 0], [255, 255, 255], true);
+        __qrImage = "data:image/png;base64," + Convert.ToBase64String(png);
+    }
+
+    #endregion
+
+    #region Manual attendance
+
+    private async Task AddManualAsync()
+    {
+        if (__service is null || __manualMember is null) return;
+        var model = new MemberAttendanceModel
+        {
+            flngServiceKey = __service.flngKey,
+            flngMemberKey = __manualMember.Value,
+            fdtmCheckedInAt = AppClock.Now,
+            fstrMethod = "Manual",
+            fstrWho = AppConstants.Who
+        };
+        __toast = await AttendanceRepo.AddOrUpdateMemberAttendance(model, true, __cts.Token);
+        if (__toast.IsSuccess) { __manualMember = null; await RefreshAttendanceAsync(); }
+    }
+
+    private async Task RemoveAsync(MemberAttendanceModel a)
+    {
+        __toast = await AttendanceRepo.DeleteMemberAttendance(a.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await RefreshAttendanceAsync();
+    }
+
+    #endregion
+}

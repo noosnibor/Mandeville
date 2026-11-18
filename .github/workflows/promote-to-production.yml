@@ -1,0 +1,56 @@
+name: Promote Testing to Production
+
+# Run this by hand (Actions tab > Promote Testing to Production > Run workflow).
+# 1. Builds the current Testing commit in Release as a final check.
+# 2. Moves the Production branch up to that exact commit (fast-forward only, so nothing is overwritten).
+# 3. Starts "Deploy to Azure (Production)".
+#
+# Step 3 is started explicitly because a push made with the built-in GITHUB_TOKEN does not trigger
+# other workflows on its own.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: promote-to-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Check the Testing build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: Testing
+
+  promote:
+    name: Move Testing to Production
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Testing
+        uses: actions/checkout@v4
+        with:
+          ref: Testing
+          fetch-depth: 0
+
+      - name: Fast-forward Production to Testing
+        run: |
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          if git show-ref --verify --quiet refs/remotes/origin/Production; then
+            if ! git merge-base --is-ancestor origin/Production origin/Testing; then
+              echo "::error::Production has commits that are not in Testing. Merge Production into Testing first, then run this again."
+              exit 1
+            fi
+          fi
+          git push origin origin/Testing:refs/heads/Production
+
+      - name: Start the Azure deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-azure.yml --repo "$GITHUB_REPOSITORY" --ref Production

@@ -1,0 +1,86 @@
+@implements IDisposable
+@inject IServiceRepository ServiceRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="card">
+    <h2>Add service</h2>
+    <p class="hint" style="margin-top:0">Create a service members can check in to. Visitors, attendance and the thank you messages all use this list.</p>
+    <div class="field" style="margin-bottom:.6rem"><label>Service name</label><input type="text" maxlength="100" @bind="__new.fstrServiceName" /></div>
+    <div class="form-grid">
+        <div class="field"><label>Date</label><input type="date" @bind="__new.fdtmServiceDate" /></div>
+        <div class="field"><label>Start time</label><input type="time" @bind="__startTime" /></div>
+    </div>
+    <div class="field"><label>Location</label><input type="text" maxlength="150" @bind="__new.fstrLocation" /></div>
+    <div class="actions" style="margin-top:.8rem"><button class="btn btn-primary btn-sm" @onclick="AddAsync">Add service</button></div>
+</div>
+
+<div class="card">
+    <h2>Services <span>@__services.Count</span></h2>
+    @if (__services.Count == 0)
+    {
+        <p class="empty">No services yet. Add the first one above.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead><tr><th>Date</th><th>Service</th><th>Time</th><th>Location</th></tr></thead>
+            <tbody>
+                @foreach (var s in __services)
+                {
+                    <tr>
+                        <td>@s.fdtmServiceDate.ToString("ddd d MMM yyyy")</td>
+                        <td>@s.fstrServiceName @if (s.fdtmServiceDate.Date > AppClock.Today) { <span class="tag">Upcoming</span> }</td>
+                        <td>@(s.ftimStartTime.HasValue ? DateTime.Today.Add(s.ftimStartTime.Value).ToString("h:mm tt") : "-")</td>
+                        <td>@(string.IsNullOrWhiteSpace(s.fstrLocation) ? "-" : s.fstrLocation)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private ToastMessageModel? __toast;
+    private List<ServiceModel> __services = [];
+    private ServiceModel __new = NewService();
+    private TimeOnly? __startTime = new TimeOnly(9, 0);
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    public void Dispose() { __cts.Cancel(); __cts.Dispose(); }
+
+    #endregion
+
+    #region Loading and adding
+
+    private static ServiceModel NewService() => new() { fdtmServiceDate = AppClock.Today, fstrServiceName = "Sunday service" };
+
+    private async Task LoadAsync()
+    {
+        try { __services = (await ServiceRepo.SelectService(cancellationToken: __cts.Token)).OrderByDescending(s => s.fdtmServiceDate).ToList(); }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(__new.fstrServiceName)) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Service name is required" }; return; }
+        __new.fstrWho = AppConstants.Who;
+        __new.ftimStartTime = __startTime?.ToTimeSpan();
+        __toast = await ServiceRepo.AddOrUpdateService(__new, true, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __new = NewService();
+        __startTime = new TimeOnly(9, 0);
+        await LoadAsync();
+    }
+
+    #endregion
+}

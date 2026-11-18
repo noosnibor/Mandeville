@@ -1,0 +1,171 @@
+@implements IDisposable
+@inject ILookupValueRepository LookupRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="fl-layout">
+    <div class="card fl-left">
+        <h2>Fixed lists</h2>
+        @foreach (var name in FixedLists.EditableNames)
+        {
+            <div class="fl-item @(__list == name ? "on" : "")" @onclick="() => Pick(name)"><span>@name</span></div>
+        }
+        @foreach (var name in __locked.Keys)
+        {
+            <div class="fl-item @(__list == name ? "on" : "")" @onclick="() => Pick(name)"><span>@name</span><small>locked</small></div>
+        }
+    </div>
+
+    <div class="card">
+        <h2>@__list</h2>
+        @if (__locked.TryGetValue(__list, out var fixedValues))
+        {
+            <p class="hint" style="margin-top:0">Locked: the app has rules that depend on these exact values, so they cannot be changed.</p>
+            @foreach (var v in fixedValues) { <div class="fl-row"><span>@v</span></div> }
+        }
+        else
+        {
+            <p class="hint" style="margin-top:0">Rename, reorder, hide or add values. Renaming or hiding only affects new entries: records already saved keep their old wording.</p>
+            @for (var i = 0; i < __rows.Count; i++)
+            {
+                var row = __rows[i];
+                var index = i;
+                var keep = FixedLists.IsProtected(__list, row.fstrValue);
+                <div class="fl-row @(row.fblnActive ? "" : "hidden")">
+                    @if (__editKey == row.flngKey)
+                    {
+                        <input type="text" maxlength="50" @bind="__editText" @onkeydown="e => OnEditKey(e, row)" />
+                        <button class="btn btn-primary btn-sm" @onclick="() => SaveRenameAsync(row)">Save</button>
+                        <button class="btn btn-sm" @onclick="() => __editKey = null">Cancel</button>
+                    }
+                    else
+                    {
+                        <span>@row.fstrValue @if (!row.fblnActive) { <small>(hidden)</small> } @if (keep) { <small>in use by the app</small> }</span>
+                        <button class="btn btn-sm" disabled="@(index == 0)" @onclick="() => MoveAsync(index, -1)">Up</button>
+                        <button class="btn btn-sm" disabled="@(index == __rows.Count - 1)" @onclick="() => MoveAsync(index, 1)">Down</button>
+                        @if (!keep)
+                        {
+                            <button class="btn btn-sm" @onclick="() => { __editKey = row.flngKey; __editText = row.fstrValue; }">Rename</button>
+                            <button class="btn btn-sm" @onclick="() => ToggleHiddenAsync(row)">@(row.fblnActive ? "Hide" : "Show")</button>
+                        }
+                    }
+                </div>
+            }
+            <div class="fl-add">
+                <input type="text" maxlength="50" placeholder="New value" @bind="__newValue" @bind:event="oninput" @onkeydown="OnAddKey" />
+                <button class="btn btn-primary btn-sm" @onclick="AddAsync">Add</button>
+            </div>
+            <p class="hint">Hidden values disappear from the dropdowns but stay on old records.</p>
+        }
+    </div>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private ToastMessageModel? __toast;
+    private string __list = FixedLists.EditableNames[0];
+    private List<LookupValueModel> __rows = [];
+    private Guid? __editKey;
+    private string __editText = string.Empty, __newValue = string.Empty;
+
+    /// <summary>Lists the app has rules for. Shown for reference only.</summary>
+    private readonly Dictionary<string, string[]> __locked = new()
+    {
+        ["Gender"] = FixedLists.Genders,
+        ["Age group"] = FixedLists.AgeGroups,
+        ["Membership status"] = FixedLists.MembershipStatuses,
+        ["Visitor status"] = FixedLists.VisitorStatuses
+    };
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    public void Dispose() { __cts.Cancel(); __cts.Dispose(); }
+
+    #endregion
+
+    #region Loading
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            if (!__locked.ContainsKey(__list))
+                __rows = (await LookupRepo.SelectLookupValue(__list, cancellationToken: __cts.Token)).OrderBy(v => v.flngSort).ToList();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task Pick(string name)
+    {
+        __list = name; __editKey = null; __newValue = string.Empty; __toast = null;
+        await LoadAsync();
+    }
+
+    /// <summary>Puts the saved lists into use so the dropdowns change straight away.</summary>
+    private async Task ApplyAsync()
+    {
+        await LookupRepo.LoadFixedListsAsync(__cts.Token);
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Editing
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(__newValue)) { __toast = new ToastMessageModel { Message = "Enter a value", ToastType = ToastTypeModel.Danger }; return; }
+        __toast = await LookupRepo.AddLookupValue(new LookupValueModel
+        {
+            fstrList = __list, fstrValue = __newValue, flngSort = (__rows.Count == 0 ? 0 : __rows.Max(r => r.flngSort)) + 10, fstrWho = AppConstants.Who
+        }, __cts.Token);
+        if (__toast.IsSuccess) { __newValue = string.Empty; await ApplyAsync(); }
+    }
+
+    private async Task SaveRenameAsync(LookupValueModel row)
+    {
+        if (string.IsNullOrWhiteSpace(__editText)) return;
+        row.fstrValue = __editText;
+        row.fstrWho = AppConstants.Who;
+        __toast = await LookupRepo.UpdateLookupValue(row, __cts.Token);
+        if (__toast.IsSuccess) { __editKey = null; await ApplyAsync(); } else await LoadAsync();
+    }
+
+    private async Task ToggleHiddenAsync(LookupValueModel row)
+    {
+        // At least one value has to stay shown
+        if (row.fblnActive && __rows.Count(r => r.fblnActive) <= 1) { __toast = new ToastMessageModel { Message = "At least one value must stay shown", ToastType = ToastTypeModel.Danger }; return; }
+        row.fblnActive = !row.fblnActive;
+        row.fstrWho = AppConstants.Who;
+        __toast = await LookupRepo.UpdateLookupValue(row, __cts.Token);
+        await ApplyAsync();
+    }
+
+    private async Task MoveAsync(int index, int step)
+    {
+        var other = index + step;
+        if (other < 0 || other >= __rows.Count) return;
+        (__rows[index], __rows[other]) = (__rows[other], __rows[index]);
+
+        // Renumber so the saved order matches what is on screen
+        for (var i = 0; i < __rows.Count; i++)
+        {
+            if (__rows[i].flngSort == (i + 1) * 10) continue;
+            __rows[i].flngSort = (i + 1) * 10;
+            __rows[i].fstrWho = AppConstants.Who;
+            await LookupRepo.UpdateLookupValue(__rows[i], __cts.Token);
+        }
+        await ApplyAsync();
+    }
+
+    private async Task OnEditKey(KeyboardEventArgs e, LookupValueModel row) { if (e.Key == "Enter") await SaveRenameAsync(row); }
+    private async Task OnAddKey(KeyboardEventArgs e) { if (e.Key == "Enter") await AddAsync(); }
+
+    #endregion
+}
