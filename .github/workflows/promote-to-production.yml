@@ -54,3 +54,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-azure.yml --repo "$GITHUB_REPOSITORY" --ref Production
+
+# registered
