@@ -201,7 +201,6 @@ else
     /// <summary>The friendly name of a role (falls back to the built-in label when the role was removed).</summary>
     private string LabelOf(string? role) => __roles.FirstOrDefault(r => r.fstrName == role)?.fstrLabel ?? AppRoles.Label(role);
 
-    private static string RoleCss(string role) => role == AppRoles.Administrator ? "i" : "ok";
 
     /// <summary>Called by the Roles &amp; access tab after it changed a role, so the dropdowns stay current.</summary>
     private async Task ReloadRolesAsync() => __roles = await RoleRepo.SelectRole(cancellationToken: __cts.Token);

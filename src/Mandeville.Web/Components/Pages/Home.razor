@@ -172,7 +172,7 @@ else
     private string __attn = "visit";
     private string? __error;
 
-    private int __totalMembers, __activeMembers, __inactiveMembers, __totalVisitors;
+    private int __totalMembers, __activeMembers;
     private decimal __collected, __spent;
     private List<VisitorModel> __unconnected = [];
     private List<(DateTime Date, int Count)> __perService = [];
@@ -201,22 +201,6 @@ else
     private static int Pct(int value, int max) => Math.Max(4, (int)Math.Round(100.0 * value / max));
 
     private static string Money(decimal value) => "$" + value.ToString("N2");
-
-    private int UnconnectedPercent => __totalVisitors == 0 ? 0 : (int)Math.Round(100.0 * __unconnected.Count / __totalVisitors);
-
-    /// <summary>Length of the active arc and the inactive arc on the donut (circumference 515.22 = 2 x pi x 82).</summary>
-    private string DonutActive => Arc(__totalMembers == 0 ? 0 : (double)__activeMembers / __totalMembers);
-    private string DonutInactive => Arc(__totalMembers == 0 ? 0 : (double)__inactiveMembers / __totalMembers);
-    private static string Arc(double fraction) => (515.22 * fraction).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    /// <summary>Inline style for a small progress ring badge: coloured arc over a pale track.</summary>
-    private static string RingStyle(string colour, int percent) =>
-        $"background:conic-gradient({colour} {Math.Clamp(percent, 0, 100)}%, var(--track) 0)";
-
-    private int LastServicePercent => __activeMembers == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * __lastServicePresent / __activeMembers));
-    private int NotSeenPercent => __activeMembers == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * __notSeen.Count / __activeMembers));
-
-    private int InactivePercent => __totalMembers == 0 ? 0 : 100 - ActivePercent;
 
     #endregion
 
@@ -271,7 +255,6 @@ else
             var members = await MemberRepo.SelectMember(active: true, cancellationToken: ct);
             __totalMembers = members.Count;
             __activeMembers = members.Count(m => m.fstrMembershipStatus == "Active");
-            __inactiveMembers = __totalMembers - __activeMembers;
 
             await LoadMemberAttendanceAsync(members, ct);
 
@@ -292,8 +275,6 @@ else
             // Visitors who still have no connector (follow-up member).
             __unconnected = (await VisitorRepo.SelectVisitor(unassigned: true, active: true, cancellationToken: ct))
                 .OrderBy(v => v.fdtmLastAttended ?? DateTime.MaxValue).ToList();
-
-            __totalVisitors = (await VisitorRepo.SelectVisitor(active: true, cancellationToken: ct)).Count;
 
             // Current collection balance = everything collected minus everything spent.
             __collected = (await FinanceRepo.SelectFinance(active: true, cancellationToken: ct)).Sum(f => f.fcurAmount);

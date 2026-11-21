@@ -388,15 +388,6 @@
         await OnServiceChosen.InvokeAsync(__viewDate);
     }
 
-    /// <summary>The line above the table that says which visitors are listed.</summary>
-    private string ListNote()
-    {
-        if (!string.IsNullOrWhiteSpace(__search)) return "Search results across all visitors.";
-        if (__viewDate == "all") return "Showing every visitor, from all services.";
-        var service = __services.FirstOrDefault(s => s.fdtmServiceDate.ToString("yyyy-MM-dd") == __viewDate);
-        return service is null ? "Showing visitors at the chosen service." : $"Showing visitors at {service.fstrServiceName} - {service.fdtmServiceDate:dd MMM yyyy}. Search to find anyone else.";
-    }
-
     private void NewVisitor()
     {
         __origAttendance = null;
