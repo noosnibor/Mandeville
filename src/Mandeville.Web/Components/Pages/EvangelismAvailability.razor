@@ -1,0 +1,83 @@
+﻿@page "/evangelism/availability/{Token}"
+@attribute [AllowAnonymous]
+@layout CheckInLayout
+@implements IDisposable
+@inject IEvangelismAvailabilityRepository AvailabilityRepo
+@inject IEvangelismServiceRepository ServiceRepo
+
+<PageTitle>Outreach availability</PageTitle>
+
+<div class="card">
+    @if (!__loaded)
+    {
+        <p>Loading...</p>
+    }
+    else if (__invite is null)
+    {
+        <h2>This link is not valid</h2>
+        <p class="hint">Ask your outreach team lead to send you a new one.</p>
+    }
+    else
+    {
+        <h2>Hello @__invite.fstrFirstname</h2>
+        <p class="hint">Evangelism for @__invite.fdtmMonth.ToString("MMMM yyyy"): tick the Saturdays and areas where you can help, or say you are not available this month.</p>
+
+        <ToastBar Toast="__toast" />
+        <EvangelismAvailabilityForm Options="Options" Selected="__selected" @bind-NotAvailable="__notAvailable" />
+        <button class="btn btn-primary" disabled="@__busy" @onclick="SaveAsync">@(__invite.Responded ? "Update my answer" : "Send my answer")</button>
+
+        <h3 class="ev-h">My Saturdays</h3>
+        <p class="hint" style="margin-top:0">Once the team lead has scheduled you, confirm here or say if you can't make it.</p>
+        <EvangelismMySchedule MemberKey="__invite.flngMemberKey" Who="@__invite.FullName" Month="__invite.fdtmMonth" />
+    }
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private readonly CancellationTokenSource __cts = new();
+    private EvangelismInviteModel? __invite;
+    private List<EvangelismServiceModel> __sessions = [];
+    private readonly HashSet<string> __selected = [];
+    private bool __notAvailable;
+    private bool __loaded;
+    private bool __busy;
+    private ToastMessageModel? __toast;
+
+    private List<(DateTime Date, string Area)> Options =>
+        __sessions.Count > 0
+            ? __sessions.Select(s => (s.fdtmServiceDate.Date, s.fstrArea)).Distinct().ToList()
+            : __invite is null ? [] : EvangelismRules.Saturdays(__invite.fdtmMonth).SelectMany(d => EvangelismRules.Areas.Select(a => (d, a))).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        __invite = (await AvailabilityRepo.SelectEvangelismInvite(token: Token, cancellationToken: __cts.Token)).FirstOrDefault();
+        if (__invite is not null)
+        {
+            var from = EvangelismRules.MonthOf(__invite.fdtmMonth);
+            __sessions = await ServiceRepo.SelectEvangelismService(fromDate: from, toDate: from.AddMonths(1).AddDays(-1), cancellationToken: __cts.Token);
+            __notAvailable = __invite.fblnNotAvailable;
+            foreach (var c in await AvailabilityRepo.SelectEvangelismChoice(inviteKey: __invite.flngKey, cancellationToken: __cts.Token))
+                __selected.Add(EvangelismAvailabilityForm.Key(c.fdtmDate, c.fstrArea));
+        }
+        __loaded = true;
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (__invite is null) return;
+        __busy = true;
+        try
+        {
+            __toast = await AvailabilityRepo.SaveEvangelismAvailability(__invite.flngKey, __notAvailable, __selected.Select(EvangelismAvailabilityForm.Parse).ToList(), __invite.FullName, __cts.Token);
+            if (__toast.IsSuccess) __invite.fdtmResponded = AppClock.Now;
+        }
+        finally { __busy = false; }
+    }
+}

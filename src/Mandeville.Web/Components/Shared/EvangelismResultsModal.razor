@@ -1,0 +1,189 @@
+﻿@* The team lead of a group enters what happened: who came, and the numbers for the area. *@
+@implements IDisposable
+@inject IEvangelismServiceRepository ServiceRepo
+@inject IEvangelismAssignmentRepository AssignmentRepo
+@inject IEvangelismContactRepository ContactRepo
+
+<Modal Title="Enter results" Subtitle="@Subtitle" Icon="mega" OnClose="OnClose">
+    <ChildContent>
+        <ToastBar Toast="__toast" />
+
+        <h3 class="ev-h">Who came</h3>
+        <p class="hint" style="margin-top:0">Everyone starts as present. Tap Absent for anyone who did not come.</p>
+        <div class="fin-list card">
+            @foreach (var p in __people)
+            {
+                var person = p;
+                <div class="fin-row">
+                    <div class="care-av sm" style="background:@(person.A.flngMemberKey.HasValue ? AvatarStyle.Colour(person.A.flngMemberKey.Value) : "var(--inactive)")">@AvatarStyle.Initials(person.A.fstrFirstname, person.A.fstrLastname)</div>
+                    <div class="fin-nm"><b>@person.A.DisplayName</b><small>@person.A.fstrRole</small></div>
+                    <div class="ev-seg">
+                        <button type="button" class="@(person.Present ? "on" : "")" @onclick="() => person.Present = true">Present</button>
+                        <button type="button" class="@(person.Present ? "" : "off")" @onclick="() => person.Present = false">Absent</button>
+                    </div>
+                </div>
+            }
+            @if (__people.Count == 0) { <p class="empty" style="margin:0">No one is scheduled for this session.</p> }
+        </div>
+        <p class="hint">@Present of @__people.Count present.</p>
+
+        @if (Session.fstrArea == EvangelismRules.Street)
+        {
+            <h3 class="ev-h">Street numbers</h3>
+            <div class="form-grid">
+                <div class="field"><label>Flyers handed out</label><input type="number" min="0" @bind="__flyers" /></div>
+                <div class="field"><label>Persons prayed for or ministered to</label><input type="number" min="0" @bind="__ministered" /></div>
+            </div>
+
+            <h3 class="ev-h">People met</h3>
+            <p class="hint" style="margin-top:0">Add anyone who gave their details. They go on the contact list for the tele team to call.@(__saved.Count > 0 ? $" {__saved.Count} already added for this session." : "")</p>
+            @foreach (var c in __new)
+            {
+                var contact = c;
+                <div class="ev-newc">
+                    <input type="text" maxlength="50" placeholder="First name" @bind="contact.fstrFirstname" />
+                    <input type="text" maxlength="50" placeholder="Last name" @bind="contact.fstrLastname" />
+                    <input type="text" maxlength="30" placeholder="Phone" @bind="contact.fstrPhoneNumber" />
+                    <input type="text" maxlength="100" placeholder="Area or community" @bind="contact.fstrArea" />
+                    <input type="text" maxlength="300" placeholder="Prayer request or need" @bind="contact.fstrNeed" />
+                    <button type="button" class="btn btn-sm btn-danger" @onclick="() => __new.Remove(contact)">Remove</button>
+                    <label class="check ev-consent"><input type="checkbox" @bind="contact.fblnConsent" /><span>They agreed to be contacted</span></label>
+                </div>
+            }
+            <button type="button" class="btn btn-sm" @onclick="AddRow">+ Add a person</button>
+        }
+        else if (Session.fstrArea == EvangelismRules.Tele)
+        {
+            <h3 class="ev-h">Calls</h3>
+            <p class="hint" style="margin-top:0">Calls are counted from what the team logs against the contact list, so there is nothing to type here.</p>
+            <div class="kstrip card">
+                <div><b>@(__stat?.flngCalls ?? 0)</b><span>Calls logged</span></div>
+                <div class="on"><b>@(__stat?.flngReached ?? 0)</b><span>People reached</span></div>
+                <div><b>@(__stat?.flngCallers ?? 0)</b><span>Callers who logged calls</span></div>
+            </div>
+        }
+
+        <div class="field" style="margin-top:.85rem"><label>Notes (optional)</label><input type="text" maxlength="500" @bind="__notes" /></div>
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-primary" disabled="@__saving" @onclick="SaveAsync">Save results</button>
+        <button class="btn" @onclick="OnClose">Cancel</button>
+    </Footer>
+</Modal>
+
+@code {
+    #region Parameters
+
+    [Parameter, EditorRequired] public EvangelismServiceModel Session { get; set; } = default!;
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private readonly List<Person> __people = [];
+    private readonly List<EvangelismContactModel> __new = [];
+    private List<EvangelismContactModel> __saved = [];
+    private EvangelismStatModel? __stat;
+    private int __flyers, __ministered;
+    private string? __notes;
+    private bool __saving;
+    private ToastMessageModel? __toast;
+
+    /// <summary>One scheduled person and whether they came.</summary>
+    private sealed class Person
+    {
+        public required EvangelismAssignmentModel A { get; init; }
+        public bool Present { get; set; }
+    }
+
+    #endregion
+
+    private int Present => __people.Count(p => p.Present);
+
+    private string Subtitle => $"{Session.fstrArea} - {Session.fdtmServiceDate:ddd d MMM yyyy}" + (string.IsNullOrWhiteSpace(Session.fstrLocation) ? "" : " - " + Session.fstrLocation);
+
+    protected override async Task OnInitializedAsync()
+    {
+        __flyers = Session.flngFlyers;
+        __ministered = Session.flngTotalMinistered;
+        __notes = Session.fstrNotes;
+
+        var assignments = await AssignmentRepo.SelectEvangelismAssignment(serviceKey: Session.flngKey, cancellationToken: __cts.Token);
+        foreach (var a in assignments.Where(a => a.fstrStatus != EvangelismRules.Declined))
+            __people.Add(new Person { A = a, Present = a.fstrStatus != EvangelismRules.Absent });
+
+        if (Session.fstrArea == EvangelismRules.Street)
+            __saved = (await ContactRepo.SelectEvangelismContact(cancellationToken: __cts.Token)).Where(c => c.flngSessionKey == Session.flngKey).ToList();
+
+        if (Session.fstrArea == EvangelismRules.Tele)
+        {
+            var date = Session.fdtmServiceDate.Date;
+            __stat = (await ServiceRepo.SelectEvangelismStat(date, date, __cts.Token)).FirstOrDefault(s => s.flngSessionKey == Session.flngKey);
+        }
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private void AddRow() => __new.Add(new EvangelismContactModel { fdtmMet = Session.fdtmServiceDate.Date, flngSessionKey = Session.flngKey });
+
+    private async Task SaveAsync()
+    {
+        if (__flyers < 0 || __ministered < 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Numbers cannot be negative" };
+            return;
+        }
+
+        __saving = true;
+        try
+        {
+            foreach (var p in __people)
+            {
+                var status = p.Present ? EvangelismRules.Attended : EvangelismRules.Absent;
+                if (p.A.fstrStatus == status) continue;
+                var set = await AssignmentRepo.SetEvangelismAssignmentStatus(p.A.flngKey, status, AppConstants.Who, null, __cts.Token);
+                if (!set.IsSuccess) { __toast = set; return; }
+            }
+
+            var street = Session.fstrArea == EvangelismRules.Street;
+            var s = Session.Copy();
+            s.flngTotalPresent = Present;
+            s.flngTotalCallers = Session.fstrArea == EvangelismRules.Tele ? Present : 0;
+            s.flngTotalPrayers = Session.fstrArea == EvangelismRules.Prayer ? Present : 0;
+            s.flngTotalMinistered = street ? __ministered : 0;
+            s.flngFlyers = street ? __flyers : 0;
+            s.fstrNotes = __notes;
+            s.fblnResultsDone = true;
+            s.fstrWho = AppConstants.Who;
+
+            var saved = await ServiceRepo.AddOrUpdateEvangelismService(s, false, __cts.Token);
+            if (!saved.IsSuccess) { __toast = saved; return; }
+
+            var added = 0;
+            foreach (var c in __new.Where(c => !string.IsNullOrWhiteSpace(c.fstrFirstname)))
+            {
+                c.flngSessionKey = Session.flngKey;
+                c.fdtmMet = Session.fdtmServiceDate.Date;
+                c.fstrStatus = EvangelismRules.ContactNew;
+                c.fstrWho = AppConstants.Who;
+                var result = await ContactRepo.AddOrUpdateEvangelismContact(c, true, __cts.Token);
+                if (!result.IsSuccess) { __toast = result; return; }
+                added++;
+            }
+
+            __toast = new() { ToastType = ToastTypeModel.Success, Message = added > 0 ? $"Results saved and {added} contact(s) added" : "Results saved" };
+            await OnSaved.InvokeAsync();
+        }
+        finally
+        {
+            __saving = false;
+        }
+    }
+}

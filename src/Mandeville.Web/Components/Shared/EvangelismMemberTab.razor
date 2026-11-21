@@ -1,0 +1,110 @@
+@* A team member's own view: their Saturdays, their availability for the month, and the people they were asked to call. *@
+@using global::Mandeville.Web.Outreach
+@implements IDisposable
+@inject IEvangelismAvailabilityRepository AvailabilityRepo
+@inject IEvangelismServiceRepository ServiceRepo
+@inject IDepartmentRepository DepartmentRepo
+
+<ToastBar Toast="__toast" />
+
+@if (!MemberKey.HasValue)
+{
+    <p class="empty">Your sign-in is not linked to a member record yet, so there is nothing to show here. Ask an administrator to link it in Users.</p>
+}
+else
+{
+    <div class="ev-month">
+        <button class="btn btn-sm" aria-label="Previous month" @onclick="() => Shift(-1)">&lsaquo;</button>
+        <b>@__month.ToString("MMMM yyyy")</b>
+        <button class="btn btn-sm" aria-label="Next month" @onclick="() => Shift(1)">&rsaquo;</button>
+    </div>
+
+    <h3 class="ev-h">My Saturdays</h3>
+    <EvangelismMySchedule MemberKey="MemberKey.Value" Who="@AppConstants.Who" Month="__month" ShowResults="true" />
+
+    <h3 class="ev-h">My availability</h3>
+    <div class="card ev-mine">
+        @if (__invite is null)
+        {
+            <p class="empty" style="margin:0">You are not on the outreach team list for this month.</p>
+        }
+        else
+        {
+            <EvangelismAvailabilityForm Options="Options" Selected="__selected" @bind-NotAvailable="__notAvailable" />
+            <button class="btn btn-primary" disabled="@__busy" @onclick="SaveAsync">Save my availability</button>
+        }
+    </div>
+
+    <h3 class="ev-h">People I was asked to call</h3>
+    <EvangelismContactsTab OwnMemberKey="MemberKey" />
+}
+
+@code {
+    [Parameter] public Guid? MemberKey { get; set; }
+
+    private readonly CancellationTokenSource __cts = new();
+    private DateTime __month = EvangelismRules.MonthOf(AppClock.Today);
+    private EvangelismInviteModel? __invite;
+    private List<EvangelismServiceModel> __sessions = [];
+    private readonly HashSet<string> __selected = [];
+    private bool __notAvailable;
+    private bool __busy;
+    private DateTime? __loaded;
+    private ToastMessageModel? __toast;
+
+    private List<(DateTime Date, string Area)> Options =>
+        __sessions.Count > 0
+            ? __sessions.Select(s => (s.fdtmServiceDate.Date, s.fstrArea)).Distinct().ToList()
+            : EvangelismRules.Saturdays(__month).SelectMany(d => EvangelismRules.Areas.Select(a => (d, a))).ToList();
+
+    private void Shift(int months) => __month = __month.AddMonths(months);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (__loaded == __month || MemberKey is null) return;
+        __loaded = __month;
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The month arrows change __month after the parameters were set, so reload when it moved
+        if (__loaded != __month && MemberKey is not null)
+        {
+            __loaded = __month;
+            await LoadAsync();
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync()
+    {
+        var from = EvangelismRules.MonthOf(__month);
+        // The invite for the month is made here too, so a member can answer before the lead opens the Availability tab
+        await AvailabilityRepo.EnsureEvangelismInvites(from, await OutreachTeam.DepartmentKeyAsync(DepartmentRepo, __cts.Token), AppConstants.Who, __cts.Token);
+        __sessions = await ServiceRepo.SelectEvangelismService(fromDate: from, toDate: from.AddMonths(1).AddDays(-1), cancellationToken: __cts.Token);
+        __invite = (await AvailabilityRepo.SelectEvangelismInvite(month: from, memberKey: MemberKey, cancellationToken: __cts.Token)).FirstOrDefault();
+        __selected.Clear();
+        __notAvailable = __invite?.fblnNotAvailable ?? false;
+        if (__invite is not null)
+            foreach (var c in await AvailabilityRepo.SelectEvangelismChoice(inviteKey: __invite.flngKey, cancellationToken: __cts.Token))
+                __selected.Add(EvangelismAvailabilityForm.Key(c.fdtmDate, c.fstrArea));
+    }
+
+    private async Task SaveAsync()
+    {
+        if (__invite is null) return;
+        __busy = true;
+        try
+        {
+            __toast = await AvailabilityRepo.SaveEvangelismAvailability(__invite.flngKey, __notAvailable, __selected.Select(EvangelismAvailabilityForm.Parse).ToList(), AppConstants.Who, __cts.Token);
+        }
+        finally { __busy = false; }
+    }
+}

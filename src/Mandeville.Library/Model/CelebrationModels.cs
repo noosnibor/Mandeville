@@ -97,9 +97,6 @@ public class CelebrationModel
     /// <summary>File name of the default card picture in wwwroot/cards (see <see cref="CardDesigns"/>).</summary>
     public string CardFile => CardDesigns.Default(this).File;
 
-    /// <summary>Web address of the default card picture.</summary>
-    public string CardImage => "/cards/" + CardFile;
-
     /// <summary>Valid email addresses the card can be emailed to (the member, and the spouse when they are a member).</summary>
     public List<string> Emails { get; set; } = [];
 

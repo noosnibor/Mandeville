@@ -2,21 +2,25 @@
 @inject IVisitorRepository VisitorRepo
 @inject IMemberRepository MemberRepo
 @inject IMemberTypeRepository MemberTypeRepo
+@inject IVisitorAttendanceRepository AttendanceRepo
 
 <ToastBar Toast="__toast" />
 
 @* ---------- Stage tiles (click to filter) ---------- *@
-<div class="inc-tiles">
-    <button class="inc-tile @(__filter is null ? "on" : "")" @onclick="() => __filter = null"><b>@__list.Count</b><span>All incoming</span></button>
+<div class="inc-strip card" role="group" aria-label="Filter by stage">
+    <button class="@(__filter is null ? "on" : "")" @onclick="() => __filter = null"><b>@__list.Count</b><span>All incoming</span></button>
     @for (var stage = 0; stage < Stages.Length; stage++)
     {
         var s = stage;
-        <button class="inc-tile @(__filter == s ? "on" : "")" @onclick="() => __filter = s"><b>@__list.Count(v => StageOf(v) == s)</b><span>@Stages[s]</span></button>
+        <button class="@(__filter == s ? "on" : "")" @onclick="() => __filter = s"><b>@__list.Count(v => StageOf(v) == s)</b><span>@Stages[s]</span></button>
     }
 </div>
 
-<div class="mtools">
-    <input class="msearch" type="text" placeholder="Search name or phone" @bind="__listSearch" @bind:event="oninput" />
+<div class="cl-line">
+    <label class="vsearch inc-search">
+        <Icon Name="search" Size="18" Stroke="1.5" />
+        <input class="msearch" type="text" placeholder="Search name or phone..." aria-label="Search incoming members" @bind="__listSearch" @bind:event="oninput" />
+    </label>
 </div>
 
 @* ---------- Cards ---------- *@
@@ -51,7 +55,7 @@
 </div>
 @if (Shown().Count == 0)
 {
-    <div class="mpanel"><p class="empty" style="margin:1rem 0">No incoming members here. People appear when their team member adds them after confirming by phone.</p></div>
+    <div class="card"><p class="empty" style="margin:0">No incoming members here. People appear when their team member adds them after confirming by phone.</p></div>
 }
 
 <button class="fab" @onclick="OpenAdd"><Icon Name="plus" Size="16" />Add incoming</button>
@@ -111,8 +115,25 @@
                     <button class="p" @onclick="ConvertAsync">Add to members</button>
                 </div>
             }
+            <div class="drawer-foot solo" style="padding-top:0">
+                <button class="d" @onclick="() => __confirmDelete = true"><Icon Name="trash" Size="16" Stroke="1.6" /> Delete</button>
+            </div>
         </aside>
     </div>
+}
+
+@* ---------- Delete confirmation ---------- *@
+@if (__confirmDelete && __edit is not null)
+{
+    <Modal Title="@DeleteTitle" Subtitle="This cannot be undone from the app" Icon="trash" OnClose="() => __confirmDelete = false">
+        <ChildContent>
+            <p class="hint" style="margin:0">They will be removed from Incoming members and from the Visitors list, and their visits are deleted with them.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-sm" @onclick="() => __confirmDelete = false">Cancel</button>
+            <button class="btn btn-danger btn-sm" @onclick="DeleteAsync">Yes, delete</button>
+        </Footer>
+    </Modal>
 }
 
 @* ---------- Add incoming popup ---------- *@
@@ -145,10 +166,16 @@
     #region Private Fields
 
     private readonly CancellationTokenSource __cts = new();
+
+    /// <summary>Raised after the list changes (save, add, convert) so the page summary refreshes.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
     private List<VisitorModel> __list = [];
     private int? __filter;
     private string? __listSearch;
     private VisitorModel? __edit;
+    private bool __confirmDelete;
+    private string DeleteTitle => $"Delete {__edit?.FullName}?";
     private ToastMessageModel? __toast;
 
     // Add popup
@@ -195,8 +222,14 @@
 
     #region Loading and editing
 
-    private async Task LoadAsync() =>
+    private async Task LoadAsync()
+    {
         __list = await VisitorRepo.SelectVisitor(status: "Incoming Member", active: true, cancellationToken: __cts.Token);
+        if (__ready) await OnChanged.InvokeAsync();
+        __ready = true;
+    }
+
+    private bool __ready;
 
     private void Open(VisitorModel v) => __edit = CopyOf(v);
 
@@ -293,6 +326,27 @@
         __toast = linked.IsSuccess
             ? new() { ToastType = ToastTypeModel.Success, Message = $"{__edit.FullName} is now a member. Their join date is {member.fdtmJoinDate:d MMM yyyy}. Add their service on the Members page" }
             : linked;
+
+        __edit = null;
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Delete
+
+    /// <summary>Deletes the visitor record and their visits, so no list, total or summary keeps counting them.</summary>
+    private async Task DeleteAsync()
+    {
+        if (__edit is null) return;
+        var person = __edit;
+
+        __toast = await VisitorRepo.DeleteVisitor(person.flngKey, AppConstants.Who, __cts.Token);
+        __confirmDelete = false;
+        if (!__toast.IsSuccess) return;
+
+        foreach (var visit in await AttendanceRepo.SelectVisitorAttendance(visitorKey: person.flngKey, cancellationToken: __cts.Token))
+            await AttendanceRepo.DeleteVisitorAttendance(visit.flngKey, AppConstants.Who, __cts.Token);
 
         __edit = null;
         await LoadAsync();

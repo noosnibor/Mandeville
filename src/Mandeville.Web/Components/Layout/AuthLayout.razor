@@ -1,15 +1,76 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @inject IConfiguration Configuration
+@* Split-screen shell shared by sign-in, forgot-password, change-password and access-denied.
+   Desktop: church photo on the left, a curved white form panel on the right.
+   Phone: white header bar, photo banner, then the form on a curved white sheet. *@
+<div class="auth-page">
+    <div class="auth-split">
+        <ThemeToggle Class="floating" />
 
-<div class="auth-shell">
-    <div class="auth-card">
-        <div class="auth-brand">
-            <div class="brand-logo" aria-hidden="true"><Icon Name="house" Size="26" /></div>
-            <div>
-                <div class="brand-name">@(Configuration["Church:GroupName"] ?? "WAFIF Mandeville")</div>
-                <div class="brand-sub">@(Configuration["Church:Ministers"] ?? string.Empty)</div>
+        <header class="m-bar">
+            <a class="m-brand" href="/account/signin" aria-label="@_group">
+                <BrandMark Size="24" />
+                <span class="m-brand-name">@_first<span>@_rest</span></span>
+            </a>
+            <div class="m-actions">
+                <ThemeToggle />
+                <details class="m-menu">
+                    <summary aria-label="Menu"><Icon Name="menu" Size="22" Stroke="1.6" /></summary>
+                    <nav>
+                        <a href="/account/signin">Sign in</a>
+                        <a href="/account/forgot">Forgot password</a>
+                        @if (!string.IsNullOrWhiteSpace(Configuration["Church:ContactEmail"]))
+                        {
+                            <a href="mailto:@Configuration["Church:ContactEmail"]">Contact us</a>
+                        }
+                    </nav>
+                </details>
             </div>
-        </div>
-        @Body
+        </header>
+
+        <aside class="auth-hero" aria-label="Welcome">
+            <div class="hero-inner">
+                <div class="hero-brand">
+                    <BrandMark Size="34" />
+                    <span class="hero-name"><b>@_first</b><span>@_rest</span></span>
+                    @if (!string.IsNullOrWhiteSpace(_ministers))
+                    {
+                        <span class="hero-rule" aria-hidden="true"></span>
+                        <span class="hero-tag">@_ministers</span>
+                    }
+                </div>
+
+                <div class="hero-copy">
+                    <h2 class="hero-title">Planted in Mandeville.<br />Sent to <span class="hero-accent">Make Disciples.<svg viewBox="0 0 120 12" preserveAspectRatio="none" aria-hidden="true"><path d="M2 8c22-7 50-8 116-3" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg></span></h2>
+                    <p class="hero-verse">&ldquo;Go ye therefore, and teach all nations&hellip; and, lo, I am with you alway.&rdquo;</p>
+                    <p class="hero-ref">&mdash; MATTHEW 28:19&ndash;20</p>
+                </div>
+            </div>
+        </aside>
+
+        <main class="auth-panel">
+            <div class="auth-card">
+                @Body
+            </div>
+        </main>
+
+        <div class="auth-waves" aria-hidden="true"></div>
+        <p class="auth-foot">&copy; @DateTime.Now.Year @_group</p>
     </div>
 </div>
+
+@code {
+    private string _group = "WAFIF Mandeville";
+    private string _first = "WAFIF";
+    private string _rest = "Mandeville";
+    private string? _ministers;
+
+    protected override void OnInitialized()
+    {
+        _group = Configuration["Church:GroupName"] ?? _group;
+        var parts = _group.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        _first = parts.Length > 0 ? parts[0] : _group;
+        _rest = parts.Length > 1 ? parts[1] : string.Empty;
+        _ministers = Configuration["Church:Ministers"];
+    }
+}

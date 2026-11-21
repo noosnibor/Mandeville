@@ -14,12 +14,11 @@
 
 <PageTitle>Dashboard</PageTitle>
 
-<div class="dash-head">
-    <div>
-        <h1>Dashboard</h1>
-        <div class="dash-sub">@(Configuration["Church:GroupName"] ?? "WAFIF Mandeville")</div>
-    </div>
-    <div class="dash-date">@AppClock.Today.ToString("dd MMM yyyy")</div>
+<div class="dk">
+
+<div class="page-head dk-head">
+    <div class="ph-title"><div><h1>Dashboard</h1><p>@(Configuration["Church:GroupName"] ?? "WAFIF Mandeville")</p></div></div>
+    <span class="dk-date">@AppClock.Today.ToString("d MMM yyyy")</span>
 </div>
 
 @if (__error is not null)
@@ -32,250 +31,136 @@ else if (!__loaded)
 }
 else
 {
-    @* ---------- Headline numbers: ring badge with a soft drop shadow ---------- *@
-    <div class="dash-tiles">
-        <div class="dash-card dash-kpi">
-            <div class="dash-ring r-indigo" style="@RingStyle("#6366f1", 100)"><i style="color:#6366f1"><Icon Name="users" Size="22" /></i></div>
-            <div><div class="dash-label">Total members</div><div class="dash-value">@__totalMembers</div><div class="dash-note">All records</div></div>
-        </div>
-        <div class="dash-card dash-kpi">
-            <div class="dash-ring r-teal" style="@RingStyle("#0f766e", ActivePercent)"><i style="color:#0f766e"><Icon Name="check" Size="22" /></i></div>
-            <div><div class="dash-label">Active members</div><div class="dash-value">@__activeMembers</div><div class="dash-note">@ActivePercent% of members</div></div>
-        </div>
-        <div class="dash-card dash-kpi">
-            <div class="dash-ring r-grey" style="@RingStyle("#98a2b3", InactivePercent)"><i style="color:#667085"><Icon Name="pause" Size="22" /></i></div>
-            <div><div class="dash-label">Inactive members</div><div class="dash-value">@__inactiveMembers</div><div class="dash-note">@InactivePercent% of members</div></div>
-        </div>
-        <a class="dash-card dash-kpi dash-warn" href="connect">
-            <div class="dash-ring r-amber" style="@RingStyle("#f5a524", UnconnectedPercent)"><i style="color:#f5a524"><Icon Name="link" Size="22" /></i></div>
-            <div><div class="dash-label">Not connected</div><div class="dash-value">@__unconnected.Count</div><div class="dash-note">Visitors waiting for a connector</div></div>
-        </a>
+    <div class="kstrip card dk-strip">
+        <div class="on"><b>@__totalMembers</b><span>Total members</span></div>
+        <div><b>@__activeMembers</b><span>Active (@ActivePercent%)</span></div>
+        <div><b>@__lastServicePresent</b><span>Present last service</span></div>
+        <div><b>@__averageAttendance%</b><span>Average attendance</span></div>
+        <a class="warn" href="members"><b>@__notSeen.Count</b><span>Not seen in 3+ weeks</span></a>
+        <a class="warn" href="connect"><b>@__unconnected.Count</b><span>Visitors not connected</span></a>
     </div>
 
-    @* ---------- Member attendance numbers ---------- *@
-    <div class="dash-tiles dash-tiles-3">
-        <div class="dash-card dash-kpi">
-            <div class="dash-ring r-teal" style="@RingStyle("#0f766e", LastServicePercent)"><i style="color:#0f766e"><Icon Name="check" Size="22" /></i></div>
-            <div><div class="dash-label">Present last service</div><div class="dash-value">@__lastServicePresent</div><div class="dash-note">@(__lastServiceDate is { } d ? d.ToString("ddd d MMM") : "No services yet")</div></div>
-        </div>
-        <div class="dash-card dash-kpi dash-warn">
-            <div class="dash-ring r-amber" style="@RingStyle("#f5a524", NotSeenPercent)"><i style="color:#b45309"><Icon Name="clock" Size="22" /></i></div>
-            <div><div class="dash-label">Not seen in 3+ weeks</div><div class="dash-value">@__notSeen.Count</div><div class="dash-note">Active members to visit or call</div></div>
-        </div>
-        <div class="dash-card dash-kpi">
-            <div class="dash-ring r-indigo" style="@RingStyle("#6366f1", __averageAttendance)"><i style="color:#6366f1"><Icon Name="users" Size="22" /></i></div>
-            <div><div class="dash-label">Average attendance</div><div class="dash-value">@__averageAttendance%</div><div class="dash-note">Of active members, recent services</div></div>
-        </div>
-    </div>
-
-    <div class="dash-row dash-row-wide">
-        @* ---------- Members present per service ---------- *@
-        <section class="dash-card">
-            <h2>Members present per service <span>Last @__membersPerService.Count @(__membersPerService.Count == 1 ? "service" : "services")</span></h2>
-            @if (__membersPerService.Count == 0)
+    <div class="dk-grid">
+        @* ---------- Attendance (members or visitors) ---------- *@
+        <section class="dk-card">
+            @{
+                var series = __chart == "visitors" ? __perService : __membersPerService;
+            }
+            <div class="dk-ch">
+                <h3>Attendance <small>Last @series.Count @(series.Count == 1 ? "service" : "services")</small></h3>
+                <div class="dk-seg">
+                    <button class="@(__chart == "members" ? "on" : "")" @onclick='() => __chart = "members"'>Members</button>
+                    <button class="@(__chart == "visitors" ? "on" : "")" @onclick='() => __chart = "visitors"'>Visitors</button>
+                </div>
+            </div>
+            @if (series.Count == 0)
             {
-                <p class="hint">No member check-ins have been recorded yet.</p>
+                <p class="hint">@(__chart == "visitors" ? "No visitor attendance has been recorded yet." : "No member check-ins have been recorded yet.")</p>
             }
             else
             {
-                var maxPresent = Math.Max(1, __membersPerService.Max(p => p.Count));
-                <div class="dash-bars">
-                    @foreach (var p in __membersPerService)
+                var top = Math.Max(1, series.Max(x => x.Count));
+                <div class="dk-bars">
+                    @foreach (var x in series)
                     {
-                        <div class="dash-bar" style="height:@(Pct(p.Count, maxPresent))%"><b>@p.Count</b></div>
+                        <div class="dk-col"><em>@x.Count</em><i style="height:@(Pct(x.Count, top))%"></i></div>
                     }
                 </div>
-                <div class="dash-xl">
-                    @foreach (var p in __membersPerService)
-                    {
-                        <span>@p.Date.ToString("d MMM")</span>
-                    }
+                <div class="dk-xl">
+                    @foreach (var x in series) { <span>@x.Date.ToString("d MMM")</span> }
                 </div>
             }
         </section>
 
-        @* ---------- Members who need a visit or a call ---------- *@
-        <section class="dash-card">
-            <h2>Need a visit or a call <span>Not seen in 3+ weeks</span></h2>
-            @if (__notSeen.Count == 0)
+        @* ---------- Needs attention (one list, three views) ---------- *@
+        <section class="dk-card">
+            <div class="dk-ch">
+                <h3>Needs attention</h3>
+                <div class="dk-seg">
+                    <button class="@(__attn == "visit" ? "on" : "")" @onclick='() => __attn = "visit"'>Visit or call</button>
+                    <button class="@(__attn == "flagged" ? "on" : "")" @onclick='() => __attn = "flagged"'>Flagged@(__flagged.Count > 0 ? " " + __flagged.Count : "")</button>
+                    <button class="@(__attn == "conn" ? "on" : "")" @onclick='() => __attn = "conn"'>Not connected</button>
+                </div>
+            </div>
+
+            @if (__attn == "visit")
             {
-                <p class="hint">Everyone has been in recently.</p>
-            }
-            else
-            {
-                @foreach (var n in __notSeen.Take(5))
+                @if (__notSeen.Count == 0) { <p class="hint">Everyone has been in recently.</p> }
+                @foreach (var n in __notSeen.Take(3))
                 {
-                    <div class="dash-li">
+                    <div class="dk-li">
                         <span class="dash-avatar" style="background:@AvatarStyle.Colour(n.Member.flngKey)">@AvatarStyle.Initials(n.Member.fstrFirstname, n.Member.fstrLastname)</span>
-                        <div class="dash-li-text">
+                        <div class="dk-t">
                             <b>@n.Member.FullName</b>
-                            <small>@(n.LastSeen is { } ls ? "Last seen " + ls.ToString("d MMM") : "Never checked in")<span class="dash-carer"> &middot; @(string.IsNullOrWhiteSpace(n.Member.fstrCarerName) ? "No carer assigned" : "Carer: " + n.Member.fstrCarerName)</span></small>
+                            <small>@(n.LastSeen is { } ls ? "Last seen " + ls.ToString("d MMM") : "Never checked in") &middot; @(string.IsNullOrWhiteSpace(n.Member.fstrCarerName) ? "No carer" : "Carer: " + n.Member.fstrCarerName)</small>
                         </div>
-                        <span class="dash-tag @(n.Weeks is null ? "never" : n.Weeks >= 4 ? "red" : "")">@(n.Weeks is { } w ? $"{w} wks" : "Never")</span>
+                        <span class="chip @(n.Weeks is null ? "" : n.Weeks >= 4 ? "r" : "w")">@(n.Weeks is { } w ? $"{w} wks" : "Never")</span>
                     </div>
                 }
-                @if (__notSeen.Count > 5)
-                {
-                    <div class="hint">and @(__notSeen.Count - 5) more</div>
-                }
+                @if (__notSeen.Count > 3) { <small class="dk-more-n">and @(__notSeen.Count - 3) more</small> }
+                <a class="dk-more" href="members">View members &rarr;</a>
             }
-            <a class="dash-link" href="members">View members &rarr;</a>
-        </section>
-    </div>
-
-    @* ---------- Pastoral care: flagged for the minister + who has a carer ---------- *@
-    <div class="dash-row">
-        <section class="dash-card">
-            <h2>Flagged for the minister <span>@__flagged.Count open</span></h2>
-            @if (__flagged.Count == 0)
+            else if (__attn == "flagged")
             {
-                <p class="hint">Nothing has been flagged. Carers can flag a member from the Pastoral Care page.</p>
-            }
-            else
-            {
-                @foreach (var f in __flagged.Take(4))
+                @if (__flagged.Count == 0) { <p class="hint">Nothing has been flagged. Carers can flag a member from the Pastoral Care page.</p> }
+                @foreach (var f in __flagged.Take(3))
                 {
-                    <div class="dash-li">
+                    <div class="dk-li">
                         <span class="dash-avatar" style="background:@AvatarStyle.Colour(f.flngMemberKey)">@AvatarStyle.Initials(f.fstrMemberName ?? "?", string.Empty)</span>
-                        <div class="dash-li-text">
+                        <div class="dk-t">
                             <b>@f.fstrMemberName</b>
                             <small>Flagged by @f.fstrCoreMemberName &middot; @f.fdtmContactDate.ToString("d MMM")</small>
                         </div>
-                        <span class="dash-tag red">Minister</span>
+                        <span class="chip r">Minister</span>
                     </div>
                 }
-                @if (__flagged.Count > 4)
-                {
-                    <div class="hint">and @(__flagged.Count - 4) more</div>
-                }
-            }
-            <a class="dash-link" href="pastoral">Open Pastoral Care &rarr;</a>
-        </section>
-
-        <section class="dash-card">
-            <h2>Care coverage <span class="dash-pill">@CarePercent% have a carer</span></h2>
-            <div class="care-cover">
-                <div class="care-track"><i style="width:@(CarePercent)%"></i></div>
-                <div class="care-nums">
-                    <div><b>@__careCovered</b><span>With a carer</span></div>
-                    <div><b>@(__careTotal - __careCovered)</b><span>Without a carer</span></div>
-                    <div><b>@__coreCount</b><span>Core members</span></div>
-                </div>
-            </div>
-            <a class="dash-link" href="pastoral">Assign carers &rarr;</a>
-        </section>
-    </div>
-
-    <div class="dash-row">
-        @* ---------- Active vs inactive: segmented ring ---------- *@
-        <section class="dash-card">
-            <h2>Active vs inactive members <span class="dash-pill">@ActivePercent% active</span></h2>
-            <div class="dash-donut">
-                <div class="dash-donut-ring">
-                    <svg width="200" height="200" viewBox="0 0 200 200" role="img" aria-label="@ActivePercent percent of members are active">
-                        <defs>
-                            <linearGradient id="donutActive" x1="0" y1="1" x2="1" y2="0">
-                                <stop offset="0" stop-color="#a99cf0" />
-                                <stop offset="1" stop-color="#8b82d8" />
-                            </linearGradient>
-                        </defs>
-                        <circle cx="100" cy="100" r="82" fill="none" stroke="#e4e7ee" stroke-width="20" />
-                        @if (__totalMembers > 0)
-                        {
-                            <circle cx="100" cy="100" r="82" fill="none" stroke="url(#donutActive)" stroke-width="20"
-                                    stroke-dasharray="@DonutActive 515.22" transform="rotate(-90 100 100)" />
-                            <circle cx="100" cy="100" r="82" fill="none" stroke="#7fb4e8" stroke-width="20"
-                                    stroke-dasharray="@DonutInactive 515.22" stroke-dashoffset="-@DonutActive" transform="rotate(-90 100 100)" />
-                        }
-                    </svg>
-                    <div class="dash-donut-center"><b>@ActivePercent%</b><small>active</small></div>
-                </div>
-                <div class="dash-legend">
-                    <div><i style="background:#9d92ea"></i>Active<b>@__activeMembers</b></div>
-                    <div><i style="background:#7fb4e8"></i>Inactive<b>@__inactiveMembers</b></div>
-                    <div class="dash-legend-total">Total<b>@__totalMembers</b></div>
-                </div>
-            </div>
-        </section>
-
-        @* ---------- Collection balance ---------- *@
-        <section class="dash-card">
-            <h2>Collection balance</h2>
-            <div class="dash-label">Current balance</div>
-            <div class="dash-big @(__balance < 0 ? "neg" : "")">@Money(__balance)</div>
-            <div class="dash-rw">
-                <span class="dash-tile" style="background:#6366f1"><Icon Name="wallet" Size="20" /></span>
-                <span class="dash-rw-name">Collected</span><b>@Money(__collected)</b>
-            </div>
-            <div class="dash-rw">
-                <span class="dash-tile" style="background:#c2410c"><Icon Name="receipt" Size="20" /></span>
-                <span class="dash-rw-name">Spent</span><b>@Money(__spent)</b>
-            </div>
-        </section>
-    </div>
-
-    <div class="dash-row dash-row-wide">
-        @* ---------- Visitors per service ---------- *@
-        <section class="dash-card">
-            <h2>Visitors per service <span>Last @__perService.Count @(__perService.Count == 1 ? "service" : "services")</span></h2>
-            @if (__perService.Count == 0)
-            {
-                <p class="hint">No visitor attendance has been recorded yet.</p>
+                @if (__flagged.Count > 3) { <small class="dk-more-n">and @(__flagged.Count - 3) more</small> }
+                <a class="dk-more" href="pastoral">Open Pastoral Care &rarr;</a>
             }
             else
             {
-                var max = Math.Max(1, __perService.Max(p => p.Count));
-                <div class="dash-bars">
-                    @foreach (var p in __perService)
-                    {
-                        <div class="dash-bar" style="height:@(Pct(p.Count, max))%"><b>@p.Count</b></div>
-                    }
-                </div>
-                <div class="dash-xl">
-                    @foreach (var p in __perService)
-                    {
-                        <span>@p.Date.ToString("d MMM")</span>
-                    }
-                </div>
-            }
-        </section>
-
-        @* ---------- Visitors who are not connected ---------- *@
-        <section class="dash-card">
-            <h2>Visitors not yet connected <span>@__unconnected.Count total</span></h2>
-            @if (__unconnected.Count == 0)
-            {
-                <p class="hint">Everyone has a connector.</p>
-            }
-            else
-            {
-                @foreach (var v in __unconnected.Take(6))
+                @if (__unconnected.Count == 0) { <p class="hint">Everyone has a connector.</p> }
+                @foreach (var v in __unconnected.Take(3))
                 {
-                    <div class="dash-li">
-                        <span class="dash-tile dash-tile-amber"><Icon Name="userplus" Size="20" /></span>
-                        <div class="dash-li-text">
+                    <div class="dk-li">
+                        <span class="dash-avatar" style="background:@AvatarStyle.Colour(v.flngKey)">@AvatarStyle.Initials(v.fstrFirstname, v.fstrLastname)</span>
+                        <div class="dk-t">
                             <b>@v.FullName</b>
-                            @if (v.fdtmLastAttended is { } seen)
-                            {
-                                <small>Last attended @seen.ToString("d MMM")</small>
-                            }
+                            @if (v.fdtmLastAttended is { } seen) { <small>Last attended @seen.ToString("d MMM")</small> }
                         </div>
                         @if (v.fdtmLastAttended is { } last)
                         {
                             var days = Math.Max(0, (AppClock.Today - last.Date).Days);
-                            <span class="dash-tag">@(days == 0 ? "today" : $"{days} days")</span>
+                            <span class="chip">@(days == 0 ? "today" : $"{days} days")</span>
                         }
                     </div>
                 }
-                @if (__unconnected.Count > 6)
-                {
-                    <div class="hint">and @(__unconnected.Count - 6) more</div>
-                }
+                @if (__unconnected.Count > 3) { <small class="dk-more-n">and @(__unconnected.Count - 3) more</small> }
+                <a class="dk-more" href="connect">Assign connectors &rarr;</a>
             }
-            <a class="dash-link" href="connect">Assign connectors &rarr;</a>
+        </section>
+    </div>
+
+    <div class="dk-grid two">
+        <section class="dk-card">
+            <div class="dk-ch"><h3>Care coverage</h3><small class="dk-pct">@CarePercent% have a carer</small></div>
+            <div class="dk-track"><i style="width:@(CarePercent)%"></i></div>
+            <div class="dk-pl"><span>With a carer</span><b>@__careCovered</b></div>
+            <div class="dk-pl"><span>Without a carer</span><b>@(__careTotal - __careCovered)</b></div>
+            <div class="dk-pl"><span>Core members</span><b>@__coreCount</b></div>
+            <a class="dk-more" href="pastoral">Assign carers &rarr;</a>
+        </section>
+
+        <section class="dk-card">
+            <div class="dk-ch"><h3>Collection balance</h3></div>
+            <div class="dk-big @(__balance < 0 ? "neg" : "")">@Money(__balance)</div>
+            <div class="dk-pl"><span>Collected</span><b class="in">+ @Money(__collected)</b></div>
+            <div class="dk-pl"><span>Spent</span><b class="out">&#8722; @Money(__spent)</b></div>
         </section>
     </div>
 }
+
+</div>
 
 @code {
     #region Private fields
@@ -283,6 +168,8 @@ else
     private readonly CancellationTokenSource __cts = new();
 
     private bool __loaded;
+    private string __chart = "members";
+    private string __attn = "visit";
     private string? __error;
 
     private int __totalMembers, __activeMembers, __inactiveMembers, __totalVisitors;
@@ -324,7 +211,7 @@ else
 
     /// <summary>Inline style for a small progress ring badge: coloured arc over a pale track.</summary>
     private static string RingStyle(string colour, int percent) =>
-        $"background:conic-gradient({colour} {Math.Clamp(percent, 0, 100)}%, #eceef3 0)";
+        $"background:conic-gradient({colour} {Math.Clamp(percent, 0, 100)}%, var(--track) 0)";
 
     private int LastServicePercent => __activeMembers == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * __lastServicePresent / __activeMembers));
     private int NotSeenPercent => __activeMembers == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * __notSeen.Count / __activeMembers));

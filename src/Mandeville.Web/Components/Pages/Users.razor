@@ -9,7 +9,11 @@
 
 <PageTitle>Users &amp; access</PageTitle>
 
-<PageBanner Title="Users &amp; access" Subtitle="Who can sign in, and what each person can open" Icon="lock" />
+<div class="stp">
+<div class="page-head">
+    <div class="ph-title"><span class="mhead-ico"><Icon Name="lock" Size="22" Stroke="1.5" /></span><div><h1>Users &amp; access</h1><p>Who can sign in, and what each person can open</p></div></div>
+    @if (__tab == "users") { <button class="btn btn-primary" @onclick="StartAdd">+ Add account</button> }
+</div>
 
 <ToastBar Toast="__toast" />
 
@@ -24,35 +28,48 @@
 }
 else
 {
-<div class="card care-assign">
-    <h2>Accounts <span>@__users.Count(u => u.fblnActive) active</span></h2>
-    @if (__users.Count == 0)
+<div class="kstrip card">
+    <div class="on"><b>@__users.Count(u => u.fblnActive)</b><span>Active accounts</span></div>
+    <div><b>@__users.Count(u => !u.fblnActive)</b><span>Inactive</span></div>
+    <div><b>@__users.Count(u => u.IsLocked)</b><span>Locked</span></div>
+    <div><b>@__users.Count(u => u.fdtmLastSignIn is null)</b><span>Never signed in</span></div>
+</div>
+
+<div class="fin-bar">
+    <input type="text" class="fin-search" placeholder="Search name or email" @bind="__search" @bind:event="oninput" />
+    <select @bind="__roleFilter">
+        <option value="">All roles</option>
+        @foreach (var r in __roles) { <option value="@r.fstrName">@r.fstrLabel</option> }
+    </select>
+</div>
+
+<div class="fin-list card">
+    @if (Shown.Count == 0)
     {
-        <p class="empty" style="margin:0">No accounts yet.</p>
+        <p class="empty" style="margin:0">@(__users.Count == 0 ? "No accounts yet." : "No accounts match.")</p>
     }
-    @foreach (var u in __users)
+    @foreach (var u in Shown)
     {
         var isMe = u.flngKey == __myKey;
-        <div class="care-u @(u.fblnActive ? "" : "off")">
-            <div class="care-av sm" style="background:@(u.fblnActive ? AvatarStyle.Colour(u.flngKey) : "#cdd2db")">@Initials(u.fstrDisplayName)</div>
-            <div class="care-ut">
-                <b>@u.fstrDisplayName @if (isMe) { <span class="care-tag i">You</span> }</b>
+        <div class="fin-row @(u.fblnActive ? "" : "off")">
+            <div class="care-av sm" style="background:@(u.fblnActive ? AvatarStyle.Colour(u.flngKey) : "var(--inactive)")">@Initials(u.fstrDisplayName)</div>
+            <div class="fin-nm usr-nm">
+                <b>@u.fstrDisplayName @if (isMe) { <span class="chip">You</span> }@if (!u.fblnActive) { <span class="chip">Inactive</span> }</b>
                 <small>@u.fstrEmail
                     @if (!string.IsNullOrWhiteSpace(u.fstrMemberName)) { <text> &middot; Member: @u.fstrMemberName</text> }
                     &middot; @(u.fdtmLastSignIn is { } ls ? "Last sign-in " + ls.ToString("d MMM HH:mm") : "Never signed in")
                     @if (u.IsLocked) { <text> &middot; <span class="care-lock">Locked</span></text> }
                 </small>
             </div>
-            <span class="care-tag @RoleCss(u.fstrRole)">@LabelOf(u.fstrRole)</span>
-            @if (!u.fblnActive) { <span class="bd off">Inactive</span> }
-            <button class="btn btn-sm" @onclick="() => StartEdit(u)">Edit</button>
-            <button class="btn btn-sm" @onclick="() => ResetPasswordAsync(u)">Reset password</button>
-            <button class="btn btn-sm @(u.fblnActive ? "care-del" : "")" @onclick="() => ToggleActiveAsync(u)">@(u.fblnActive ? "Deactivate" : "Activate")</button>
+            <span class="chip fin-type @(u.fstrRole == AppRoles.Administrator ? "v" : "g")">@LabelOf(u.fstrRole)</span>
+            <div class="fin-act">
+                <button class="btn btn-sm" @onclick="() => StartEdit(u)">Edit</button>
+                <button class="btn btn-sm" @onclick="() => ResetPasswordAsync(u)">Reset password</button>
+                <button class="btn btn-sm @(u.fblnActive ? "care-del" : "")" @onclick="() => ToggleActiveAsync(u)">@(u.fblnActive ? "Deactivate" : "Activate")</button>
+            </div>
         </div>
     }
 </div>
-
-<button class="fab" @onclick="StartAdd"><Icon Name="plus" Size="16" />Add account</button>
 }
 
 @* ---------- Add / edit ---------- *@
@@ -109,6 +126,7 @@ else
         </Footer>
     </Modal>
 }
+</div>
 
 @code {
     #region Private Fields
@@ -121,6 +139,8 @@ else
     private List<AppUserModel> __users = [];
     private List<RoleModel> __roles = [];
     private string __tab = "users";
+    private string? __search;
+    private string __roleFilter = string.Empty;
     private List<MemberModel> __core = [];
     private List<MemberModel> __active = [];
     private AppUserModel? __edit;
@@ -166,6 +186,13 @@ else
     }
 
     /// <summary>Accounts whose role only sees its own records belong to one member.</summary>
+    private List<AppUserModel> Shown => __users
+        .Where(u => string.IsNullOrWhiteSpace(__search)
+            || u.fstrDisplayName.Contains(__search.Trim(), StringComparison.OrdinalIgnoreCase)
+            || (u.fstrEmail ?? string.Empty).Contains(__search.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Where(u => string.IsNullOrEmpty(__roleFilter) || u.fstrRole == __roleFilter)
+        .ToList();
+
     private bool NeedsMember(string? role) => __roles.FirstOrDefault(r => r.fstrName == role)?.NeedsMember ?? false;
 
     /// <summary>Pastoral Care style roles belong to a Core Member; other own-records roles to any active member.</summary>

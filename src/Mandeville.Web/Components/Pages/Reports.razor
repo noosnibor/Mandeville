@@ -8,21 +8,23 @@
 
 <PageTitle>Reports</PageTitle>
 
-<PageBanner Title="Service reports" Subtitle="One PDF per service date, ready for the Minister's meetings" Icon="report" />
+<div class="page-head">
+    <div class="ph-title"><span class="mhead-ico"><Icon Name="report" Size="22" Stroke="1.5" /></span><div><h1>Service reports</h1><p>One PDF per service date, ready for the Minister's meetings</p></div></div>
+    @if (__report is not null)
+    {
+        <a class="btn btn-primary" href="reports/service/@__report.ServiceKey" target="_blank" download>Download PDF</a>
+    }
+</div>
 
 <ToastBar Toast="__toast" />
 
-<div class="mfilter">
-    <select @bind="__serviceKey" @bind:after="LoadReportAsync" aria-label="Service">
+<div class="fin-bar">
+    <select class="rep-pick" @bind="__serviceKey" @bind:after="LoadReportAsync" aria-label="Service">
         @foreach (var s in __services)
         {
             <option value="@s.flngKey">@s.fdtmServiceDate.ToString("ddd d MMM yyyy") - @s.fstrServiceName</option>
         }
     </select>
-    @if (__report is not null)
-    {
-        <a class="btn btn-primary btn-sm" href="reports/service/@__report.ServiceKey" target="_blank" download>Download PDF</a>
-    }
 </div>
 
 @if (!__loaded)
@@ -36,6 +38,13 @@ else if (__services.Count == 0)
 else if (__report is not null)
 {
     var r = __report;
+
+    <div class="kstrip card">
+        <div class="on"><b>@r.VisitorsAttended</b><span>Visitors attended</span></div>
+        <div><b>@r.MembersPresent</b><span>Members present (@r.PresentPercent%)</span></div>
+        <div><b>@r.IncomingTotal</b><span>Incoming in the process</span></div>
+        <div><b>@Money(r.TotalCollected)</b><span>Collected in @r.FinanceMonth</span></div>
+    </div>
 
     <div class="rep-grid">
         <section class="card">
@@ -76,7 +85,31 @@ else if (__report is not null)
             <div class="rep-row"><span>Not seen in 3+ weeks</span><b>@r.NotSeen3Weeks</b></div>
             <div class="rep-row"><span>Overdue for a care contact</span><b>@r.OverdueForContact</b></div>
             <div class="rep-row"><span>Flagged for the Minister</span><b>@r.FlaggedForMinister</b></div>
+            @if (r.MembersByTitle.Count > 0)
+            {
+                <div class="rep-row"><span>Active members by title</span><b></b></div>
+                @foreach (var (title, count) in r.MembersByTitle)
+                {
+                    <div class="rep-row sub"><span>@title</span><b>@count</b></div>
+                }
+            }
         </section>
+
+        @if (r.HasEvangelism)
+        {
+            <section class="card">
+                <h2>Evangelism <span>numbers only</span></h2>
+                <div class="rep-row"><span>Last Saturday: sessions held</span><b>@r.EvangelismSaturday.Sessions</b></div>
+                <div class="rep-row sub"><span>Present of scheduled</span><b>@r.EvangelismSaturday.Present of @r.EvangelismSaturday.Scheduled (@r.EvangelismSaturday.TurnUpPercent%)</b></div>
+                <div class="rep-row sub"><span>Flyers / persons ministered / new contacts</span><b>@r.EvangelismSaturday.Flyers / @r.EvangelismSaturday.Ministered / @r.EvangelismSaturday.NewContacts</b></div>
+                <div class="rep-row sub"><span>Calls made / people reached</span><b>@r.EvangelismSaturday.Calls / @r.EvangelismSaturday.Reached</b></div>
+                <div class="rep-row"><span>@r.FinanceMonth to date: sessions held</span><b>@r.EvangelismMonth.Sessions</b></div>
+                <div class="rep-row sub"><span>Present of scheduled</span><b>@r.EvangelismMonth.Present of @r.EvangelismMonth.Scheduled (@r.EvangelismMonth.TurnUpPercent%)</b></div>
+                <div class="rep-row sub"><span>Flyers / persons ministered / new contacts</span><b>@r.EvangelismMonth.Flyers / @r.EvangelismMonth.Ministered / @r.EvangelismMonth.NewContacts</b></div>
+                <div class="rep-row sub"><span>Calls made / people reached</span><b>@r.EvangelismMonth.Calls / @r.EvangelismMonth.Reached</b></div>
+                <div class="rep-row"><span>Contacts: being followed up / connected / unreachable</span><b>@r.ContactsActive / @r.ContactsConnected / @r.ContactsUnreachable</b></div>
+            </section>
+        }
 
         <section class="card">
             <h2>Financial overview <span>@r.FinanceMonth to date</span></h2>

@@ -8,8 +8,9 @@
 
 <PageTitle>Setup</PageTitle>
 
-<div class="page-head"><h1>Setup</h1></div>
+<div class="page-head"><div class="ph-title"><span class="mhead-ico"><Icon Name="gear" Size="22" Stroke="1.5" /></span><div><h1>Setup</h1><p>Church details, services and lists</p></div></div></div>
 
+<div class="stp">
 <div class="tabs">
     @foreach (var t in __tabs)
     {
@@ -50,6 +51,7 @@
         <FixedListsEditor />
         break;
 }
+</div>
 
 @code {
     private readonly string[] __tabs = ["Member types", "Service assignments", "Departments", "Payment types", "Expense categories"];

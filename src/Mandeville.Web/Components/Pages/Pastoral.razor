@@ -2,6 +2,7 @@
 @attribute [PageAccess(PageKeys.Pastoral, "Pastoral Care", "People", "heart", Tint = "c5", Short = "Pastoral", OwnOnlyOption = true, Order = 50)]
 @implements IDisposable
 @using System.Security.Claims
+@using global::Mandeville.Web.Dashboards
 @inject IMemberRepository MemberRepo
 @inject IPastoralAssignmentRepository AssignmentRepo
 @inject IPastoralContactRepository ContactRepo
@@ -9,9 +10,10 @@
 
 <PageTitle>Pastoral Care</PageTitle>
 
-<div class="with-side"><div class="side-main">
+<div class="mod wide pst">
+<div class="mhead"><span class="mhead-ico"><Icon Name="heart" Size="26" Stroke="1.5" /></span><div><h1>Pastoral Care</h1><p>@(__staff ? "Core members caring for members, supporting the minister" : "The members you care for and your private care log")</p></div></div>
 
-<PageBanner Title="Pastoral Care" Subtitle="@(__staff ? "Core members caring for members, supporting the minister" : "The members you care for and your private care log")" Icon="heart" />
+<div class="with-side"><div class="side-main">
 
 <ToastBar Toast="__toast" />
 
@@ -45,26 +47,11 @@ else
     @* ======================= Caseloads (administrator / minister) ======================= *@
     @if (__staff && __tab == "caseloads")
     {
-        <div class="mgraph">
-            <div class="mgraph-total">
-                <div class="ring-chip" style="--c:#ec4899"><Icon Name="heart" Size="22" /></div>
-                <b>@__care.Count</b>
-                <span>Members in care</span>
-            </div>
-            <div class="mgraph-body">
-                <div class="mgraph-bars">
-                    @foreach (var bar in Bars())
-                    {
-                        <div class="mgraph-col">
-                            <em>@bar.Value</em>
-                            <i style="height:@(BarHeight(bar.Value))%; --from:@bar.From; --to:@bar.To"></i>
-                        </div>
-                    }
-                </div>
-                <div class="mgraph-labels">
-                    @foreach (var bar in Bars()) { <span>@bar.Label</span> }
-                </div>
-            </div>
+        <div class="kstrip card">
+            @foreach (var bar in Bars())
+            {
+                <div class="@(bar.Label == "Assigned" ? "on" : "")"><b>@bar.Value</b><span>@bar.Label</span></div>
+            }
         </div>
 
         @if (CoreMembers.Count == 0)
@@ -384,7 +371,8 @@ else
 }
 
 </div>
-<aside><RoleSidePanel Kind="pastoral" /></aside>
+<aside><RoleSidePanel Kind="pastoral" Data="PanelData()" /></aside>
+</div>
 </div>
 
 @code {
@@ -422,7 +410,7 @@ else
     /// <summary>One member in a carer's care, with the state of the relationship.</summary>
     private sealed record CareItem(Guid MemberKey, Guid CarerKey, string Name, DateTime AssignedOn, PastoralContactModel? Last, string State, string StateText, string Detail);
     private sealed record BarItem(string Label, int Value, string From, string To);
-    private sealed record AttentionItem(MemberModel Member, DateTime? LastSeen);
+    private sealed record AwayItem(MemberModel Member, DateTime? LastSeen);
 
     #endregion
 
@@ -572,14 +560,14 @@ else
         __contacts.Where(c => c.fblnFlagForMinister && !c.fblnFlagResolved).OrderByDescending(c => c.fdtmContactDate).ToList();
 
     /// <summary>Active members not seen for 3+ weeks whose carer (if any) has not made contact in that time either.</summary>
-    private List<AttentionItem> NeedsAttention()
+    private List<AwayItem> NeedsAttention()
     {
         if (!__hasAttendance) return [];
         var cutoff = AppClock.Today.AddDays(-21);
 
         return __members
             .Where(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember && (m.fdtmJoinDate is null || m.fdtmJoinDate.Value.Date <= cutoff))
-            .Select(m => new AttentionItem(m, __lastSeen.TryGetValue(m.flngKey, out var seen) ? seen : null))
+            .Select(m => new AwayItem(m, __lastSeen.TryGetValue(m.flngKey, out var seen) ? seen : null))
             .Where(a => a.LastSeen is null || a.LastSeen.Value.Date < cutoff)
             .Where(a => !__contacts.Any(c => c.flngMemberKey == a.Member.flngKey && c.fdtmContactDate.Date >= cutoff))
             .OrderBy(a => a.LastSeen ?? DateTime.MinValue)
@@ -592,19 +580,120 @@ else
         var careable = __members.Count(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember);
         return
         [
-            new("Assigned", __care.Count, "#14b8a6", "#0f766e"),
-            new("Unassigned", Math.Max(0, careable - __care.Count), "#cbd2de", "#98a2b3"),
-            new("Contacted", __care.Count(c => c.Last is not null && (today - c.Last.fdtmContactDate.Date).TotalDays <= DefaultGapDays), "#7db2ff", "#3b82f6"),
-            new("Overdue", __care.Count(c => c.State == "o"), "#f87171", "#b42318"),
-            new("Flagged", FlaggedContacts().Count, "#fbbf24", "#b45309")
+            new("Assigned", __care.Count, "#2dd4bf", "#0d9488"),
+            new("Unassigned", Math.Max(0, careable - __care.Count), "#b9c4d9", "#8b99b3"),
+            new("Contacted", __care.Count(c => c.Last is not null && (today - c.Last.fdtmContactDate.Date).TotalDays <= DefaultGapDays), "#7cc0ff", "#3b82f6"),
+            new("Overdue", __care.Count(c => c.State == "o"), "#fb7185", "#e11d48"),
+            new("Flagged", FlaggedContacts().Count, "#fcd34d", "#f59e0b")
         ];
     }
 
-    private int BarHeight(int value)
+    #endregion
+
+    #region Side summary (one per tab)
+
+    /// <summary>The summary beside the page: its figures follow the tab that is open.</summary>
+    private RolePanelData PanelData()
     {
-        var max = Bars().Max(b => b.Value);
-        if (max == 0 || value == 0) return 3;
-        return Math.Max(6, (int)Math.Round(value * 100.0 / max));
+        var today = AppClock.Today;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var monthContacts = __contacts.Where(c => c.fdtmContactDate.Date >= monthStart).ToList();
+        var lastLogged = __contacts.Count == 0 ? "-" : __contacts.Max(c => c.fdtmContactDate).ToString("d MMM");
+        var overdue = __care.Count(c => c.State == "o");
+        var dueWeek = __care.Count(c => c.State == "w");
+        var core = CoreMembers;
+
+        string Name(Guid key) => core.FirstOrDefault(m => m.flngKey == key)?.fstrFirstname ?? "-";
+        var loads = core.Select(m => (m.flngKey, Count: __care.Count(c => c.CarerKey == m.flngKey))).OrderByDescending(x => x.Count).ToList();
+
+        switch (__tab)
+        {
+            case "assign":
+                var careable = __members.Where(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember).ToList();
+                var without = careable.Count(m => m.flngCarerKey is null);
+                return new RolePanelData
+                {
+                    Title = "Assign",
+                    Tiles =
+                    [
+                        new("Without a carer", without.ToString(), without > 0),
+                        new("With a carer", (careable.Count - without).ToString()),
+                        new("Active members", careable.Count.ToString()),
+                        new("Lightest caseload", loads.Count == 0 ? "-" : $"{Name(loads[^1].flngKey)} · {loads[^1].Count}")
+                    ]
+                };
+
+            case "log" when __staff:
+                var top = monthContacts.GroupBy(c => c.fstrMethod).OrderByDescending(g => g.Count()).FirstOrDefault();
+                return new RolePanelData
+                {
+                    Title = "Care log",
+                    Tiles =
+                    [
+                        new("Contacts this month", monthContacts.Count.ToString()),
+                        new("Most used method", top is null ? "-" : $"{top.Key} · {top.Count()}"),
+                        new("Flagged this month", monthContacts.Count(c => c.fblnFlagForMinister).ToString()),
+                        new("Last logged", lastLogged)
+                    ]
+                };
+
+            case "log":
+                return new RolePanelData
+                {
+                    Title = "My log",
+                    Tiles =
+                    [
+                        new("Contacts this month", monthContacts.Count.ToString()),
+                        new("Total logged", __contacts.Count.ToString()),
+                        new("Open flags", FlaggedContacts().Count.ToString(), FlaggedContacts().Count > 0),
+                        new("Last logged", lastLogged)
+                    ]
+                };
+
+            case "minister":
+                var attention = NeedsAttention();
+                var open = FlaggedContacts().Count;
+                return new RolePanelData
+                {
+                    Title = "Minister's list",
+                    Tiles =
+                    [
+                        new("Open flags", open.ToString(), open > 0),
+                        new("Flags resolved this month", monthContacts.Count(c => c.fblnFlagForMinister && c.fblnFlagResolved).ToString()),
+                        new("Needs attention", attention.Count.ToString(), attention.Count > 0),
+                        new("Away with no carer", attention.Count(a => a.Member.flngCarerKey is null).ToString())
+                    ]
+                };
+
+            case "mine":
+                return new RolePanelData
+                {
+                    Title = "My caseload",
+                    Tiles =
+                    [
+                        new("Members in my care", __care.Count.ToString()),
+                        new("Due for a contact", (overdue + dueWeek).ToString(), overdue + dueWeek > 0),
+                        new("My contacts this month", monthContacts.Count.ToString()),
+                        new("Last logged", lastLogged)
+                    ]
+                };
+
+            default:
+                var busiest = loads.FirstOrDefault();
+                return new RolePanelData
+                {
+                    Title = "Caseloads",
+                    Tiles =
+                    [
+                        new("Members in care", __care.Count.ToString()),
+                        new("Core members", core.Count.ToString()),
+                        new("Due this week", dueWeek.ToString()),
+                        new("Overdue", overdue.ToString(), overdue > 0),
+                        new("Busiest carer", busiest.Count == 0 ? "-" : $"{Name(busiest.flngKey)} · {busiest.Count}"),
+                        new("Core members with none", core.Count(m => __care.All(c => c.CarerKey != m.flngKey)).ToString())
+                    ]
+                };
+        }
     }
 
     #endregion

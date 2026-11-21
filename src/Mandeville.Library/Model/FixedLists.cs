@@ -18,7 +18,7 @@ public static class FixedLists
     #region Editable lists
 
     /// <summary>The lists that can be edited in Setup, by the name shown there.</summary>
-    public static readonly string[] EditableNames = ["Marital status", "Incoming path", "Altar reason", "Payment method", "Evangelism role", "Care contact method"];
+    public static readonly string[] EditableNames = ["Marital status", "Incoming path", "Altar reason", "Payment method", "Evangelism role", "Care contact method", "Title"];
 
     /// <summary>Values the app has rules for. They stay in the list: they cannot be renamed or hidden.</summary>
     private static readonly Dictionary<string, string[]> __protected = new()
@@ -28,7 +28,8 @@ public static class FixedLists
         ["Altar reason"] = ["Prayer", "Membership"],
         ["Payment method"] = ["Cash"],
         ["Evangelism role"] = ["Caller"],
-        ["Care contact method"] = []
+        ["Care contact method"] = [],
+        ["Title"] = []
     };
 
     public static bool IsProtected(string list, string value) => __protected.TryGetValue(list, out var v) && v.Contains(value);
@@ -42,6 +43,7 @@ public static class FixedLists
         "Payment method" => ["Cash", "Bank transfer", "Online", "Cheque"],
         "Evangelism role" => ["Caller", "Prayer", "Team lead"],
         "Care contact method" => ["Phone call", "Visit", "WhatsApp", "Prayer", "Other"],
+        "Title" => ["Mr.", "Mrs.", "Miss", "Ms.", "Dr.", "Pastor", "Minister", "Elder", "Deacon", "Deaconess", "Evangelist", "Brother", "Sister"],
         _ => []
     };
 
@@ -58,6 +60,7 @@ public static class FixedLists
             case "Payment method": PaymentMethods = v; break;
             case "Evangelism role": EvangelismRoles = v; break;
             case "Care contact method": CareMethods = v; break;
+            case "Title": Titles = v; break;
         }
     }
 
@@ -67,5 +70,7 @@ public static class FixedLists
     public static string[] PaymentMethods { get; private set; } = ["Cash", "Bank transfer", "Online", "Cheque"];
     public static string[] EvangelismRoles { get; private set; } = ["Caller", "Prayer", "Team lead"];
     public static string[] CareMethods { get; private set; } = ["Phone call", "Visit", "WhatsApp", "Prayer", "Other"];
+    /// <summary>Mr., Mrs., Pastor ... shown in the member form. Edited in Setup, Fixed lists.</summary>
+    public static string[] Titles { get; private set; } = ["Mr.", "Mrs.", "Miss", "Ms.", "Dr.", "Pastor", "Minister", "Elder", "Deacon", "Deaconess", "Evangelist", "Brother", "Sister"];
     public static readonly string[] Months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 }

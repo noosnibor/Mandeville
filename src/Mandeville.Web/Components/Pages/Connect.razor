@@ -1,38 +1,56 @@
 ﻿@page "/connect"
-@attribute [PageAccess(PageKeys.Connect, "Connections & Prayerline", "People", "link", Tint = "c4", Short = "Connections", Tabs = "Team lead,My team members", OwnOnlyOption = true, Bar = true, Order = 30)]
+@attribute [PageAccess(PageKeys.Connect, "Connections", "People", "link", Tint = "c4", Short = "Connections", Tabs = "Team lead,My team members", OwnOnlyOption = true, Bar = true, Order = 30)]
 @using System.Security.Claims
+@using Mandeville.Web.Dashboards
+@inject FollowUpBadge FollowUps
+@implements IDisposable
 
 <PageTitle>Connections &amp; Prayerline</PageTitle>
 
-<div class="with-side"><div class="side-main">
-
-<div class="mod">
-<div class="mhead"><div><h1>Connections &amp; Prayerline</h1><p>The team lead sorts the visitors. Team members follow them up.</p></div></div>
+<div class="mod wide">
+<div class="mhead"><span class="mhead-ico"><Icon Name="link" Size="26" Stroke="1.5" /></span><div><h1>Connections &amp; Prayerline</h1><p>The team lead sorts the visitors. Team members follow them up.</p></div></div>
 
 @if (__ready)
 {
-    @if (__isLead && __showLeadTab && __showTeamTab)
+    @if (FollowUps.Count > 0)
     {
-        <div class="tabs">
-            <button class="tab @(__tab == 0 ? "active" : "")" @onclick="() => __tab = 0">Team lead</button>
-            <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1">My team members</button>
+        <div class="due-notice">
+            <Icon Name="bell" Size="18" Stroke="1.6" />
+            <div class="due-body">
+                <b>@FollowUps.Count follow-up @(FollowUps.Count == 1 ? "call is" : "calls are") due</b>
+                <ul>
+                    @foreach (var c in FollowUps.Calls.Take(5))
+                    {
+                        <li><strong>@c.Visitor</strong> <span>to be called by @(c.Member ?? "no one yet") &middot; came to @c.Service@(c.DaysLate > 0 ? $" · {c.DaysLate} day(s) late" : " · due today")</span></li>
+                    }
+                </ul>
+                @if (FollowUps.Count > 5) { <small>and @(FollowUps.Count - 5) more</small> }
+            </div>
         </div>
     }
 
+    @if (__isLead && __showLeadTab && __showTeamTab)
+    {
+        <div class="tabs">
+            <button class="tab @(__tab == 0 ? "active" : "")" @onclick="() => __tab = 0"><Icon Name="users" Size="18" />Team Lead</button>
+            <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1"><Icon Name="user" Size="18" />My Team Members</button>
+        </div>
+    }
+
+    <div class="with-side"><div class="side-main">
     @if (__isLead && __showLeadTab && __tab == 0)
     {
-        <ConnectLeadTab />
+        <ConnectLeadTab OnChanged="OnLeadChanged" />
     }
     else
     {
         @* A team member sees only their own list; the lead and administrators can look at any team member's list *@
-        <ConnectMemberTab MemberKey="__myKey" CanPick="__isLead" />
+        <ConnectMemberTab MemberKey="__myKey" CanPick="__isLead" OnChanged="OnTeamChanged" />
     }
+    </div>
+    <aside><RoleSidePanel @key="PanelKey" Kind="@(__isLead && __showLeadTab && __tab == 0 ? "connect-lead" : "connect-team")" ServiceDate="@__leadDate" MemberKey="@__teamMember" /></aside>
+    </div>
 }
-</div>
-
-</div>
-<aside><RoleSidePanel Kind="connect" /></aside>
 </div>
 
 @code {
@@ -44,11 +62,24 @@
     private bool __isLead, __showLeadTab, __showTeamTab;
     private Guid? __myKey;
     private int __tab;
+    private int __panelKey;
+    private string PanelKey => $"{__tab}-{__panelKey}";
+    private string? __leadDate;
+    private Guid? __teamMember;
+
+    private async Task OnLeadChanged(string date) { __leadDate = date; __panelKey++; await FollowUps.RefreshAsync(); }
+
+    private async Task OnTeamChanged(Guid? member) { __teamMember = member; __panelKey++; await FollowUps.RefreshAsync(); }
+
+    private void OnBadgeChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => FollowUps.Changed -= OnBadgeChanged;
 
     #endregion
 
     protected override async Task OnInitializedAsync()
     {
+        FollowUps.Changed += OnBadgeChanged;
         var user = AuthState is null ? null : (await AuthState).User;
 
         // A role set to "own records only" sees just the people given to that member; any other role runs the team
@@ -58,6 +89,7 @@
         __showTeamTab = user?.CanTab(PageKeys.Connect, "My team members") ?? false;
         __tab = __showLeadTab ? 0 : 1;
         __myKey = Guid.TryParse(user?.FindFirstValue(AppClaims.MemberKey), out var key) ? key : null;
+        __teamMember = __myKey;
         __ready = true;
     }
 }

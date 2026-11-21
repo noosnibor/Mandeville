@@ -12,9 +12,12 @@
 <div class="att-layout">
     @* ---------- Services as cards ---------- *@
     <div class="card att-services">
-        <h2>Services <span>@FilteredServices().Count @(FilteredServices().Count == 1 ? "service" : "services")</span></h2>
+        <h2><span class="h2-ico"><Icon Name="calendar" Size="20" Stroke="1.6" /></span>Services <span class="pill-ok">@FilteredServices().Count @(FilteredServices().Count == 1 ? "service" : "services")</span></h2>
 
-        <input type="text" class="att-search" placeholder="Search by name or date, e.g. Sunday or 08 Nov" value="@__serviceSearch" @oninput="OnServiceSearch" />
+        <label class="att-searchbox">
+            <Icon Name="search" Size="18" Stroke="1.5" />
+            <input type="text" class="att-search" placeholder="Search by name or date (e.g. Sunday or 08)" aria-label="Search services" value="@__serviceSearch" @oninput="OnServiceSearch" />
+        </label>
 
         @foreach (var s in PageServices())
         {
@@ -29,6 +32,7 @@
                     </div>
                 </div>
                 @if (s.IsOpenNow) { <span class="pill-ok">Open</span> }
+                <span class="scard-go" aria-hidden="true"><Icon Name="chevronright" Size="18" Stroke="1.8" /></span>
             </div>
         }
         @if (__services.Count == 0) { <p class="empty">No services yet.</p> }
@@ -46,8 +50,8 @@
         else if (!__allLoaded)
         {
             <div class="load-box">
-                Showing the last 120 days. Older services are not loaded yet.
-                <div><button class="btn btn-primary btn-sm" @onclick="LoadAllServicesAsync">Load all services</button></div>
+                <span class="load-info"><Icon Name="info" Size="18" Stroke="1.5" />Showing the last 120 days. Older services are not loaded yet.</span>
+                <div><button class="btn btn-primary btn-sm" @onclick="LoadAllServicesAsync"><Icon Name="download" Size="16" Stroke="1.8" />Load all services</button></div>
             </div>
         }
     </div>
@@ -55,18 +59,40 @@
     <div>
         @if (__service is null)
         {
-            <div class="card"><p class="hint" style="margin:0">Pick a service on the left, or add one.</p></div>
+            <div class="card att-empty">
+                <span class="att-empty-ico"><Icon Name="calendar" Size="34" Stroke="1.4" /></span>
+                <b>No service selected</b>
+                <p>Pick a service on the left to see its attendance.</p>
+            </div>
         }
         else
         {
-            @* ---------- Selected service + QR ---------- *@
-            <div class="card">
-                <h2>@__service.fstrServiceName &middot; @__service.fdtmServiceDate.ToString("dd MMM yyyy")
-                    @if (__service.fblnCheckInOpen) { <span class="pill-ok">Check-in open</span> }
-                </h2>
-
+            @* ---------- Selected service summary ---------- *@
+            <div class="card att-head">
+                <span class="att-head-ico"><Icon Name="calendar" Size="24" Stroke="1.6" /></span>
+                <div class="att-head-text">
+                    <h2>@__service.fstrServiceName</h2>
+                    <div class="att-head-meta">
+                        <span><Icon Name="calendar" Size="15" /> @__service.fdtmServiceDate.ToString("ddd dd MMM yyyy")</span>
+                        @if (__service.ftimStartTime.HasValue) { <span><Icon Name="clock" Size="15" /> @(__service.ftimStartTime.Value.ToString("hh\\:mm"))</span> }
+                        <span><Icon Name="users" Size="15" /> @__attendance.Count present</span>
+                    </div>
+                </div>
                 @if (__service.fblnCheckInOpen)
                 {
+                    <span class="pill-ok">Check-in open</span>
+                }
+                else
+                {
+                    <button class="btn-record" title="Open check-in" @onclick="OpenAsync"><Icon Name="plus" Size="18" Stroke="2" />Record Attendance</button>
+                }
+            </div>
+
+            @if (__service.fblnCheckInOpen)
+            {
+                @* ---------- QR check-in ---------- *@
+                <div class="card">
+                    <h2><span class="h2-ico"><Icon Name="scan" Size="20" Stroke="1.6" /></span>Check-in <span class="pill-ok">Open</span></h2>
                     <div class="qr-box">
                         @if (!string.IsNullOrEmpty(__qrImage))
                         {
@@ -84,22 +110,17 @@
                                 </div>
                             }
                             <div class="actions">
-                                <button class="btn btn-sm" @onclick="RotateAsync">Refresh code now</button>
-                                <button class="btn btn-sm btn-danger" @onclick="CloseAsync">Close check-in</button>
+                                <button class="btn btn-sm" @onclick="RotateAsync"><Icon Name="refresh" Size="16" Stroke="1.8" />Refresh code now</button>
+                                <button class="btn btn-sm btn-danger" @onclick="CloseAsync"><Icon Name="x" Size="16" Stroke="1.8" />Close check-in</button>
                             </div>
                         </div>
                     </div>
-                }
-                else
-                {
-                    <p class="hint" style="margin-top:0">Check-in is closed. Opening it shows a QR code members scan with their phones. It stays open until 90 minutes after the start time (or at least two hours), and you can close it any time.</p>
-                    <button class="btn btn-primary btn-sm" @onclick="OpenAsync">Open check-in</button>
-                }
-            </div>
+                </div>
+            }
 
             @* ---------- Checked in people as cards ---------- *@
             <div class="card">
-                <h2>Checked in @if (__service.fblnCheckInOpen) { <span class="live-badge">Live</span> } else { <span>@__attendance.Count present</span> }</h2>
+                <h2><span class="h2-ico"><Icon Name="users" Size="20" Stroke="1.6" /></span>Checked in @if (__service.fblnCheckInOpen) { <span class="live-badge">Live</span> } else { <span class="pill-ok">@__attendance.Count present</span> }</h2>
 
                 <div class="live-count">
                     <b>@__attendance.Count</b>
@@ -112,7 +133,7 @@
                         <option value="">Mark a member by hand...</option>
                         @foreach (var m in __members) { <option value="@m.flngKey">@m.FullName</option> }
                     </select>
-                    <button class="btn btn-dark btn-sm" @onclick="AddManualAsync">Mark present</button>
+                    <button class="btn btn-dark btn-sm" @onclick="AddManualAsync"><Icon Name="check" Size="16" Stroke="2" />Mark present</button>
                 </div>
 
                 @foreach (var a in __attendance)
@@ -124,7 +145,14 @@
                         <button class="ucard-remove" title="Remove" aria-label="Remove" @onclick="() => RemoveAsync(a)">&#10005;</button>
                     </div>
                 }
-                @if (__attendance.Count == 0) { <p class="empty">Nobody has checked in yet.</p> }
+                @if (__attendance.Count == 0)
+                {
+                    <div class="att-empty">
+                        <span class="att-empty-ico"><Icon Name="users" Size="34" Stroke="1.4" /></span>
+                        <b>No attendance recorded yet</b>
+                        <p>@(__service.fblnCheckInOpen ? "Nobody has checked in yet. Members appear here as they scan the code." : "Pick a service on the left, or click \"Record Attendance\" to start taking attendance. Check-in stays open until 90 minutes after the start time (at least two hours), and you can close it any time.")</p>
+                    </div>
+                }
             </div>
         }
     </div>

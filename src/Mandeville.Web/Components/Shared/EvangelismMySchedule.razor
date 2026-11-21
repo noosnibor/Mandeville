@@ -1,0 +1,148 @@
+@* One person's Saturdays for a month: confirm, say "can't make it", and (for a team lead) enter the results. Used inside the app and on the private link page. *@
+@implements IDisposable
+@inject IEvangelismAssignmentRepository AssignmentRepo
+@inject IEvangelismServiceRepository ServiceRepo
+
+<ToastBar Toast="__toast" />
+
+@if (__mine.Count == 0)
+{
+    <p class="empty">Nothing is scheduled for you in @MonthLabel yet.</p>
+}
+else
+{
+    <div class="ev-sessions">
+        @foreach (var a in __mine)
+        {
+            var item = a;
+            <div class="ev-sess">
+                <div class="ev-sess-top">
+                    <div class="evg-date"><b>@item.fdtmSessionDate.Day</b><span>@item.fdtmSessionDate.ToString("MMM")</span></div>
+                    <div class="fin-nm">
+                        <b>@item.fdtmSessionDate.ToString("dddd") - @EvangelismRules.ShortArea(item.fstrSessionArea ?? "")</b>
+                        <small>@Where(item)</small>
+                    </div>
+                    <span class="ev-pill st-@item.fstrStatus.ToLowerInvariant()">@item.fstrStatus</span>
+                </div>
+                @if (item.fdtmSessionDate.Date >= AppClock.Today && item.fstrStatus is EvangelismRules.Scheduled or EvangelismRules.Confirmed or EvangelismRules.Declined)
+                {
+                    <div class="ev-sess-act">
+                        @if (item.fstrStatus != EvangelismRules.Confirmed) { <button class="btn btn-sm btn-primary" disabled="@__busy" @onclick="() => SetAsync(item, EvangelismRules.Confirmed)">Confirm</button> }
+                        @if (item.fstrStatus != EvangelismRules.Declined) { <button class="btn btn-sm" disabled="@__busy" @onclick="() => SetAsync(item, EvangelismRules.Declined)">Can't make it</button> }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@if (ShowResults && __leading.Count > 0)
+{
+    <h3 class="ev-h">Sessions you lead</h3>
+    <div class="fin-list card">
+        @foreach (var s in __leading)
+        {
+            var session = s;
+            <div class="fin-row">
+                <div class="evg-date"><b>@session.fdtmServiceDate.Day</b><span>@session.fdtmServiceDate.ToString("MMM")</span></div>
+                <div class="fin-nm"><b>@EvangelismRules.ShortArea(session.fstrArea)</b><small>@(session.fblnResultsDone ? "Results saved" : "Results still to enter")</small></div>
+                <div class="fin-act"><button class="btn btn-sm @(session.fblnResultsDone ? "" : "btn-primary")" @onclick="() => __results = session">@(session.fblnResultsDone ? "Edit results" : "Enter results")</button></div>
+            </div>
+        }
+    </div>
+}
+
+@if (__results is not null)
+{
+    <EvangelismResultsModal Session="__results" OnClose="() => __results = null" OnSaved="OnResultsSavedAsync" />
+}
+
+@code {
+    #region Parameters
+
+    [Parameter, EditorRequired] public Guid MemberKey { get; set; }
+
+    /// <summary>The name recorded as the person making a change (the signed-in user, or the member on the private link page).</summary>
+    [Parameter] public string Who { get; set; } = "";
+
+    [Parameter] public DateTime Month { get; set; }
+
+    /// <summary>Show the "sessions you lead" list so results can be entered. Off on the public page.</summary>
+    [Parameter] public bool ShowResults { get; set; }
+
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<EvangelismAssignmentModel> __mine = [];
+    private List<EvangelismServiceModel> __leading = [];
+    private EvangelismServiceModel? __results;
+    private DateTime? __loadedMonth;
+    private Guid __loadedMember;
+    private bool __busy;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    private string MonthLabel => Month.ToString("MMMM yyyy");
+
+    private static string Where(EvangelismAssignmentModel a)
+    {
+        var parts = new List<string>();
+        if (a.ftimSessionTime.HasValue) parts.Add(DateTime.Today.Add(a.ftimSessionTime.Value).ToString("h:mm tt"));
+        if (!string.IsNullOrWhiteSpace(a.fstrSessionLocation)) parts.Add(a.fstrSessionLocation);
+        if (!string.IsNullOrWhiteSpace(a.fstrRole)) parts.Add(a.fstrRole);
+        return string.Join(" - ", parts);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var month = EvangelismRules.MonthOf(Month);
+        if (__loadedMonth == month && __loadedMember == MemberKey) return;
+        __loadedMonth = month;
+        __loadedMember = MemberKey;
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync()
+    {
+        var from = EvangelismRules.MonthOf(Month);
+        var to = from.AddMonths(1).AddDays(-1);
+        __mine = (await AssignmentRepo.SelectEvangelismAssignment(memberKey: MemberKey, fromDate: from, toDate: to, cancellationToken: __cts.Token))
+            .OrderBy(a => a.fdtmSessionDate).ToList();
+        __leading = ShowResults
+            ? (await ServiceRepo.SelectEvangelismService(fromDate: from, toDate: to, cancellationToken: __cts.Token))
+                .Where(s => s.flngLeadMemberKey == MemberKey && s.fdtmServiceDate.Date <= AppClock.Today.AddDays(1)).OrderBy(s => s.fdtmServiceDate).ToList()
+            : [];
+    }
+
+    private async Task SetAsync(EvangelismAssignmentModel a, string status)
+    {
+        __busy = true;
+        try
+        {
+            // The member key makes the database refuse a change to anyone else's assignment
+            __toast = await AssignmentRepo.SetEvangelismAssignmentStatus(a.flngKey, status, string.IsNullOrWhiteSpace(Who) ? null : Who, MemberKey, __cts.Token);
+            if (!__toast.IsSuccess) return;
+            await LoadAsync();
+            await OnChanged.InvokeAsync();
+        }
+        finally { __busy = false; }
+    }
+
+    private async Task OnResultsSavedAsync()
+    {
+        __results = null;
+        await LoadAsync();
+        await OnChanged.InvokeAsync();
+    }
+}

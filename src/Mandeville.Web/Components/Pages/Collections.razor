@@ -8,16 +8,16 @@
 <PageTitle>Collections</PageTitle>
 
 <div class="page-head">
-    <h1>Collections</h1>
+    <div class="ph-title"><span class="mhead-ico"><Icon Name="wallet" Size="22" Stroke="1.5" /></span><div><h1>Collections</h1><p>Record and review what was received at each service</p></div></div>
     <button class="btn btn-primary" @onclick="NewCollection">+ Add collection</button>
 </div>
 
 <ToastBar Toast="__toast" />
 
-<div class="tiles">
-    <div class="tile"><div class="tile-value">@(__rows.Sum(r => r.fcurAmount).ToString("N2"))</div><div class="tile-label">Total for @FixedLists.Months[__month - 1] @__year</div></div>
-    <div class="tile"><div class="tile-value">@DuesTotal.ToString("N2")</div><div class="tile-label">Member dues</div></div>
-    <div class="tile"><div class="tile-value">@__rows.Count</div><div class="tile-label">Entries</div></div>
+<div class="kstrip card">
+    <div class="on"><b>@(__rows.Sum(r => r.fcurAmount).ToString("N2"))</b><span>Total for @FixedLists.Months[__month - 1] @__year</span></div>
+    <div><b>@DuesTotal.ToString("N2")</b><span>Member dues</span></div>
+    <div><b>@__rows.Count</b><span>Entries</span></div>
 </div>
 
 @if (__edit is not null)
@@ -61,34 +61,31 @@
     </Modal>
 }
 
-<div class="card">
-    <div class="toolbar">
-        <select @bind="__month">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
-        <input type="number" style="max-width:100px" @bind="__year" />
-        <input type="text" placeholder="Search name or notes" @bind="__search" @bind:event="oninput" />
-        <button class="btn" @onclick="LoadAsync">Show</button>
-    </div>
+<div class="fin-bar">
+    <select @bind="__month">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
+    <input type="number" class="fin-year" @bind="__year" />
+    <input type="text" class="fin-search" placeholder="Search name or notes" @bind="__search" @bind:event="oninput" />
+    <button class="btn" @onclick="LoadAsync">Show</button>
+</div>
 
-    <table class="table table-cards">
-        <thead><tr><th>Name</th><th>Payment type</th><th>Method</th><th class="num">Amount</th><th>Received by</th><th></th></tr></thead>
-        <tbody>
-            @foreach (var r in __rows)
-            {
-                <tr>
-                    <td data-label="Name">@(string.IsNullOrWhiteSpace(r.fstrMemberName) ? "-" : r.fstrMemberName) @if (r.fblnLocked) { <span class="badge badge-warn" title="Reconciled">Locked</span> }</td>
-                    <td data-label="Payment type">@r.fstrPaymentTypeName</td>
-                    <td data-label="Method">@r.fstrPaymentMethod</td>
-                    <td data-label="Amount" class="num">@r.fcurAmount.ToString("N2")</td>
-                    <td data-label="Received by">@r.fstrReceivedBy</td>
-                    <td data-label="" class="row-actions">
-                        <button class="btn btn-sm" disabled="@r.fblnLocked" @onclick="() => Edit(r)">Edit</button>
-                        <button class="btn btn-sm btn-danger" disabled="@r.fblnLocked" @onclick="() => DeleteAsync(r)">Delete</button>
-                    </td>
-                </tr>
-            }
-            @if (__rows.Count == 0) { <tr><td colspan="6" class="empty">No collections for this month.</td></tr> }
-        </tbody>
-    </table>
+<div class="fin-list card">
+    @foreach (var r in __rows)
+    {
+        <div class="fin-row">
+            <div class="care-av sm" style="background:@AvatarStyle.Colour(r.flngMemberKey ?? r.flngKey)">@Initials(r.fstrMemberName)</div>
+            <div class="fin-nm">
+                <b>@(string.IsNullOrWhiteSpace(r.fstrMemberName) ? "-" : r.fstrMemberName) @if (r.fblnLocked) { <span class="chip w" title="Reconciled">Locked</span> }</b>
+                <small>@r.fstrPaymentMethod &middot; received by @(string.IsNullOrWhiteSpace(r.fstrReceivedBy) ? "-" : r.fstrReceivedBy)</small>
+            </div>
+            <span class="chip g fin-type">@r.fstrPaymentTypeName</span>
+            <div class="fin-amt">@r.fcurAmount.ToString("N2")</div>
+            <div class="fin-act">
+                <button class="btn btn-sm" disabled="@r.fblnLocked" @onclick="() => Edit(r)">Edit</button>
+                <button class="btn btn-sm btn-danger" disabled="@r.fblnLocked" @onclick="() => DeleteAsync(r)">Delete</button>
+            </div>
+        </div>
+    }
+    @if (__rows.Count == 0) { <p class="empty" style="margin:0">No collections for this month.</p> }
 </div>
 
 @code {
@@ -108,6 +105,12 @@
     #endregion
 
     private decimal DuesTotal => __rows.Where(r => __paymentTypes.Any(t => t.flngKey == r.flngPaymentTypeKey && t.fblnIsDues)).Sum(r => r.fcurAmount);
+
+    private static string Initials(string? name)
+    {
+        var parts = (name ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch { 0 => "?", 1 => AvatarStyle.Initials(parts[0], null), _ => AvatarStyle.Initials(parts[0], parts[^1]) };
+    }
 
     protected override async Task OnInitializedAsync()
     {

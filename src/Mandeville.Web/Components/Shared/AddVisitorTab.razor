@@ -1,67 +1,110 @@
 @implements IDisposable
 @inject IVisitorRepository VisitorRepo
 @inject IVisitorAttendanceRepository AttendanceRepo
+@inject IServiceRepository ServiceRepo
 
 <ToastBar Toast="__toast" />
 
 @* ---------- Summary ---------- *@
-<div class="mstats">
-    <div class="mstat"><b>@__visitors.Count</b><span>Visitors</span></div>
-    <div class="mstat"><b>@__hereToday</b><span>Here today</span></div>
-    <div class="mstat hot"><b>@__todayReasons.Count</b><span>Altar call today</span></div>
+<div class="vkpi card">
+    <div><b>@__visitors.Count</b><span>@(!string.IsNullOrWhiteSpace(__search) ? "Visitors found" : __viewDate == "all" ? "All visitors" : "Visitors this service")</span></div>
+    <div><b>@__hereToday</b><span>Here today</span></div>
+    <div><b>@__todayReasons.Count</b><span>Altar calls</span></div>
 </div>
 
-@* ---------- Search and filters ---------- *@
-<div class="mtools">
-    <input class="msearch" type="text" placeholder="Search name, phone or email" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
-    <button class="mchip @(string.IsNullOrEmpty(__filterAge) ? "on" : "")" @onclick="() => SetAgeAsync(null)">All</button>
-    @foreach (var g in FixedLists.AgeGroups)
+@* ---------- Service picker ---------- *@
+<div class="svc-line" role="tablist" aria-label="Choose a service">
+    <span class="svc-line-label">Service</span>
+    @foreach (var s in PillServices())
     {
-        var group = g;
-        <button class="mchip @(__filterAge == group ? "on" : "")" @onclick="() => SetAgeAsync(group)">@group</button>
+        var d = s.fdtmServiceDate.ToString("yyyy-MM-dd");
+        <button type="button" role="tab" aria-selected="@(d == __viewDate)" class="svc-pill @(d == __viewDate ? "on" : "")" title="@s.fstrServiceName - @s.fdtmServiceDate.ToString("dd MMM yyyy")" @onclick="() => PickServiceAsync(d)">@PillText(s)</button>
     }
-    <button class="mchip" @onclick="LoadAsync">Search</button>
-</div>
-
-@* ---------- Visitor cards (basic details only) ---------- *@
-<div class="mgrid">
-    @foreach (var v in __visitors)
+    @if (__services.Count > PillCount)
     {
-        <div class="vcard" @onclick="() => OpenDetailAsync(v)">
-            <div class="vcard-body">
-                <div class="vcard-head">
-                    <div class="ucard-avatar" style="background:@AvatarStyle.Colour(v.flngKey)">@AvatarStyle.Initials(v.fstrFirstname, v.fstrLastname)</div>
-                    <div class="ucard-text">
-                        <b>@v.FullName</b>
-                        <small>@(string.IsNullOrWhiteSpace(v.fstrPhoneNumber) ? "No phone" : v.fstrPhoneNumber)@(string.IsNullOrWhiteSpace(v.fstrAddress) ? "" : " · " + v.fstrAddress)</small>
-                    </div>
-                    @if (__todayReasons.ContainsKey(v.flngKey))
+        <button type="button" class="svc-pill more @(__moreOpen ? "open" : "")" aria-expanded="@(__moreOpen ? "true" : "false")" @onclick="() => __moreOpen = !__moreOpen">More <Icon Name="chevron" Size="14" Stroke="1.8" /></button>
+    }
+    <button type="button" role="tab" aria-selected="@(__viewDate == "all")" class="svc-pill @(__viewDate == "all" ? "on" : "")" @onclick='() => PickServiceAsync("all")'>All</button>
+
+    @if (__moreOpen)
+    {
+        <div class="svc-more-backdrop" @onclick="() => __moreOpen = false"></div>
+        <div class="svc-more" role="dialog" aria-label="All services">
+            <label class="svc-more-search"><Icon Name="search" Size="16" Stroke="1.5" /><input type="text" placeholder="Search services..." aria-label="Search services" @bind="__moreSearch" @bind:event="oninput" /></label>
+            <div class="svc-more-list">
+                @foreach (var month in MoreGroups())
+                {
+                    <div class="svc-more-month">@month.Key</div>
+                    @foreach (var s in month)
                     {
-                        <span class="inc-path ret">Altar call</span>
+                        var d = s.fdtmServiceDate.ToString("yyyy-MM-dd");
+                        <button type="button" class="svc-more-item @(d == __viewDate ? "on" : "")" @onclick="() => PickServiceAsync(d)"><span>@s.fstrServiceName.Replace(" - ", " · ")</span><small>@s.fdtmServiceDate.ToString("dd MMM")</small></button>
                     }
-                    else if (v.fstrStatus != "Visitor")
-                    {
-                        <span class="inc-path new">@v.fstrStatus</span>
-                    }
-                </div>
-                <div class="vcard-line">
-                    <span>@v.fstrAgeGroup &middot; @v.fstrGender</span>
-                    <span><b>@v.flngVisitCount</b> @(v.flngVisitCount == 1 ? "visit" : "visits")</span>
-                </div>
-            </div>
-            <div class="vcard-foot">
-                <button @onclick="() => OpenDetailAsync(v)" @onclick:stopPropagation="true">Profile</button>
-                <button @onclick="() => EditVisitor(v)" @onclick:stopPropagation="true">Edit</button>
+                }
+                @if (!MoreGroups().Any()) { <p class="empty" style="margin:.6rem">No services found.</p> }
             </div>
         </div>
     }
 </div>
-@if (__visitors.Count == 0)
-{
-    <div class="card"><p class="empty" style="margin:0">No visitors found.</p></div>
-}
 
-<button class="fab" @onclick="NewVisitor"><Icon Name="plus" Size="16" />Add visitor</button>
+@* ---------- Visitors card: search and filters on top, table below ---------- *@
+<div class="vcard card">
+    <div class="vtools">
+        <label class="vsearch">
+            <button type="button" class="vsearch-go" title="Search" aria-label="Search" @onclick="LoadAsync"><Icon Name="search" Size="18" Stroke="1.5" /></button>
+            <input class="msearch" type="text" placeholder="Search all visitors by name, phone or email..." aria-label="Search visitors" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
+        </label>
+        <div class="vseg" role="group" aria-label="Age group">
+            <button class="@(string.IsNullOrEmpty(__filterAge) ? "on" : "")" @onclick="() => SetAgeAsync(null)">All</button>
+            @foreach (var g in FixedLists.AgeGroups)
+            {
+                var group = g;
+                <button class="@(__filterAge == group ? "on" : "")" @onclick="() => SetAgeAsync(group)">@group</button>
+            }
+        </div>
+    </div>
+
+    @if (__visitors.Count > 0)
+    {
+        <div class="mtable-wrap">
+            <table class="mtable vtable">
+                <thead>
+                    <tr><th>Visitor</th><th>Category</th><th class="c">Visits</th><th class="r">Actions</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var v in PageItems())
+                    {
+                        <tr @onclick="() => OpenDetailAsync(v)">
+                            <td class="who">
+                                <span class="av" style="background:@AvatarStyle.Colour(v.flngKey)">@AvatarStyle.Initials(v.fstrFirstname, v.fstrLastname)</span>
+                                <span class="who-text">
+                                    <b>@v.FullName
+                                        @if (__todayReasons.ContainsKey(v.flngKey)) { <span class="inc-path ret">Altar call</span> }
+                                        else if (v.fstrStatus != "Visitor") { <span class="inc-path new">@v.fstrStatus</span> }
+                                    </b>
+                                    <small><Icon Name="phone" Size="13" Stroke="1.6" /> @(string.IsNullOrWhiteSpace(v.fstrPhoneNumber) ? "No phone" : v.fstrPhoneNumber)</small>
+                                </span>
+                            </td>
+                            <td data-label="Category"><span class="chip @CategoryClass(v)">@v.fstrAgeGroup &middot; @v.fstrGender</span></td>
+                            <td class="c" data-label="Visits"><span class="count-pill">@v.flngVisitCount</span></td>
+                            <td class="act">
+                                <button title="Profile" aria-label="Open profile of @v.FullName" @onclick="() => OpenDetailAsync(v)" @onclick:stopPropagation="true"><Icon Name="user" Size="17" Stroke="1.5" /></button>
+                                <button title="Edit" aria-label="Edit @v.FullName" @onclick="() => EditVisitorAsync(v)" @onclick:stopPropagation="true"><Icon Name="edit" Size="17" Stroke="1.5" /></button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <Pager Page="__page" PageSize="PageSize" Total="__visitors.Count" PageChanged="SetPage" />
+        </div>
+    }
+    else
+    {
+        <p class="empty" style="margin:0;padding:1.4rem 1.2rem">@(string.IsNullOrWhiteSpace(__search) ? "No visitors have been recorded for this service yet." : "No visitors found.")</p>
+    }
+</div>
+
+<button class="fab" @onclick="NewVisitor"><Icon Name="plus" Size="16" />Add Visitor</button>
 
 @* ---------- Details panel ---------- *@
 @if (__detail is not null)
@@ -69,11 +112,11 @@
     var d = __detail;
     <div class="drawer-backdrop" @onclick="CloseDetail">
         <aside class="drawer" role="dialog" aria-modal="true" aria-label="Visitor details" @onclick:stopPropagation="true">
-            <div class="drawer-cover" style="background:@(d.fstrStatus == "Member" ? "#e3e6ec" : AvatarStyle.Cover(d.flngKey))">
+            <div class="drawer-cover" style="background:@(d.fstrStatus == "Member" ? "var(--inactive-cover)" : AvatarStyle.Cover(d.flngKey))">
                 <button class="drawer-close" aria-label="Close" @onclick="CloseDetail">&#10005;</button>
             </div>
             <div class="drawer-top">
-                <div class="drawer-avatar" style="background:@(d.fstrStatus == "Member" ? "#cdd2db" : AvatarStyle.Colour(d.flngKey))">@AvatarStyle.Initials(d.fstrFirstname, d.fstrLastname)</div>
+                <div class="drawer-avatar" style="background:@(d.fstrStatus == "Member" ? "var(--inactive)" : AvatarStyle.Colour(d.flngKey))">@AvatarStyle.Initials(d.fstrFirstname, d.fstrLastname)</div>
                 <h3>@d.FullName</h3>
                 <small>@(string.IsNullOrWhiteSpace(d.fstrPhoneNumber) ? "No phone" : d.fstrPhoneNumber)</small>
                 <div class="drawer-stats">
@@ -119,7 +162,7 @@
             </div>
 
             <div class="drawer-foot">
-                <button class="p" @onclick="() => EditFromDetail(d)">Edit visitor</button>
+                <button class="p" @onclick="() => EditFromDetailAsync(d)">Edit visitor</button>
                 <button class="d" @onclick="() => DeleteFromDetailAsync(d)">Delete</button>
             </div>
         </aside>
@@ -152,12 +195,21 @@
                 <div class="field" style="grid-column:1/-1"><label>Address</label><input type="text" maxlength="250" @bind="__edit.fstrAddress" /></div>
             </div>
 
-            @if (__isNew)
-            {
-                <div class="check-list" style="margin-top:.6rem">
-                    <label><input type="checkbox" @bind="__attendedToday" /> Attended today</label>
-                </div>
-            }
+            <div class="modal-sec">Service</div>
+            <div class="field">
+                <label>Service attended</label>
+                <select @bind="__serviceDate">
+                    <option value="">Not attached to a service</option>
+                    @foreach (var s in __services)
+                    {
+                        <option value="@s.fdtmServiceDate.ToString("yyyy-MM-dd")">@s.fstrServiceName - @s.fdtmServiceDate.ToString("dd MMM yyyy")@(!__isNew && __origAttendance?.fdtmServiceDate.Date == s.fdtmServiceDate.Date ? " (current)" : "")</option>
+                    }
+                </select>
+                @if (!__isNew && __origAttendance is not null)
+                {
+                    <small class="hint">Changing this moves @__edit.fstrFirstname's attendance from @__origAttendance.fdtmServiceDate.ToString("dd MMM yyyy") to the service you pick.</small>
+                }
+            </div>
 
         </ChildContent>
         <Footer>
@@ -175,10 +227,25 @@
     private Dictionary<Guid, string> __todayReasons = [];
     private VisitorModel? __edit;
     private bool __isNew;
-    private bool __attendedToday = true;
+    private string __serviceDate = "";
+    private List<ServiceModel> __services = [];
+    private ServiceModel? __current;
+
+    /// <summary>Raised after a visitor is saved or deleted, so the page can refresh its summary panel.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>Raised with the chosen service date ("yyyy-MM-dd" or "all") so the page summary follows the list.</summary>
+    [Parameter] public EventCallback<string> OnServiceChosen { get; set; }
+    private string __viewDate = "";
+    private VisitorAttendanceModel? __origAttendance;
+    private bool __moreOpen;
+    private string __moreSearch = "";
+    private const int PillCount = 4;
     private string? __search;
     private string? __filterAge;
     private int __hereToday;
+    private int __page = 1;
+    private const int PageSize = 5;
     private ToastMessageModel? __toast;
 
     // Details panel
@@ -187,13 +254,37 @@
 
     #endregion
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        __services = (await ServiceRepo.SelectService(cancellationToken: __cts.Token))
+            .Where(s => s.fdtmServiceDate.Date <= AppClock.Today)
+            .OrderByDescending(s => s.fdtmServiceDate)
+            .Take(150)
+            .ToList();
+        __current = __services.FirstOrDefault();
+        __viewDate = __current?.fdtmServiceDate.ToString("yyyy-MM-dd") ?? "all";
+        await LoadAsync();
+    }
 
     public void Dispose()
     {
         __cts.Cancel();
         __cts.Dispose();
     }
+
+    private void SetPage(int page) => __page = page;
+
+    /// <summary>The visitors on the current page.</summary>
+    private List<VisitorModel> PageItems()
+    {
+        var pages = Math.Max(1, (__visitors.Count + PageSize - 1) / PageSize);
+        __page = Math.Clamp(__page, 1, pages);
+        return __visitors.Skip((__page - 1) * PageSize).Take(PageSize).ToList();
+    }
+
+    /// <summary>Colour of the category chip: children violet, men amber, everyone else green.</summary>
+    private static string CategoryClass(VisitorModel v) =>
+        v.fstrAgeGroup == "Child" ? "v" : v.fstrGender == "Male" ? "w" : "g";
 
     private async Task SetAgeAsync(string? ageGroup)
     {
@@ -212,10 +303,10 @@
 
     private void CloseDetail() => __detail = null;
 
-    private void EditFromDetail(VisitorModel v)
+    private async Task EditFromDetailAsync(VisitorModel v)
     {
         __detail = null;
-        EditVisitor(v);
+        await EditVisitorAsync(v);
     }
 
     private async Task DeleteFromDetailAsync(VisitorModel v)
@@ -231,28 +322,99 @@
 
     #endregion
 
+    /// <summary>Reloads the list and tells the page so the summary panel is refreshed too.</summary>
+    private async Task RefreshAsync()
+    {
+        __detail = null;
+        await LoadAsync();
+        await OnChanged.InvokeAsync();
+    }
+
     private async Task LoadAsync()
     {
-        __visitors = await VisitorRepo.SelectVisitor(
+        __page = 1;
+        var all = await VisitorRepo.SelectVisitor(
             ageGroup: string.IsNullOrEmpty(__filterAge) ? null : __filterAge,
             search: string.IsNullOrWhiteSpace(__search) ? null : __search.Trim(),
             cancellationToken: __cts.Token);
 
+        // The list shows the people who attended the chosen service (the latest by default), or everyone for "All services".
+        // Typing in the search box looks across everyone.
         var today = AppClock.Today;
-        var todays = await AttendanceRepo.SelectVisitorAttendance(serviceDate: today, cancellationToken: __cts.Token);
-        __todayReasons = todays.Where(a => !string.IsNullOrEmpty(a.fstrAltarReason)).ToDictionary(a => a.flngVisitorKey, a => a.fstrAltarReason!);
+        var serviceDate = DateTime.TryParse(__viewDate, out var picked) ? picked.Date : __current?.fdtmServiceDate.Date ?? today;
+        var atService = await AttendanceRepo.SelectVisitorAttendance(serviceDate: serviceDate, cancellationToken: __cts.Token);
+
+        // Visits of deleted visitors no longer count in the totals
+        var active = (await VisitorRepo.SelectVisitor(cancellationToken: __cts.Token)).Select(v => v.flngKey).ToHashSet();
+        atService = atService.Where(a => active.Contains(a.flngVisitorKey)).ToList();
+        var here = atService.Select(a => a.flngVisitorKey).ToHashSet();
+        __visitors = string.IsNullOrWhiteSpace(__search) && __viewDate != "all" ? all.Where(x => here.Contains(x.flngKey)).ToList() : all;
+
+        __todayReasons = atService.Where(a => !string.IsNullOrEmpty(a.fstrAltarReason)).GroupBy(a => a.flngVisitorKey).ToDictionary(g => g.Key, g => g.First().fstrAltarReason!);
+        var todays = serviceDate == today ? atService : await AttendanceRepo.SelectVisitorAttendance(serviceDate: today, cancellationToken: __cts.Token);
         __hereToday = todays.Select(a => a.flngVisitorKey).Distinct().Count();
+    }
+
+    /// <summary>The latest few services, plus the chosen one when it is an older service picked from "More".</summary>
+    private IEnumerable<ServiceModel> PillServices()
+    {
+        var pills = __services.Take(PillCount).ToList();
+        var chosen = __services.FirstOrDefault(s => s.fdtmServiceDate.ToString("yyyy-MM-dd") == __viewDate);
+        if (chosen is not null && !pills.Contains(chosen)) pills.Add(chosen);
+        return pills;
+    }
+
+    private static string PillText(ServiceModel s)
+    {
+        var parts = s.fstrServiceName.Split(" - ", 2);
+        return $"{s.fdtmServiceDate:dd MMM} \u00b7 {(parts.Length > 1 ? parts[1] : parts[0])}";
+    }
+
+    /// <summary>Every past service for the "More" list, filtered by the search text and grouped by month (newest first).</summary>
+    private IEnumerable<IGrouping<string, ServiceModel>> MoreGroups()
+    {
+        var q = __moreSearch?.Trim() ?? "";
+        return __services
+            .Where(s => q.Length == 0 || s.fstrServiceName.Contains(q, StringComparison.OrdinalIgnoreCase) || s.fdtmServiceDate.ToString("dd MMM yyyy").Contains(q, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(s => s.fdtmServiceDate.ToString("MMMM yyyy"));
+    }
+
+    private async Task PickServiceAsync(string viewDate)
+    {
+        __moreOpen = false;
+        __moreSearch = "";
+        __viewDate = viewDate;
+        await LoadAsync();
+        await OnServiceChosen.InvokeAsync(__viewDate);
+    }
+
+    /// <summary>The line above the table that says which visitors are listed.</summary>
+    private string ListNote()
+    {
+        if (!string.IsNullOrWhiteSpace(__search)) return "Search results across all visitors.";
+        if (__viewDate == "all") return "Showing every visitor, from all services.";
+        var service = __services.FirstOrDefault(s => s.fdtmServiceDate.ToString("yyyy-MM-dd") == __viewDate);
+        return service is null ? "Showing visitors at the chosen service." : $"Showing visitors at {service.fstrServiceName} - {service.fdtmServiceDate:dd MMM yyyy}. Search to find anyone else.";
     }
 
     private void NewVisitor()
     {
+        __origAttendance = null;
         __edit = new VisitorModel { fstrGender = "Male", fstrAgeGroup = "Adult", fstrStatus = "Visitor" };
-        __attendedToday = true;
+        // Pre-select today's service if there is one, otherwise the most recent.
+        var current = __services.FirstOrDefault(s => s.fdtmServiceDate.Date == AppClock.Today) ?? __services.FirstOrDefault();
+        __serviceDate = current?.fdtmServiceDate.ToString("yyyy-MM-dd") ?? "";
         __isNew = true;
     }
 
-    private void EditVisitor(VisitorModel v)
+    private async Task EditVisitorAsync(VisitorModel v)
     {
+        // Find the attendance being edited: the one at the service being viewed, otherwise the visitor's latest.
+        var visits = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
+        var viewed = DateTime.TryParse(__viewDate, out var vd) ? visits.FirstOrDefault(a => a.fdtmServiceDate.Date == vd.Date) : null;
+        __origAttendance = viewed ?? visits.OrderByDescending(a => a.fdtmServiceDate).FirstOrDefault();
+        __serviceDate = __origAttendance?.fdtmServiceDate.ToString("yyyy-MM-dd") ?? "";
+
         __edit = new VisitorModel
         {
             flngKey = v.flngKey, fstrFirstname = v.fstrFirstname, fstrLastname = v.fstrLastname, fstrGender = v.fstrGender,
@@ -278,21 +440,70 @@
         __toast = await VisitorRepo.AddOrUpdateVisitor(__edit, __isNew, __cts.Token);
         if (!__toast.IsSuccess) return;
 
-        // A brand-new visitor who attended today gets today's attendance recorded straight away.
-        if (__isNew && __attendedToday)
+        // A brand-new visitor linked to a service gets that service's attendance recorded straight away.
+        if (__isNew && DateTime.TryParse(__serviceDate, out var serviceDate))
         {
-            var attendance = new VisitorAttendanceModel { flngVisitorKey = __edit.flngKey, fdtmServiceDate = AppClock.Today, fstrWho = AppConstants.Who };
+            var attendance = new VisitorAttendanceModel { flngVisitorKey = __edit.flngKey, fdtmServiceDate = serviceDate.Date, fstrWho = AppConstants.Who };
             var result = await AttendanceRepo.AddOrUpdateVisitorAttendance(attendance, true, __cts.Token);
             if (!result.IsSuccess) __toast = result;
         }
+        else if (!__isNew && !await MoveAttendanceAsync())
+        {
+            return;
+        }
 
         __edit = null;
-        await LoadAsync();
+        await RefreshAsync();
+    }
+
+    /// <summary>
+    /// Moves the visitor's attendance to the service picked in the popup: the new service is recorded first, then the old
+    /// record is switched off, so a clash (already recorded for that date) leaves everything as it was.
+    /// </summary>
+    /// <returns>False when the move failed and the popup should stay open.</returns>
+    private async Task<bool> MoveAttendanceAsync()
+    {
+        if (__edit is null) return true;
+        var picked = DateTime.TryParse(__serviceDate, out var pickedDate) ? pickedDate.Date : (DateTime?)null;
+        var original = __origAttendance;
+        if (picked == original?.fdtmServiceDate.Date) return true;
+
+        if (picked is DateTime newDate)
+        {
+            var added = new VisitorAttendanceModel { flngVisitorKey = __edit.flngKey, fdtmServiceDate = newDate, fstrNotes = original?.fstrNotes, fstrWho = AppConstants.Who };
+            var result = await AttendanceRepo.AddOrUpdateVisitorAttendance(added, true, __cts.Token);
+            if (!result.IsSuccess)
+            {
+                __toast = new() { ToastType = ToastTypeModel.Warning, Message = $"{__edit.fstrFirstname} is already recorded for {newDate:dd MMM yyyy}, or the service could not be changed" };
+                return false;
+            }
+
+            // The altar reason is only stored when a record is updated, so carry it across with a second step
+            if (!string.IsNullOrEmpty(original?.fstrAltarReason))
+            {
+                added.fstrAltarReason = original.fstrAltarReason;
+                await AttendanceRepo.AddOrUpdateVisitorAttendance(added, false, __cts.Token);
+            }
+        }
+
+        if (original is not null)
+        {
+            // The visit at the old service is deleted, so it no longer counts anywhere
+            await AttendanceRepo.DeleteVisitorAttendance(original.flngKey, AppConstants.Who, __cts.Token);
+        }
+
+        return true;
     }
 
     private async Task DeleteAsync(VisitorModel v)
     {
         __toast = await VisitorRepo.DeleteVisitor(v.flngKey, AppConstants.Who, __cts.Token);
-        if (__toast.IsSuccess) await LoadAsync();
+        if (!__toast.IsSuccess) return;
+
+        // Their visits go with them, so no total or summary keeps counting a deleted visitor
+        foreach (var visit in await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token))
+            await AttendanceRepo.DeleteVisitorAttendance(visit.flngKey, AppConstants.Who, __cts.Token);
+
+        await RefreshAsync();
     }
 }

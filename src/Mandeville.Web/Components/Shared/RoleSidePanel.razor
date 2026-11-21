@@ -3,72 +3,60 @@
 @using global::Mandeville.Web.Dashboards
 @inject RoleStatsService Stats
 
-@* Summary panel for the page's role, plus "My team" for anyone tagged as a team lead *@
-<div class="side-card">
+@* Summary panel for the page's role,  *@
+<div class="side-stack">
     @if (__loading)
     {
-        <p class="hint">Loading...</p>
+        <div class="side-card"><p class="hint">Loading...</p></div>
     }
     else if (__data is not null)
     {
-        <h3>@__data.Title summary</h3>
-        <div class="side-tiles">
-            @foreach (var t in __data.Tiles)
-            {
-                <div class="side-tile @(t.Warn ? "warn" : "")"><small>@t.Label</small><b>@t.Value</b></div>
-            }
-        </div>
-
-        @foreach (var b in __data.Bars.Where(b => b.Total > 0))
-        {
-            <div class="side-bar-row"><span>@b.Label</span><span>@b.Done of @b.Total</span></div>
-            <div class="side-bar"><i style="width:@(Math.Min(100, b.Done * 100 / b.Total))%"></i></div>
-        }
-
-        <p class="side-head">Needs attention</p>
-        @if (__data.Attention.Count == 0)
-        {
-            <p class="hint" style="margin:0">Nothing waiting. Well done.</p>
-        }
-        @foreach (var a in __data.Attention)
-        {
-            <div class="side-li"><span>@a.Text</span><span class="side-tag @(a.Warn ? "warn" : "")">@a.Tag</span></div>
-        }
-    }
-
-    @if (__teams.Count > 0)
-    {
-        var team = __teams.FirstOrDefault(t => t.DepartmentKey == __teamKey) ?? __teams[0];
-        <div class="side-divider"></div>
-        <div class="side-team-head">
-            <h3>My team</h3>
-            @if (__teams.Count > 1)
-            {
-                <select @onchange="e => __teamKey = Guid.TryParse(e.Value?.ToString(), out var k) ? k : __teamKey">
-                    @foreach (var t in __teams) { <option value="@t.DepartmentKey" selected="@(t.DepartmentKey == team.DepartmentKey)">@t.DepartmentName</option> }
-                </select>
-            }
-            else { <span class="hint">@team.DepartmentName - you are lead</span> }
-        </div>
-        <div class="side-tiles three">
-            <div class="side-tile"><small>Members</small><b>@team.Members.Count</b></div>
-            <div class="side-tile"><small>Present last service</small><b>@team.PresentLastSunday</b></div>
-            <div class="side-tile @(team.MissedThree > 0 ? "warn" : "")"><small>Missed 3 services</small><b>@team.MissedThree</b></div>
-        </div>
-        <table class="side-team">
-            <thead><tr><th>Member</th><th>Last 4</th><th>Last contact</th><th></th></tr></thead>
-            <tbody>
-                @foreach (var m in team.Members)
-                {
-                    <tr>
-                        <td>@m.Name</td>
-                        <td>@foreach (var p in m.Attended) { <span class="dot @(p ? "on" : "")"></span> }</td>
-                        <td>@RoleStatsService.Ago(m.LastContact)</td>
-                        <td>@if (m.FollowUp) { <span class="side-tag warn">Follow up</span> }</td>
-                    </tr>
+        <div class="side-card @(Data is not null || Kind.StartsWith("visit") || Kind.StartsWith("connect") || Kind == "incoming" ? "plain" : "")">
+            <h3><span class="h2-ico"><Icon Name="@(Kind == "care" || Data is not null ? "heart" : Kind.StartsWith("visit") || Kind.StartsWith("connect") || Kind == "incoming" ? "users" : "layers")" Size="22" Stroke="1.6" /></span>@__data.Title summary</h3>
+            <div class="side-tiles">
+                @{
+                    var tileIcons = Kind switch
+                    {
+                        "visit-add" => new[] { "check", "clock", "church", "users" },
+                        "visit-return" => new[] { "refresh", "users", "heart", "clock" },
+                        "visit-thank" => new[] { "clock", "check", "phone", "users" },
+                        _ => new[] { "users", "clock", "check", "gift" }
+                    };
+                    var i = 0;
                 }
-            </tbody>
-        </table>
+                @foreach (var t in __data.Tiles)
+                {
+                    <div class="side-tile t@(i % 4) @(t.Warn ? "warn" : "")"><span class="st-ico"><Icon Name="@tileIcons[i % 4]" Size="20" Stroke="1.5" /></span><span class="st-text"><b>@t.Value</b><small>@t.Label</small></span></div>
+                    i++;
+                }
+            </div>
+
+            @if (__data.Highlight is not null)
+            {
+                <div class="side-strip"><span class="st-ico"><Icon Name="userplus" Size="20" Stroke="1.5" /></span><span class="st-text"><b>@__data.Highlight.Value</b><small>@__data.Highlight.Label</small></span></div>
+            }
+
+            @foreach (var b in __data.Bars.Where(b => b.Total > 0))
+            {
+                <div class="side-bar-row"><span>@b.Label</span><span>@b.Done of @b.Total</span></div>
+                <div class="side-bar"><i style="width:@(Math.Min(100, b.Done * 100 / b.Total))%"></i></div>
+            }
+        </div>
+
+        @if (Data is null || __data.Attention.Count > 0)
+        {
+        <div class="side-card">
+            <h3><span class="h2-ico"><Icon Name="bell" Size="22" Stroke="1.6" /></span>Needs Attention</h3>
+            @if (__data.Attention.Count == 0)
+            {
+                <p class="hint" style="margin:0">Nothing waiting. Well done.</p>
+            }
+            @foreach (var a in __data.Attention)
+            {
+                <div class="side-li"><span>@a.Text</span><span class="side-tag @(a.Warn ? "warn" : "")">@a.Tag</span></div>
+            }
+        </div>
+        }
     }
 </div>
 
@@ -77,9 +65,8 @@
 
     private readonly CancellationTokenSource __cts = new();
     private RolePanelData? __data;
-    private List<TeamData> __teams = [];
-    private Guid __teamKey;
     private bool __loading = true;
+    private string? __loadedKind;
 
     #endregion
 
@@ -88,14 +75,35 @@
     /// <summary>Which role summary to show: "care", "connect" or "pastoral".</summary>
     [Parameter, EditorRequired] public string Kind { get; set; } = "care";
 
+    /// <summary>For the visitor summary: the service being viewed ("yyyy-MM-dd"); blank or "all" means the current service.</summary>
+    [Parameter] public string? ServiceDate { get; set; }
+
+    /// <summary>For the team summary: the team member whose list is on screen.</summary>
+    [Parameter] public Guid? MemberKey { get; set; }
+
+    /// <summary>Figures worked out by the page itself (for example one summary per tab). When set, nothing is loaded for Kind.</summary>
+    [Parameter] public RolePanelData? Data { get; set; }
+
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     #endregion
 
     #region Lifecycle
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
+        // The page supplied its own figures: show them, and 
+        if (Data is not null)
+        {
+            __data = Data;
+            __loading = false;
+            return;
+        }
+
+        // The Visitors page changes Kind when the tab changes, so the numbers are loaded again for the new tab.
+        if (__loadedKind == Kind) return;
+        __loadedKind = Kind;
+        __loading = true;
         try
         {
             var user = AuthState is null ? null : (await AuthState).User;
@@ -104,13 +112,17 @@
             __data = Kind switch
             {
                 "connect" => await Stats.GetConnectionsAsync(__cts.Token),
+                "connect-lead" => await Stats.GetConnectLeadAsync(DateTime.TryParse(ServiceDate, out var cd) ? cd.Date : null, __cts.Token),
+                "incoming" => await Stats.GetIncomingAsync(__cts.Token),
+                "connect-team" => await Stats.GetConnectTeamAsync(MemberKey, __cts.Token),
+                "visit-add" => await Stats.GetVisitorAddAsync(DateTime.TryParse(ServiceDate, out var sd) ? sd.Date : null, __cts.Token),
+                "visit-return" => await Stats.GetVisitorReturningAsync(__cts.Token),
+                "visit-thank" => await Stats.GetVisitorThankAsync(__cts.Token),
                 // A role limited to "own records only" sees just its own caseload
                 "pastoral" => await Stats.GetPastoralAsync(user is not null && user.OwnOnly(PageKeys.Pastoral) ? myKey : null, __cts.Token),
                 _ => await Stats.GetMembersCareAsync(__cts.Token)
             };
 
-            if (myKey is Guid mk) __teams = await Stats.GetMyTeamsAsync(mk, __cts.Token);
-            if (__teams.Count > 0) __teamKey = __teams[0].DepartmentKey;
         }
         catch (OperationCanceledException) { }
         catch { __data = null; }

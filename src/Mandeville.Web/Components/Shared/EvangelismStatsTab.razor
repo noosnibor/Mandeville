@@ -1,0 +1,72 @@
+@* Numbers for the month: turn-up, flyers, people ministered, new contacts and calls. No names. *@
+@implements IDisposable
+@inject IEvangelismServiceRepository ServiceRepo
+@inject IEvangelismContactRepository ContactRepo
+
+<div class="kstrip card">
+    <div><b>@__rows.Count</b><span>Sessions</span></div>
+    <div><b>@__rows.Sum(r => r.flngPresent)</b><span>Served (present)</span></div>
+    <div class="on"><b>@(TurnUp)%</b><span>Turn-up</span></div>
+    <div><b>@__rows.Sum(r => r.flngMinistered)</b><span>Ministered to</span></div>
+</div>
+
+<div class="ev-stat-grid">
+    <div class="card ev-stat"><b>@Street.Sum(r => r.flngFlyers)</b><span>Flyers given out</span><small>@Street.Count street session(s)</small></div>
+    <div class="card ev-stat"><b>@__rows.Sum(r => r.flngNewContacts)</b><span>New contacts</span><small>people who asked for a call</small></div>
+    <div class="card ev-stat"><b>@__rows.Sum(r => r.flngCalls)</b><span>Calls made</span><small>@__rows.Sum(r => r.flngReached) reached</small></div>
+    <div class="card ev-stat"><b>@__pipeline.Count(c => c.fstrStatus == EvangelismRules.ContactConnected)</b><span>Connected</span><small>@__pipeline.Count(c => c.fstrStatus == EvangelismRules.ContactUnreachable) unreachable</small></div>
+</div>
+
+<div class="fin-list card">
+    @foreach (var r in __rows)
+    {
+        <div class="fin-row">
+            <div class="evg-date"><b>@r.fdtmServiceDate.Day</b><span>@r.fdtmServiceDate.ToString("MMM")</span></div>
+            <div class="fin-nm">
+                <b>@EvangelismRules.ShortArea(r.fstrArea)@(string.IsNullOrWhiteSpace(r.fstrLocation) ? "" : " - " + r.fstrLocation)</b>
+                <small>@Detail(r)</small>
+            </div>
+            <span class="chip fin-type @(r.fblnResultsDone ? "g" : "w")">@(r.fblnResultsDone ? "Results in" : "No results yet")</span>
+        </div>
+    }
+    @if (__rows.Count == 0) { <p class="empty" style="margin:0">No sessions in this month.</p> }
+</div>
+<p class="hint">These are totals only. Names of people met or called are kept in the app and are never shown here or in the report.</p>
+
+@code {
+    [Parameter] public DateTime Month { get; set; }
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<EvangelismStatModel> __rows = [];
+    private List<EvangelismContactModel> __pipeline = [];
+    private DateTime? __loadedMonth;
+
+    private IEnumerable<EvangelismStatModel> StreetRows => __rows.Where(r => r.fstrArea == EvangelismRules.Street);
+    private List<EvangelismStatModel> Street => StreetRows.ToList();
+
+    private int TurnUp => __rows.Sum(r => r.flngScheduled) == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * __rows.Sum(r => r.flngPresent) / __rows.Sum(r => r.flngScheduled)));
+
+    private static string Detail(EvangelismStatModel r)
+    {
+        var parts = new List<string> { $"{r.flngPresent} of {r.flngScheduled} present" };
+        if (r.fstrArea == EvangelismRules.Street) parts.Add($"{r.flngFlyers} flyers, {r.flngMinistered} ministered, {r.flngNewContacts} new contact(s)");
+        else if (r.fstrArea == EvangelismRules.Tele) parts.Add($"{r.flngCalls} calls, {r.flngReached} reached");
+        else parts.Add($"{r.flngMinistered} prayed for");
+        return string.Join(" - ", parts);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var month = EvangelismRules.MonthOf(Month);
+        if (__loadedMonth == month) return;
+        __loadedMonth = month;
+        __rows = (await ServiceRepo.SelectEvangelismStat(month, month.AddMonths(1).AddDays(-1), __cts.Token)).OrderBy(r => r.fdtmServiceDate).ThenBy(r => r.fstrArea).ToList();
+        __pipeline = await ContactRepo.SelectEvangelismContact(includePurged: true, cancellationToken: __cts.Token);
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+}

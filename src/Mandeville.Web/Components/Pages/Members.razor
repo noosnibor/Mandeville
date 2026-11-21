@@ -21,15 +21,15 @@
 <div class="tabs">
     @if (__tabList)
     {
-        <button class="tab @(__tab == "list" ? "active" : "")" @onclick='() => __tab = "list"'>Member list</button>
+        <button class="tab @(__tab == "list" ? "active" : "")" @onclick='() => __tab = "list"'><Icon Name="users" Size="18" />Member list</button>
     }
     @if (__tabAttendance)
     {
-        <button class="tab @(__tab == "attendance" ? "active" : "")" @onclick='() => __tab = "attendance"'>Attendance</button>
+        <button class="tab @(__tab == "attendance" ? "active" : "")" @onclick='() => __tab = "attendance"'><Icon Name="calendar" Size="18" />Attendance</button>
     }
     @if (__tabCelebrations)
     {
-        <button class="tab @(__tab == "celebrations" ? "active" : "")" @onclick='OpenCelebrationsAsync'>Celebrations@(__celebrationCount > 0 ? $" ({__celebrationCount})" : "")</button>
+        <button class="tab @(__tab == "celebrations" ? "active" : "")" @onclick='OpenCelebrationsAsync'><Icon Name="gift" Size="18" />Celebrations@(__celebrationCount > 0 ? $" ({__celebrationCount})" : "")</button>
     }
 </div>
 
@@ -45,79 +45,86 @@ else
 {
     <ToastBar Toast="__toast" />
 
-    @* ---------- Summary bar graph ---------- *@
-    <div class="mgraph">
-        <div class="mgraph-total">
-            <div class="ring-chip" style="--c:#6366f1"><Icon Name="users" Size="22" /></div>
-            <b>@__members.Count</b>
-            <span>Members shown</span>
-        </div>
-        <div class="mgraph-body">
-            <div class="mgraph-bars">
-                @foreach (var bar in Bars())
-                {
-                    <div class="mgraph-col">
-                        <em>@bar.Value</em>
-                        <i style="height:@(BarHeight(bar.Value))%; --from:@bar.From; --to:@bar.To"></i>
-                    </div>
-                }
-            </div>
-            <div class="mgraph-labels">
-                @foreach (var bar in Bars()) { <span>@bar.Label</span> }
-            </div>
-        </div>
+    @* ---------- Summary strip ---------- *@
+    <div class="mstrip">
+        <div class="mstrip-total"><Icon Name="users" Size="18" Stroke="1.6" /><b>@__members.Count</b><span>Members shown</span></div>
+        @foreach (var bar in Bars())
+        {
+            <div><span class="dot" style="background:@bar.To"></span><b>@bar.Value</b><span>@bar.Label</span></div>
+        }
     </div>
 
     @* ---------- Filters ---------- *@
     <div class="mfilter">
-        <input type="text" placeholder="Search name or email" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
-        <select @bind="__filterType">
+        <label class="mfilter-search">
+            <Icon Name="search" Size="18" Stroke="1.5" />
+            <input type="text" placeholder="Search name or email..." aria-label="Search name or email" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
+        </label>
+        <select @bind="__filterType" aria-label="Member type">
             <option value="">All types</option>
             @foreach (var t in __types) { <option value="@t.flngKey">@t.fstrName</option> }
         </select>
-        <select @bind="__filterAssignment">
+        <select @bind="__filterAssignment" aria-label="Assignment">
             <option value="">All assignments</option>
             @foreach (var a in __assignments) { <option value="@a.flngKey">@a.fstrName</option> }
         </select>
-        <select @bind="__filterStatus">
+        <select @bind="__filterStatus" aria-label="Status">
             <option value="">All statuses</option>
             @foreach (var s in FixedLists.MembershipStatuses) { <option value="@s">@s</option> }
         </select>
-        <button class="btn btn-dark btn-sm" @onclick="SearchAsync">Search</button>
+        <button class="mfilter-go" title="Apply filters" aria-label="Apply filters" @onclick="SearchAsync"><Icon Name="sliders" Size="18" Stroke="1.5" /></button>
+        <button class="mfilter-add" @onclick="NewMember"><Icon Name="plus" Size="18" Stroke="2" />Add Member</button>
     </div>
 
-    @* ---------- Profile cards ---------- *@
-    <div class="pcards">
-        @foreach (var m in PageItems())
-        {
-            var isActive = m.fstrMembershipStatus == "Active";
-            <div class="pcard @(isActive ? "" : "inact")" @onclick="() => OpenDetailAsync(m)">
-                <div class="pcard-cover" style="background:@AvatarStyle.Cover(m.flngKey)"></div>
-                <div class="pcard-avatar" style="background:@AvatarStyle.Colour(m.flngKey)">@AvatarStyle.Initials(m.fstrFirstname, m.fstrLastname)</div>
-                <b class="pcard-name">@m.FullName</b>
-                <small class="pcard-mail">@(string.IsNullOrWhiteSpace(m.fstrEmailAddress) ? "No email" : m.fstrEmailAddress)</small>
-                <div class="pcard-tags">
-                    @if (!string.IsNullOrWhiteSpace(m.fstrMemberTypeName)) { <span>@m.fstrMemberTypeName</span> }
-                    @if (!string.IsNullOrWhiteSpace(m.fstrServiceAssignmentName)) { <span class="g">@m.fstrServiceAssignmentName</span> }
-                    @if (m.fblnCoreMember) { <span class="core">Core member</span> }
-                    @if (!string.IsNullOrWhiteSpace(m.fstrCarerName)) { <span class="care">Cared for by @m.fstrCarerName</span> }
-                    else if (isActive && !m.fblnCoreMember) { <span class="nocare">No carer</span> }
-                </div>
-                <div class="pcard-foot">
-                    <button @onclick="() => EditMemberAsync(m)" @onclick:stopPropagation="true">Edit</button>
-                    <button @onclick="() => OpenDetailAsync(m)" @onclick:stopPropagation="true">Profile</button>
-                    <button class="d" @onclick="() => DeleteAsync(m)" @onclick:stopPropagation="true">Delete</button>
-                </div>
-            </div>
-        }
-    </div>
+    @* ---------- Member table (stacks into cards on a phone) ---------- *@
+    @if (__members.Count > 0)
+    {
+        var items = PageItems();
+        var first = __members.IndexOf(items[0]);
+        <div class="mtable-wrap">
+            <table class="mtable">
+                <thead>
+                    <tr><th class="n">#</th><th>Member</th><th>Email</th><th>Assignment</th><th>Carer</th><th>Status</th><th class="r">Actions</th></tr>
+                </thead>
+                <tbody>
+                    @for (var i = 0; i < items.Count; i++)
+                    {
+                        var m = items[i];
+                        var isActive = m.fstrMembershipStatus == "Active";
+                        <tr class="@(isActive ? "" : "inact")" @onclick="() => OpenDetailAsync(m)">
+                            <td class="n" data-label="#">@(first + i + 1)</td>
+                            <td class="who">
+                                <span class="av" style="background:@AvatarStyle.Colour(m.flngKey)">@AvatarStyle.Initials(m.fstrFirstname, m.fstrLastname)</span>
+                                <span class="who-text"><b>@m.DisplayName</b>@if (!string.IsNullOrWhiteSpace(m.fstrMemberTypeName)) { <small>@m.fstrMemberTypeName</small> }</span>
+                            </td>
+                            <td class="mail" data-label="Email">@(string.IsNullOrWhiteSpace(m.fstrEmailAddress) ? "-" : m.fstrEmailAddress)</td>
+                            <td data-label="Assignment">
+                                @if (!string.IsNullOrWhiteSpace(m.fstrServiceAssignmentName)) { <span class="chip g">@m.fstrServiceAssignmentName</span> }
+                                else { <span class="chip n">No assignment</span> }
+                            </td>
+                            <td data-label="Carer">
+                                @if (m.fblnCoreMember) { <span class="chip core">Core member</span> }
+                                @if (!string.IsNullOrWhiteSpace(m.fstrCarerName)) { <span class="chip g">@m.fstrCarerName</span> }
+                                else if (isActive && !m.fblnCoreMember) { <span class="chip warn">No carer</span> }
+                                else if (!m.fblnCoreMember) { <span class="mute">-</span> }
+                            </td>
+                            <td data-label="Status"><span class="bd @(isActive ? "ok" : "off")">@m.fstrMembershipStatus</span></td>
+                            <td class="act">
+                                <button title="Edit" aria-label="Edit @m.FullName" @onclick="() => EditMemberAsync(m)" @onclick:stopPropagation="true"><Icon Name="edit" Size="17" Stroke="1.5" /></button>
+                                <button title="Profile" aria-label="Open profile of @m.FullName" @onclick="() => OpenDetailAsync(m)" @onclick:stopPropagation="true"><Icon Name="user" Size="17" Stroke="1.5" /></button>
+                                <button class="d" title="Delete" aria-label="Delete @m.FullName" @onclick="() => DeleteAsync(m)" @onclick:stopPropagation="true"><Icon Name="trash" Size="17" Stroke="1.5" /></button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
     @if (__members.Count == 0)
     {
         <div class="card"><p class="empty" style="margin:0">No members found.</p></div>
     }
     <Pager Page="__page" PageSize="PageSize" Total="__members.Count" PageChanged="SetPage" />
-
-    <button class="fab" @onclick="NewMember"><Icon Name="plus" Size="16" />Add member</button>
 
     @* ---------- Details panel ---------- *@
     @if (__detail is not null)
@@ -126,12 +133,12 @@ else
         var dActive = d.fstrMembershipStatus == "Active";
         <div class="drawer-backdrop" @onclick="CloseDetail">
             <aside class="drawer" role="dialog" aria-modal="true" aria-label="Member details" @onclick:stopPropagation="true">
-                <div class="drawer-cover @(dActive ? "" : "inact")" style="background:@(dActive ? AvatarStyle.Cover(d.flngKey) : "#e3e6ec")">
+                <div class="drawer-cover @(dActive ? "" : "inact")" style="background:@(dActive ? AvatarStyle.Cover(d.flngKey) : "var(--inactive-cover)")">
                     <button class="drawer-close" aria-label="Close" @onclick="CloseDetail">&#10005;</button>
                 </div>
                 <div class="drawer-top">
-                    <div class="drawer-avatar" style="background:@(dActive ? AvatarStyle.Colour(d.flngKey) : "#cdd2db")">@AvatarStyle.Initials(d.fstrFirstname, d.fstrLastname)</div>
-                    <h3>@d.FullName</h3>
+                    <div class="drawer-avatar" style="background:@(dActive ? AvatarStyle.Colour(d.flngKey) : "var(--inactive)")">@AvatarStyle.Initials(d.fstrFirstname, d.fstrLastname)</div>
+                    <h3>@d.DisplayName</h3>
                     <small>@(string.IsNullOrWhiteSpace(d.fstrEmailAddress) ? "No email" : d.fstrEmailAddress)</small>
                     <div class="drawer-status"><span class="bd @(dActive ? "ok" : "off")">@d.fstrMembershipStatus</span></div>
                     <div class="drawer-stats">
@@ -221,6 +228,13 @@ else
             <ChildContent>
                 <div class="modal-sec">Personal</div>
                 <div class="form-grid">
+                    <div class="field">
+                        <label>Title</label>
+                        <select @bind="__edit.fstrTitle">
+                            <option value="">(none)</option>
+                            @foreach (var t in TitleChoices) { <option value="@t">@t</option> }
+                        </select>
+                    </div>
                     <div class="field"><label>First name</label><input type="text" maxlength="50" @bind="__edit.fstrFirstname" /></div>
                     <div class="field"><label>Last name</label><input type="text" maxlength="50" @bind="__edit.fstrLastname" /></div>
                     <div class="field">
@@ -321,7 +335,6 @@ else
                         <label><input type="checkbox" checked="@__selectedDepartments.Contains(key)" @onchange="e => ToggleDepartment(key, e.Value is true)" /> @d.fstrName</label>
                         @if (__selectedDepartments.Contains(key))
                         {
-                            <label class="lead-tick"><input type="checkbox" checked="@__leadDepartments.Contains(key)" @onchange="e => ToggleLead(key, e.Value is true)" /> Team lead</label>
                         }
                     }
                 </div>
@@ -362,6 +375,10 @@ else
     private HashSet<Guid> __selectedDepartments = [];
     private HashSet<Guid> __leadDepartments = [];
     private MemberModel? __edit;
+
+    /// <summary>The titles set up in Setup, plus this member's own title if it was since removed from the list.</summary>
+    private IEnumerable<string> TitleChoices =>
+        string.IsNullOrWhiteSpace(__edit?.fstrTitle) || FixedLists.Titles.Contains(__edit.fstrTitle) ? FixedLists.Titles : FixedLists.Titles.Append(__edit.fstrTitle);
     private bool __isNew;
     private string? __search;
     private Guid? __filterType;
@@ -480,9 +497,9 @@ else
     /// <summary>The four bars: active, inactive, male, female (for the members currently shown).</summary>
     private List<BarItem> Bars() =>
     [
-        new("Active", __members.Count(m => m.fstrMembershipStatus == "Active"), "#14b8a6", "#0f766e"),
-        new("Inactive", __members.Count(m => m.fstrMembershipStatus == "Inactive"), "#cbd2de", "#98a2b3"),
-        new("Male", __members.Count(m => m.fstrGender == "Male"), "#7db2ff", "#3b82f6"),
+        new("Active", __members.Count(m => m.fstrMembershipStatus == "Active"), "#2dd4bf", "#0d9488"),
+        new("Inactive", __members.Count(m => m.fstrMembershipStatus == "Inactive"), "#b9c4d9", "#8b99b3"),
+        new("Male", __members.Count(m => m.fstrGender == "Male"), "#7cc0ff", "#3b82f6"),
         new("Female", __members.Count(m => m.fstrGender == "Female"), "#f9a8d4", "#ec4899")
     ];
 
@@ -554,7 +571,7 @@ else
         // Work on a copy so Cancel leaves the list untouched.
         __edit = new MemberModel
         {
-            flngKey = m.flngKey, fstrFirstname = m.fstrFirstname, fstrLastname = m.fstrLastname, fstrGender = m.fstrGender,
+            flngKey = m.flngKey, fstrTitle = m.fstrTitle, fstrFirstname = m.fstrFirstname, fstrLastname = m.fstrLastname, fstrGender = m.fstrGender,
             fstrEmailAddress = m.fstrEmailAddress, fstrPhoneNumber = m.fstrPhoneNumber, fstrHomeAddress = m.fstrHomeAddress, fdtmDateOfBirth = m.fdtmDateOfBirth,
             fdtmJoinDate = m.fdtmJoinDate, fdtmLeaveGroupOn = m.fdtmLeaveGroupOn, flngMemberTypeKey = m.flngMemberTypeKey,
             flngServiceAssignmentKey = m.flngServiceAssignmentKey, fstrMembershipStatus = m.fstrMembershipStatus,

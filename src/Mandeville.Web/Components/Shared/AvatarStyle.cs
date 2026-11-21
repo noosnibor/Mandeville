@@ -6,7 +6,7 @@ public static class AvatarStyle
     #region Private Fields
 
     private static readonly string[] __colours =
-        ["#be185d", "#0369a1", "#6366f1", "#0f766e", "#c2410c", "#7c3aed", "#b45309", "#0e7490"];
+        ["#db2777", "#0284c7", "#6366f1", "#0d9488", "#ea580c", "#7c3aed", "#d97706", "#0891b2"];
 
     #endregion
 
@@ -29,8 +29,8 @@ public static class AvatarStyle
     {
         string[] covers =
         [
-            "linear-gradient(135deg,#c7d2fe,#e0e7ff)", "linear-gradient(135deg,#99f6e4,#ccfbf1)",
-            "linear-gradient(135deg,#fbcfe8,#fce7f3)", "linear-gradient(135deg,#bae6fd,#e0f2fe)"
+            "linear-gradient(135deg,#818cf8,#c7d2fe)", "linear-gradient(135deg,#2dd4bf,#99f6e4)",
+            "linear-gradient(135deg,#f472b6,#fbcfe8)", "linear-gradient(135deg,#38bdf8,#bae6fd)"
         ];
         var h = key.GetHashCode();
         return covers[(h & int.MaxValue) % covers.Length];
