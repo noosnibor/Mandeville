@@ -1,0 +1,76 @@
+@* A text box that suggests matching options as you type. The person can still type anything. *@
+<div class="sb">
+    <input type="text" autocomplete="off" maxlength="@MaxLength" placeholder="@Placeholder" value="@Value"
+           @oninput="OnInput" @onfocus="() => __open = true" @onblur="() => __open = false" @onkeydown="OnKey" />
+    @if (__open && Matches.Any())
+    {
+        <div class="sb-list" role="listbox">
+            @foreach (var s in Matches)
+            {
+                var option = s;
+                @* mousedown (with preventDefault) fires before the box loses focus, so the tap is not lost *@
+                <div class="sb-item" role="option" @onmousedown="() => Pick(option)" @onmousedown:preventDefault="true">@Highlight(option)</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    #region Parameters
+
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public IEnumerable<string> Suggestions { get; set; } = [];
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public int MaxLength { get; set; } = 300;
+
+    #endregion
+
+    #region Private Fields
+
+    private bool __open;
+
+    #endregion
+
+    /// <summary>Suggestions that contain what was typed (all of them while the box is empty), best matches first.</summary>
+    private List<string> Matches
+    {
+        get
+        {
+            var text = (Value ?? "").Trim();
+            var all = Suggestions.ToList();
+            if (text.Length == 0) return all.Take(8).ToList();
+            return all.Where(s => s.Contains(text, StringComparison.OrdinalIgnoreCase) && !s.Equals(text, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(s => s.StartsWith(text, StringComparison.OrdinalIgnoreCase) ? 0 : 1).Take(8).ToList();
+        }
+    }
+
+    private MarkupString Highlight(string option)
+    {
+        var text = (Value ?? "").Trim();
+        var safe = System.Net.WebUtility.HtmlEncode(option);
+        if (text.Length == 0 || !option.StartsWith(text, StringComparison.OrdinalIgnoreCase)) return new MarkupString(safe);
+        var head = System.Net.WebUtility.HtmlEncode(option[..text.Length]);
+        var tail = System.Net.WebUtility.HtmlEncode(option[text.Length..]);
+        return new MarkupString($"<b>{head}</b>{tail}");
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString();
+        __open = true;
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    private async Task Pick(string option)
+    {
+        Value = option;
+        __open = false;
+        await ValueChanged.InvokeAsync(option);
+    }
+
+    private void OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") __open = false;
+    }
+}

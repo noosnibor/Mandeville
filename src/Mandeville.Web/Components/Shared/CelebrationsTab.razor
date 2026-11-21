@@ -9,10 +9,17 @@
 
 <ToastBar Toast="__toast" />
 
-<div class="tabs">
-    <button class="tab @(__sub == "b" ? "active" : "")" @onclick='() => ShowTab("b")'>Birthdays (@Birthdays.Count())</button>
-    <button class="tab @(__sub == "a" ? "active" : "")" @onclick='() => ShowTab("a")'>Anniversaries (@Anniversaries.Count())</button>
-    <button class="tab @(__sub == "h" ? "active" : "")" @onclick='() => ShowTab("h")'>Sent (@__sent.Count)</button>
+<div class="cel-top">
+    <div class="tabs">
+        <button class="tab @(__sub == "b" ? "active" : "")" @onclick='() => ShowTab("b")'><Icon Name="cake" Size="18" />Birthdays (@Birthdays.Count())</button>
+        <button class="tab @(__sub == "a" ? "active" : "")" @onclick='() => ShowTab("a")'><Icon Name="rings" Size="18" />Anniversaries (@Anniversaries.Count())</button>
+        <button class="tab @(__sub == "h" ? "active" : "")" @onclick='() => ShowTab("h")'><Icon Name="send" Size="18" />Sent (@__sent.Count)</button>
+    </div>
+    <div class="cel-stats">
+        <button class="cel-stat b @(__sub == "b" ? "on" : "")" @onclick='() => ShowTab("b")'><span class="ico"><Icon Name="cake" Size="22" Stroke="1.5" /></span><span><b>@Birthdays.Count()</b><small>Birthdays</small></span></button>
+        <button class="cel-stat a @(__sub == "a" ? "on" : "")" @onclick='() => ShowTab("a")'><span class="ico"><Icon Name="rings" Size="22" Stroke="1.5" /></span><span><b>@Anniversaries.Count()</b><small>@(Anniversaries.Count() == 1 ? "Anniversary" : "Anniversaries")</small></span></button>
+        <button class="cel-stat s @(__sub == "h" ? "on" : "")" @onclick='() => ShowTab("h")'><span class="ico"><Icon Name="send" Size="22" Stroke="1.5" /></span><span><b>@__sent.Count</b><small>Sent</small></span></button>
+    </div>
 </div>
 
 @if (__sub == "h")
@@ -53,13 +60,14 @@ else
                 var item = c;
                 <div class="cel-card cel-pick @(__open?.Id == item.Id ? "sel" : "")" role="button" tabindex="0" @onclick="() => ToggleCard(item)">
                     <div class="cel-row">
-                        <div class="cel-icon @(item.IsBirthday ? "b" : "a")">@(item.IsBirthday ? "\U0001F382" : "\U0001F48D")</div>
-                        <div>
+                        <div class="cel-icon @(item.IsBirthday ? "b" : "a")"><Icon Name="@(item.IsBirthday ? "cake" : "rings")" Size="26" Stroke="1.5" /></div>
+                        <div class="cel-text">
                             <b>@item.DisplayName</b>
                             <small>@(item.IsBirthday ? "Birthday" : "Anniversary") &middot; @item.Date.ToString("ddd d MMM")</small>
                         </div>
                         <span class="cel-pill @PillClass(item)">@PillText(item)</span>
                     </div>
+                    <span class="cel-art" style="background-image:url('/cards/@item.CardFile')" aria-hidden="true"></span>
                 </div>
             }
         </div>
@@ -204,7 +212,7 @@ else
     }
 
     <div class="card">
-        <h3 style="margin:0 0 10px">Queue</h3>
+        <h3 class="cel-qhead"><span class="h2-ico"><Icon Name="layers" Size="20" Stroke="1.6" /></span>Queue</h3>
         <table class="table table-cards">
             <thead><tr><th>Name</th><th>Type</th><th>Sends</th><th>Status</th><th></th></tr></thead>
             <tbody>
@@ -227,7 +235,10 @@ else
                         </td>
                     </tr>
                 }
-                @if (__queue.Count == 0) { <tr><td colspan="5" class="empty">Nothing is waiting in the queue.</td></tr> }
+                @if (__queue.Count == 0)
+                {
+                    <tr><td colspan="5" class="empty"><span class="att-empty-ico"><Icon Name="inbox" Size="30" Stroke="1.4" /></span><span class="empty-line">Nothing is waiting in the queue.</span></td></tr>
+                }
             </tbody>
         </table>
     </div>

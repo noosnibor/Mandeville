@@ -19,5 +19,22 @@ public class EvangelismAssignmentModel
     public string? fstrWho { get; set; }
     public DateTime? fdtmWhen { get; set; }
 
+    /// <summary>Scheduled, Confirmed, Declined, Attended or Absent.</summary>
+    public string fstrStatus { get; set; } = EvangelismRules.Scheduled;
+
     #endregion
+
+    #region Read-only (joined from the session)
+
+    public DateTime fdtmSessionDate { get; set; }
+    public TimeSpan? ftimSessionTime { get; set; }
+    public string? fstrSessionArea { get; set; }
+    public string? fstrSessionLocation { get; set; }
+
+    #endregion
+
+    public string DisplayName => string.IsNullOrWhiteSpace(fstrTitle) ? $"{fstrFirstname} {fstrLastname}" : $"{fstrTitle.Trim()} {fstrFirstname} {fstrLastname}";
+
+    /// <summary>A copy to edit without touching the row on screen.</summary>
+    public EvangelismAssignmentModel Copy() => (EvangelismAssignmentModel)MemberwiseClone();
 }

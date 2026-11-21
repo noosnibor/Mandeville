@@ -1,0 +1,278 @@
+﻿@* Asks the team which Saturdays and areas they can serve, tracks the answers, and sends the schedule back to them. *@
+@using global::Mandeville.Web.Outreach
+@implements IDisposable
+@inject IEvangelismAvailabilityRepository AvailabilityRepo
+@inject IEvangelismServiceRepository ServiceRepo
+@inject IEvangelismAssignmentRepository AssignmentRepo
+@inject IDepartmentRepository DepartmentRepo
+@inject EvangelismMailer Mailer
+@inject IJSRuntime JS
+
+<ToastBar Toast="__toast" />
+
+<div class="kstrip card">
+    <div><b>@__invites.Count</b><span>On the team</span></div>
+    <div class="on"><b>@__invites.Count(i => i.Responded && !i.fblnNotAvailable)</b><span>Said when they can serve</span></div>
+    <div><b>@__invites.Count(i => i.fblnNotAvailable)</b><span>Not available</span></div>
+    <div><b class="@(Waiting > 0 ? "warn" : "")">@Waiting</b><span>Not answered yet</span></div>
+</div>
+
+@if (__sessions.Count > 0)
+{
+    <div class="card ev-cover">
+        <h3 class="ev-h" style="margin-top:0">Who can serve each session</h3>
+        <p class="hint" style="margin-top:0">People who said yes, compared with the people each session needs.</p>
+        @foreach (var s in __sessions)
+        {
+            var yes = Yes(s);
+            <div class="ev-cover-row">
+                <span>@s.fdtmServiceDate.ToString("ddd d MMM") &middot; @EvangelismRules.ShortArea(s.fstrArea)</span>
+                <span class="chip @(yes >= s.flngSlots ? "g" : "w")">@yes available / @s.flngSlots needed</span>
+            </div>
+        }
+    </div>
+}
+
+<div class="fin-bar">
+    <button class="svc-pill @(__msg == "invite" ? "on" : "")" @onclick='() => __msg = "invite"'>Ask for availability</button>
+    <button class="svc-pill @(__msg == "schedule" ? "on" : "")" @onclick='() => __msg = "schedule"'>Send the schedule</button>
+    <button class="btn btn-primary" style="margin-left:auto" disabled="@(__busy || !Mailer.IsConfigured)" @onclick="() => SendAllAsync(false)">Email everyone</button>
+    @if (__msg == "invite")
+    {
+        <button class="btn" disabled="@(__busy || !Mailer.IsConfigured)" @onclick="() => SendAllAsync(true)">Remind those who have not answered</button>
+    }
+</div>
+@if (!Mailer.IsConfigured)
+{
+    <p class="hint" style="margin:-.3rem 0 .8rem">Automatic email is not set up yet (add the Smtp settings). Until then, use the WhatsApp or Email button on each person: it opens your own app with the message ready.</p>
+}
+
+<div class="fin-list card">
+    @foreach (var i in __invites)
+    {
+        var inv = i;
+        var mine = AssignmentsOf(inv);
+        var message = Message(inv);
+        var wa = EvangelismRules.WhatsAppLink(inv.fstrPhoneNumber, message.Body);
+        var mail = EvangelismRules.MailLink(inv.fstrEmailAddress, message.Subject, message.Body);
+        <div class="fin-row">
+            <div class="care-av sm" style="background:@AvatarStyle.Colour(inv.flngMemberKey)">@AvatarStyle.Initials(inv.fstrFirstname, inv.fstrLastname)</div>
+            <div class="fin-nm">
+                <b>@inv.DisplayName</b>
+                <small>@StatusText(inv)@(mine.Count > 0 ? $" - scheduled {mine.Count} time(s)" : "")</small>
+            </div>
+            <span class="chip fin-type @StatusChip(inv)">@StatusLabel(inv)</span>
+            <div class="fin-act ev-acts">
+                @if (wa is not null) { <a class="btn btn-sm" href="@wa" target="_blank" rel="noopener" @onclick="() => MarkSentAsync(inv)">WhatsApp</a> }
+                else { <span class="btn btn-sm ev-off" title="No phone number on record">WhatsApp</span> }
+                @if (mail is not null) { <a class="btn btn-sm" href="@mail" @onclick="() => MarkSentAsync(inv)">Email</a> }
+                else { <span class="btn btn-sm ev-off" title="No email address on record">Email</span> }
+                <button class="btn btn-sm" @onclick="() => CopyLinkAsync(inv)">Copy link</button>
+                <button class="btn btn-sm" @onclick="() => OpenAnswer(inv)">Answer for them</button>
+            </div>
+        </div>
+    }
+    @if (__invites.Count == 0) { <p class="empty" style="margin:0">No active members were found for the team.</p> }
+</div>
+<p class="hint">Each person has a private link for the month. It opens a simple page where they tick their Saturdays, and later confirm or decline their schedule. No sign-in is needed.</p>
+
+@if (__answer is not null)
+{
+    <Modal Title="@AnswerTitle" Subtitle="@MonthLabel" Icon="calendar" OnClose="() => __answer = null">
+        <ChildContent>
+            <EvangelismAvailabilityForm Options="Options" Selected="__answerSelected" @bind-NotAvailable="__answerNotAvailable" />
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" disabled="@__busy" @onclick="SaveAnswerAsync">Save</button>
+            <button class="btn" @onclick="() => __answer = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    #region Parameters
+
+    /// <summary>Any date in the month.</summary>
+    [Parameter] public DateTime Month { get; set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<EvangelismInviteModel> __invites = [];
+    private List<EvangelismChoiceModel> __choices = [];
+    private List<EvangelismServiceModel> __sessions = [];
+    private List<EvangelismAssignmentModel> __assignments = [];
+    private Guid? __department;
+    private DateTime? __loadedMonth;
+    private string __msg = "invite";
+    private bool __busy;
+    private ToastMessageModel? __toast;
+
+    private EvangelismInviteModel? __answer;
+    private readonly HashSet<string> __answerSelected = [];
+    private bool __answerNotAvailable;
+
+    #endregion
+
+    #region Display helpers
+
+    private string MonthLabel => Month.ToString("MMMM yyyy");
+    private string AnswerTitle => __answer is null ? "" : "Availability for " + __answer.DisplayName;
+    private int Waiting => __invites.Count(i => !i.Responded);
+
+    /// <summary>The Saturday and area pairs to pick from: the planned sessions, or every Saturday and area when nothing is planned yet.</summary>
+    private List<(DateTime Date, string Area)> Options =>
+        __sessions.Count > 0
+            ? __sessions.Select(s => (s.fdtmServiceDate.Date, s.fstrArea)).Distinct().ToList()
+            : EvangelismRules.Saturdays(Month).SelectMany(d => EvangelismRules.Areas.Select(a => (d, a))).ToList();
+
+    private int Yes(EvangelismServiceModel s) => __choices.Count(c => c.fdtmDate.Date == s.fdtmServiceDate.Date && c.fstrArea == s.fstrArea);
+
+    private List<EvangelismAssignmentModel> AssignmentsOf(EvangelismInviteModel inv) =>
+        __assignments.Where(a => a.flngMemberKey == inv.flngMemberKey && a.fstrStatus != EvangelismRules.Declined).ToList();
+
+    private (string Subject, string Body) Message(EvangelismInviteModel inv) =>
+        __msg == "schedule" ? Mailer.ScheduleMessage(inv, AssignmentsOf(inv)) : Mailer.InviteMessage(inv);
+
+    private static string StatusLabel(EvangelismInviteModel inv) =>
+        inv.fblnNotAvailable ? "Not available" : inv.Responded ? "Answered" : inv.fdtmSent.HasValue ? "Waiting" : "Not asked yet";
+
+    private static string StatusChip(EvangelismInviteModel inv) =>
+        inv.fblnNotAvailable ? "" : inv.Responded ? "g" : "w";
+
+    private static string StatusText(EvangelismInviteModel inv)
+    {
+        if (inv.fblnNotAvailable) return "Not available this month";
+        if (inv.Responded) return $"Ticked {inv.flngChoices} choice(s)";
+        return inv.fdtmSent.HasValue ? $"Asked on {inv.fdtmSent:d MMM}" : "Not asked yet";
+    }
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        __department = await OutreachTeam.DepartmentKeyAsync(DepartmentRepo, __cts.Token);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var month = EvangelismRules.MonthOf(Month);
+        if (__loadedMonth == month) return;
+        __loadedMonth = month;
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync()
+    {
+        var from = EvangelismRules.MonthOf(Month);
+        var to = from.AddMonths(1).AddDays(-1);
+
+        // Everyone on the team has an invite for the month (people who joined the team since are added here)
+        await AvailabilityRepo.EnsureEvangelismInvites(from, __department, AppConstants.Who, __cts.Token);
+        __invites = await AvailabilityRepo.SelectEvangelismInvite(month: from, cancellationToken: __cts.Token);
+        __choices = await AvailabilityRepo.SelectEvangelismChoice(month: from, cancellationToken: __cts.Token);
+        __sessions = await ServiceRepo.SelectEvangelismService(fromDate: from, toDate: to, cancellationToken: __cts.Token);
+        __assignments = await AssignmentRepo.SelectEvangelismAssignment(fromDate: from, toDate: to, cancellationToken: __cts.Token);
+    }
+
+    #endregion
+
+    #region Sending
+
+    private async Task MarkSentAsync(EvangelismInviteModel inv)
+    {
+        await AvailabilityRepo.MarkEvangelismInviteSent(inv.flngKey, __cts.Token);
+        inv.fdtmSent = AppClock.Now;
+    }
+
+    private async Task CopyLinkAsync(EvangelismInviteModel inv)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Mailer.AvailabilityLink(inv.fstrToken));
+            __toast = new() { ToastType = ToastTypeModel.Success, Message = $"Link for {inv.fstrFirstname} copied" };
+        }
+        catch (JSException)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "The link could not be copied from here. Use the WhatsApp or Email button instead." };
+        }
+    }
+
+    /// <summary>Emails the chosen message to everyone on the team with an email address (or only those who have not answered yet).</summary>
+    private async Task SendAllAsync(bool onlyWaiting)
+    {
+        __busy = true;
+        try
+        {
+            var sent = 0;
+            var skipped = 0;
+            string? firstError = null;
+            foreach (var inv in __invites)
+            {
+                if (onlyWaiting && inv.Responded) continue;
+                if (__msg == "schedule" && AssignmentsOf(inv).Count == 0) continue;
+                if (string.IsNullOrWhiteSpace(inv.fstrEmailAddress)) { skipped++; continue; }
+
+                var message = Message(inv);
+                var error = await Mailer.SendAsync(inv.fstrEmailAddress, message.Subject, message.Body, __cts.Token);
+                if (error is not null) { firstError ??= error; skipped++; continue; }
+
+                await AvailabilityRepo.MarkEvangelismInviteSent(inv.flngKey, __cts.Token);
+                inv.fdtmSent = AppClock.Now;
+                sent++;
+            }
+
+            var text = $"{sent} email(s) sent" + (skipped > 0 ? $", {skipped} could not be sent (no email address or a mail error)" : "");
+            __toast = firstError is null || sent > 0
+                ? new() { ToastType = skipped > 0 ? ToastTypeModel.Warning : ToastTypeModel.Success, Message = text }
+                : new() { ToastType = ToastTypeModel.Danger, Message = firstError };
+        }
+        finally
+        {
+            __busy = false;
+        }
+    }
+
+    #endregion
+
+    #region Answering for someone
+
+    private void OpenAnswer(EvangelismInviteModel inv)
+    {
+        __answer = inv;
+        __answerNotAvailable = inv.fblnNotAvailable;
+        __answerSelected.Clear();
+        foreach (var c in __choices.Where(c => c.flngInviteKey == inv.flngKey))
+            __answerSelected.Add(EvangelismAvailabilityForm.Key(c.fdtmDate, c.fstrArea));
+    }
+
+    private async Task SaveAnswerAsync()
+    {
+        if (__answer is null) return;
+        __busy = true;
+        try
+        {
+            var choices = __answerSelected.Select(EvangelismAvailabilityForm.Parse).ToList();
+            __toast = await AvailabilityRepo.SaveEvangelismAvailability(__answer.flngKey, __answerNotAvailable, choices, AppConstants.Who, __cts.Token);
+            if (!__toast.IsSuccess) return;
+            __answer = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            __busy = false;
+        }
+    }
+
+    #endregion
+}

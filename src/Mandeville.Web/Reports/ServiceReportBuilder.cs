@@ -16,7 +16,9 @@ public class ServiceReportBuilder(
     IPastoralContactRepository contactRepo,
     IFinanceRepository financeRepo,
     IPaymentTypeRepository paymentTypeRepo,
-    IExpenditureRepository expenditureRepo)
+    IExpenditureRepository expenditureRepo,
+    IEvangelismServiceRepository evangelismServiceRepo,
+    IEvangelismContactRepository evangelismContactRepo)
 {
     #region Private Fields
 
@@ -33,6 +35,8 @@ public class ServiceReportBuilder(
     private readonly IFinanceRepository __financeRepo = financeRepo;
     private readonly IPaymentTypeRepository __paymentTypeRepo = paymentTypeRepo;
     private readonly IExpenditureRepository __expenditureRepo = expenditureRepo;
+    private readonly IEvangelismServiceRepository __evangelismServiceRepo = evangelismServiceRepo;
+    private readonly IEvangelismContactRepository __evangelismContactRepo = evangelismContactRepo;
 
     #endregion
 
@@ -55,6 +59,7 @@ public class ServiceReportBuilder(
         await AddVisitorsAsync(report, date, cancellationToken);
         await AddIncomingAsync(report, date, cancellationToken);
         await AddMembersAsync(report, service, date, cancellationToken);
+        await AddEvangelismAsync(report, date, cancellationToken);
         await AddFinanceAsync(report, date, cancellationToken);
         return report;
     }
@@ -159,6 +164,18 @@ public class ServiceReportBuilder(
         r.Connected = careable.Count(m => m.flngCarerKey is not null);
         r.CoreMembers = members.Count(m => m.fblnCoreMember && m.fstrMembershipStatus == "Active");
 
+        // Active members by title, in the order the titles are listed in Setup; anything else follows, then "No title"
+        var active = members.Where(m => m.fstrMembershipStatus == "Active").ToList();
+        var titles = FixedLists.Titles.ToList();
+        r.MembersByTitle = active.Where(m => !string.IsNullOrWhiteSpace(m.fstrTitle))
+            .GroupBy(m => m.fstrTitle!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Title: g.Key, Count: g.Count()))
+            .OrderBy(t => TitleOrder(titles, t.Title))
+            .ThenBy(t => t.Title)
+            .ToList();
+        var untitled = active.Count(m => string.IsNullOrWhiteSpace(m.fstrTitle));
+        if (untitled > 0) r.MembersByTitle.Add(("No title", untitled));
+
         var assignments = await __assignmentRepo.SelectPastoralAssignment(cancellationToken: ct);
         var contacts = await __contactRepo.SelectPastoralContact(cancellationToken: ct);
 
@@ -172,6 +189,48 @@ public class ServiceReportBuilder(
             if (last is null) return (date - a.fdtmAssignedOn.Date).TotalDays > CareGapDays;
             return (last.fdtmNextContactDate ?? last.fdtmContactDate.AddDays(CareGapDays)).Date < date;
         });
+    }
+
+    #endregion
+
+    /// <summary>Position of a title in the Setup list; titles that are no longer listed go last.</summary>
+    private static int TitleOrder(List<string> titles, string title)
+    {
+        var index = titles.FindIndex(x => string.Equals(x, title, StringComparison.OrdinalIgnoreCase));
+        return index >= 0 ? index : int.MaxValue;
+    }
+
+    #region Evangelism
+
+    private async Task AddEvangelismAsync(ServiceReport r, DateTime date, CancellationToken ct)
+    {
+        var monthStart = new DateTime(date.Year, date.Month, 1);
+        var stats = await __evangelismServiceRepo.SelectEvangelismStat(monthStart, date, ct);
+
+        static EvangelismNumbers Total(IEnumerable<EvangelismStatModel> rows)
+        {
+            var list = rows.ToList();
+            return new EvangelismNumbers
+            {
+                Sessions = list.Count,
+                Scheduled = list.Sum(x => x.flngScheduled),
+                Present = list.Sum(x => x.flngPresent),
+                Flyers = list.Sum(x => x.flngFlyers),
+                Ministered = list.Sum(x => x.flngMinistered),
+                NewContacts = list.Sum(x => x.flngNewContacts),
+                Calls = list.Sum(x => x.flngCalls),
+                Reached = list.Sum(x => x.flngReached)
+            };
+        }
+
+        // "Last Saturday" is the week ending on the service date
+        r.EvangelismSaturday = Total(stats.Where(x => x.fdtmServiceDate.Date > date.AddDays(-7) && x.fdtmServiceDate.Date <= date));
+        r.EvangelismMonth = Total(stats);
+
+        var contacts = await __evangelismContactRepo.SelectEvangelismContact(includePurged: true, cancellationToken: ct);
+        r.ContactsConnected = contacts.Count(c => c.fstrStatus == EvangelismRules.ContactConnected);
+        r.ContactsUnreachable = contacts.Count(c => c.fstrStatus == EvangelismRules.ContactUnreachable);
+        r.ContactsActive = contacts.Count(c => c.fstrStatus != EvangelismRules.ContactUnreachable && c.fstrStatus != EvangelismRules.ContactConnected);
     }
 
     #endregion

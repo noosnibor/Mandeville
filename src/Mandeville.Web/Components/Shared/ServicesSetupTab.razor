@@ -23,20 +23,18 @@
     }
     else
     {
-        <table class="table">
-            <thead><tr><th>Date</th><th>Service</th><th>Time</th><th>Location</th></tr></thead>
-            <tbody>
-                @foreach (var s in __services)
-                {
-                    <tr>
-                        <td>@s.fdtmServiceDate.ToString("ddd d MMM yyyy")</td>
-                        <td>@s.fstrServiceName @if (s.fdtmServiceDate.Date > AppClock.Today) { <span class="tag">Upcoming</span> }</td>
-                        <td>@(s.ftimStartTime.HasValue ? DateTime.Today.Add(s.ftimStartTime.Value).ToString("h:mm tt") : "-")</td>
-                        <td>@(string.IsNullOrWhiteSpace(s.fstrLocation) ? "-" : s.fstrLocation)</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+        <div class="fin-list inner">
+            @foreach (var s in __services)
+            {
+                <div class="fin-row">
+                    <div class="evg-date"><b>@s.fdtmServiceDate.Day</b><span>@s.fdtmServiceDate.ToString("MMM")</span></div>
+                    <div class="fin-nm">
+                        <b>@s.fstrServiceName @if (s.fdtmServiceDate.Date > AppClock.Today) { <span class="chip g">Upcoming</span> }</b>
+                        <small>@s.fdtmServiceDate.ToString("dddd, d MMM yyyy") &middot; @(s.ftimStartTime.HasValue ? DateTime.Today.Add(s.ftimStartTime.Value).ToString("h:mm tt") : "-") &middot; @(string.IsNullOrWhiteSpace(s.fstrLocation) ? "-" : s.fstrLocation)</small>
+                    </div>
+                </div>
+            }
+        </div>
     }
 </div>
 

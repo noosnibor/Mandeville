@@ -7,6 +7,7 @@
 
 <div class="mod">
     <div class="mhead">
+        <span class="mhead-ico"><Icon Name="receipt" Size="22" Stroke="1.5" /></span>
         <div>
             <h1>Financial Ledger</h1>
             <p>Balance per month, brought forward, and period close</p>
@@ -23,11 +24,11 @@
 
     <ToastBar Toast="__toast" />
 
-    <div class="mstats">
-        <div class="mstat"><b>@FirstBroughtForward.ToString("N2")</b><span>Brought forward into @__year</span></div>
-        <div class="mstat hot"><b>@YearEndBalance.ToString("N2")</b><span>Balance at end of @__year (so far)</span></div>
-        <div class="mstat"><b>@__months.Count(m => m.IsClosed)</b><span>Periods closed</span></div>
-        <div class="mstat"><b>@__months.Count(m => !m.IsClosed && !m.NotStarted)</b><span>Periods open</span></div>
+    <div class="kstrip card">
+        <div><b>@FirstBroughtForward.ToString("N2")</b><span>Brought forward into @__year</span></div>
+        <div class="on"><b>@YearEndBalance.ToString("N2")</b><span>Balance at end of @__year (so far)</span></div>
+        <div><b>@__months.Count(m => m.IsClosed)</b><span>Periods closed</span></div>
+        <div><b>@__months.Count(m => !m.IsClosed && !m.NotStarted)</b><span>Periods open</span></div>
     </div>
 
     <div class="lg-grid">

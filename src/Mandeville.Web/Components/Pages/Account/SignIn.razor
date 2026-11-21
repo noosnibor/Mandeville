@@ -7,26 +7,71 @@
 @using Microsoft.AspNetCore.Authentication.Cookies
 @inject AccountService Accounts
 @inject NavigationManager Navigation
+@inject IConfiguration Configuration
 
 <PageTitle>Sign in</PageTitle>
 
-<h1 class="auth-title">Sign in</h1>
-<p class="auth-sub">Use the email address and password you were given.</p>
+<h1 class="auth-title">Welcome Back!</h1>
+<p class="auth-sub">Sign in to continue to @(Configuration["Church:GroupName"] ?? "WAFIF Mandeville")</p>
 
 @if (!string.IsNullOrEmpty(_error))
 {
-    <div class="auth-error" role="alert">@_error</div>
+    <div class="auth-error" role="alert"><Icon Name="alert" Size="18" Stroke="1.5" /><span>@_error</span></div>
 }
 
-<EditForm Model="Input" FormName="signin" OnValidSubmit="SubmitAsync" method="post">
+<EditForm Model="Input" FormName="signin" OnValidSubmit="SubmitAsync" method="post" class="auth-form" novalidate>
     <DataAnnotationsValidator />
-    <label class="auth-label" for="email">Email</label>
-    <InputText id="email" type="email" class="auth-input" @bind-Value="Input.Email" autocomplete="username" autofocus />
-    <label class="auth-label" for="password">Password</label>
-    <InputText id="password" type="password" class="auth-input" @bind-Value="Input.Password" autocomplete="current-password" />
-    <ValidationSummary class="auth-error" />
-    <button type="submit" class="btn btn-primary btn-sm auth-submit">Sign in</button>
+
+    <div class="field">
+        <label class="auth-label" for="email">Email address</label>
+        <div class="input-wrap">
+            <span class="input-ico" aria-hidden="true"><Icon Name="mail" Size="18" Stroke="1.25" /></span>
+            <InputText id="email" type="email" class="auth-input" @bind-Value="Input.Email" placeholder="Email address"
+                       autocomplete="username" inputmode="email" autofocus data-validate="1" />
+        </div>
+        <ValidationMessage For="() => Input.Email" class="field-error" />
+    </div>
+
+    <div class="field">
+        <label class="auth-label" for="password">Password</label>
+        <div class="input-wrap">
+            <span class="input-ico" aria-hidden="true"><Icon Name="lock" Size="18" Stroke="1.25" /></span>
+            <InputText id="password" type="password" class="auth-input has-end" @bind-Value="Input.Password" placeholder="Password"
+                       autocomplete="current-password" data-validate="1" />
+            <button type="button" class="input-end" data-pw-toggle="password" aria-label="Show password" aria-pressed="false">
+                <span class="eye-on"><Icon Name="eye" Size="18" Stroke="1.25" /></span>
+                <span class="eye-off"><Icon Name="eyeoff" Size="18" Stroke="1.25" /></span>
+            </button>
+        </div>
+        <ValidationMessage For="() => Input.Password" class="field-error" />
+    </div>
+
+    <div class="auth-row">
+        <label class="check">
+            <InputCheckbox @bind-Value="Input.RememberMe" />
+            <span>Remember me</span>
+        </label>
+        <a class="auth-link" href="/account/forgot">Forgot password?</a>
+    </div>
+
+    <button type="submit" class="auth-submit" data-loading="1">
+        <span class="lbl">Sign In <Icon Name="arrowright" Size="18" Stroke="1.25" /></span>
+        <span class="spin" aria-hidden="true"></span>
+        <span class="wait">Signing in&hellip;</span>
+    </button>
 </EditForm>
+
+<p class="auth-alt">
+    Don't have an account?
+    @if (!string.IsNullOrWhiteSpace(Configuration["Church:ContactEmail"]))
+    {
+        <a class="auth-link" href="mailto:@Configuration["Church:ContactEmail"]">Contact us</a>
+    }
+    else
+    {
+        <span>Contact your church administrator.</span>
+    }
+</p>
 
 @code {
     [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
@@ -46,7 +91,12 @@
 
         var principal = await Accounts.CreatePrincipalAsync(user);
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal,
-            new AuthenticationProperties { IsPersistent = false });
+            new AuthenticationProperties
+        {
+            IsPersistent = Input.RememberMe,
+            ExpiresUtc = Input.RememberMe ? DateTimeOffset.UtcNow.AddDays(30) : null,
+            AllowRefresh = true
+        });
 
         // A temporary password must be replaced before anything else
         var target = user.fblnMustChangePassword
@@ -59,9 +109,12 @@
     private sealed class SignInInput
     {
         [Required(ErrorMessage = "Enter your email address.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address.")]
         public string? Email { get; set; }
 
         [Required(ErrorMessage = "Enter your password.")]
         public string? Password { get; set; }
+
+        public bool RememberMe { get; set; }
     }
 }

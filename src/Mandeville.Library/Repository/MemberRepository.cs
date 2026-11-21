@@ -70,6 +70,7 @@ public partial class MemberRepository(IDataAccess dataAccess) : IMemberRepositor
 
             var parameters = new DynamicParameters();
             parameters.Add("@flngKey", obj.flngKey);
+            parameters.Add("@fstrTitle", string.IsNullOrWhiteSpace(obj.fstrTitle) ? null : obj.fstrTitle.Trim());
             if (insert)
             {
                 parameters.Add("@fstrFirstname", obj.fstrFirstname?.Trim());

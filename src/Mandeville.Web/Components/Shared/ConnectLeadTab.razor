@@ -6,28 +6,54 @@
 
 <ToastBar Toast="__toast" />
 
-<div class="mtools">
-    <label class="mlabel">Service date</label>
+<div class="vkpi card">
+    <div><b>@__rows.Count</b><span>Visitors</span></div>
+    <div><b>@__rows.Count(r => r.Altar)</b><span>Went to the altar</span></div>
+    <div><b class="@(__rows.Count(r => r.Altar && r.AssignTo is null) > 0 ? "warn" : "")">@__rows.Count(r => r.Altar && r.AssignTo is null)</b><span>Altar, not assigned</span></div>
+</div>
+
+<div class="cl-line">
+    <span class="svc-line-label">Service date</span>
     <input class="mdate" type="date" max="@AppClock.Today.ToString("yyyy-MM-dd")" @bind="__date" />
-    <button class="mchip" @onclick="LoadAsync">Load</button>
+    <button class="svc-pill on" @onclick="LoadClickAsync">Load</button>
 </div>
 
-<div class="mstats">
-    <div class="mstat"><b>@__rows.Count</b><span>Visitors</span></div>
-    <div class="mstat"><b>@__rows.Count(r => r.Altar)</b><span>Went to the altar</span></div>
-    <div class="mstat hot"><b>@__rows.Count(r => r.Altar && r.AssignTo is null)</b><span>Altar, not assigned</span></div>
+@* ---------- Team workload ---------- *@
+<div class="wl card">
+    <div class="wl-head">
+        <span class="svc-ico"><Icon Name="users" Size="18" Stroke="1.5" /></span>
+        <b>Team workload</b>
+        <span class="wl-total">@__workload.Sum(w => w.flngAssigned) assigned@(NotAssigned() > 0 ? $" · {NotAssigned()} waiting" : "")</span>
+    </div>
+    <div class="wl-row">
+        @foreach (var w in __workload)
+        {
+            var mine = __rows.Where(r => r.Altar && r.AssignTo == w.flngMemberKey).ToList();
+            var prayer = mine.Count(r => r.Reason == "Prayer");
+            var membership = mine.Count(r => r.Reason == "Membership");
+            <div class="wl-card">
+                <div class="wl-top">
+                    <i style="background:@AvatarStyle.Colour(w.flngMemberKey)">@InitialsOf(w.FullName)</i>
+                    <div><b>@w.FullName</b><small>@(mine.Count == 0 ? "None this service" : $"{prayer} prayer · {membership} membership")</small></div>
+                </div>
+                <div class="wl-n"><span>Assigned</span><strong>@w.flngAssigned</strong></div>
+                <div class="wl-bar"><i style="width:@(MaxAssigned() == 0 ? 0 : w.flngAssigned * 100 / MaxAssigned())%"></i></div>
+            </div>
+        }
+        @if (NotAssigned() > 0)
+        {
+            <div class="wl-card un">
+                <div class="wl-top"><i>?</i><div><b>Not assigned</b><small>Altar calls waiting</small></div></div>
+                <div class="wl-n"><span>Waiting</span><strong>@NotAssigned()</strong></div>
+                <div class="wl-bar"><i style="width:@(Math.Min(100, NotAssigned() * 100 / Math.Max(1, __rows.Count(r => r.Altar))))%"></i></div>
+            </div>
+        }
+        @if (__workload.Count == 0) { <span class="mwl-empty plain"><Icon Name="info" Size="18" Stroke="1.6" />No one has been assigned yet.</span> }
+    </div>
 </div>
 
-<div class="mwl">
-    @foreach (var w in __workload)
-    {
-        <div><i style="background:@AvatarStyle.Colour(w.flngMemberKey)">@InitialsOf(w.FullName)</i><span>@w.FullName &middot; @w.flngAssigned</span></div>
-    }
-    @if (__workload.Count == 0) { <span class="hint" style="margin:0">No one has been assigned yet.</span> }
-</div>
-
-<div class="mpanel">
-    <p class="hint" style="margin:0 0 .4rem">Tick the box for anyone who went to the altar, choose the reason, then choose who follows them up. For the reason Membership, the team member calls them and adds them to Incoming members once they confirm.</p>
+<div class="cl-card card">
+    <p class="cl-hint">Tick the box for anyone who went to the altar, choose the reason, then choose who follows them up. For the reason Membership, the team member calls them and adds them to Incoming members once they confirm.</p>
 
     @foreach (var r in __rows)
     {
@@ -38,7 +64,7 @@
                 <b>@row.Visitor.FullName</b>
                 <small>@row.Visitor.fstrAgeGroup &middot; @row.Visitor.fstrGender &middot; @(string.IsNullOrWhiteSpace(row.Visitor.fstrPhoneNumber) ? "No phone" : row.Visitor.fstrPhoneNumber)</small>
             </div>
-            <label class="lcheck"><input type="checkbox" class="mswitch" @bind="row.Altar" /> Altar</label>
+            <label class="lcheck"><input type="checkbox" class="mswitch" @bind="row.Altar" /><span class="altar-pill">Altar</span></label>
             @if (row.Altar)
             {
                 <select @bind="row.Reason">
@@ -60,7 +86,7 @@
 
     @if (__rows.Count > 0)
     {
-        <div class="lbar"><span>Membership people are called first, then added to Incoming members.</span><button class="btn btn-primary" @onclick="SaveAsync">Save changes</button></div>
+        <div class="lbar"><span><Icon Name="userplus" Size="22" Stroke="1.5" />Membership people are called first, then added to Incoming members.</span><button class="btn btn-primary" @onclick="SaveAsync"><Icon Name="check" Size="18" />Save Changes</button></div>
     }
 </div>
 
@@ -68,6 +94,9 @@
     #region Private Fields
 
     private readonly CancellationTokenSource __cts = new();
+
+    /// <summary>Raised with the service date ("yyyy-MM-dd") after loading or saving, so the summary refreshes.</summary>
+    [Parameter] public EventCallback<string> OnChanged { get; set; }
     private DateTime? __date = AppClock.Today;
     private List<LeadRow> __rows = [];
     private List<MemberModel> __connectors = [];
@@ -119,6 +148,19 @@
     #region Loading
 
     /// <summary>Loads the visitors who attended the chosen service, with their altar reason and connector.</summary>
+    private int NotAssigned() => __rows.Count(r => r.Altar && r.AssignTo is null);
+
+    private int MaxAssigned() => __workload.Count == 0 ? 0 : __workload.Max(w => w.flngAssigned);
+
+    private async Task LoadClickAsync()
+    {
+        await LoadAsync();
+        await NotifyAsync();
+    }
+
+    /// <summary>Tells the page which service date is on screen so the summary can follow it.</summary>
+    private Task NotifyAsync() => OnChanged.InvokeAsync((__date ?? AppClock.Today).ToString("yyyy-MM-dd"));
+
     private async Task LoadAsync()
     {
         if (__date is null)
@@ -183,6 +225,7 @@
         }
 
         await LoadAsync();
+        await NotifyAsync();
         __toast = new()
         {
             ToastType = saved == 0 ? ToastTypeModel.Primary : ToastTypeModel.Success,

@@ -6,6 +6,8 @@ public class MemberModel
     #region Properties
 
     public Guid flngKey { get; set; }
+    /// <summary>Mr., Mrs., Pastor ... (the list is edited in Setup, Fixed lists).</summary>
+    public string? fstrTitle { get; set; }
     public string fstrFirstname { get; set; } = string.Empty;
     public string fstrLastname { get; set; } = string.Empty;
     public string fstrGender { get; set; } = string.Empty;
@@ -53,4 +55,7 @@ public class MemberModel
     public string? SpouseDisplayName => !string.IsNullOrWhiteSpace(fstrSpouseMemberName) ? fstrSpouseMemberName : fstrSpouseName;
 
     public string FullName => $"{fstrFirstname} {fstrLastname}";
+
+    /// <summary>The name with the title in front when there is one (Pastor Jane Brown).</summary>
+    public string DisplayName => string.IsNullOrWhiteSpace(fstrTitle) ? FullName : $"{fstrTitle.Trim()} {FullName}";
 }

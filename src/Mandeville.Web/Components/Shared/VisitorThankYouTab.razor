@@ -7,24 +7,25 @@
 <ToastBar Toast="__toast" />
 
 <div class="card">
-    <h2>Thank you messages</h2>
-    <p class="hint" style="margin-top:0">Pick the service, check the messages, then tap WhatsApp beside each visitor. WhatsApp opens with the message ready to send.</p>
+    <h2><span class="h2-ico"><Icon Name="mail" Size="22" Stroke="1.6" /></span>Thank You Messages</h2>
+    <p class="hint ty-sub">Pick the service, check the messages, then tap WhatsApp beside each visitor. WhatsApp opens with the message ready to send.</p>
 
     <div class="form-grid">
-        <div class="field">
+        <div class="field icon-field">
             <label>Service the visitors attended</label>
+            <span class="if-wrap"><Icon Name="calendar" Size="18" Stroke="1.5" />
             <select @onchange="OnServiceChanged">
                 @foreach (var s in __past)
                 {
                     <option value="@s.flngKey" selected="@(s.flngKey == __serviceKey)">@s.fstrServiceName - @s.fdtmServiceDate.ToString("dd MMM yyyy")</option>
                 }
-            </select>
+            </select></span>
         </div>
-        <div class="field">
+        <div class="field icon-field">
             <label>Invite them to</label>
-            <input type="text" readonly value="@(__next is null ? "No upcoming service found" : NextText())" />
+            <span class="if-wrap"><Icon Name="church" Size="18" Stroke="1.5" /><input type="text" readonly value="@(__next is null ? "No upcoming service found" : NextText())" /></span>
         </div>
-        <div class="field"><label>Your name (signature)</label><input type="text" maxlength="80" @bind="__yourName" /></div>
+        <div class="field icon-field"><label>Your name (signature)</label><span class="if-wrap"><Icon Name="user" Size="18" Stroke="1.5" /><input type="text" maxlength="80" @bind="__yourName" /></span></div>
     </div>
     @if (__next is null)
     {
@@ -33,7 +34,7 @@
 </div>
 
 <div class="card">
-    <h2>Messages</h2>
+    <h2><span class="h2-ico"><Icon Name="edit" Size="20" Stroke="1.6" /></span>Messages</h2>
     <p class="hint" style="margin-top:0">Use {name}, {date}, {next} and {sender}; they are filled in for each visitor.</p>
     <div class="field"><label>First visit</label><textarea rows="5" @bind="__firstTemplate" @bind:event="oninput"></textarea></div>
     <div class="field"><label>Returning (2nd visit)</label><textarea rows="5" @bind="__returnTemplate" @bind:event="oninput"></textarea></div>
@@ -41,7 +42,20 @@
 </div>
 
 <div class="card">
-    <h2>Visitors <span>@__rows.Count at this service</span></h2>
+    <h2><span class="h2-ico"><Icon Name="eye" Size="20" Stroke="1.6" /></span>Message Preview</h2>
+    <p class="hint ty-sub">This is how the message looks on WhatsApp for the first visitor in the list.</p>
+    @if (__rows.Count == 0)
+    {
+        <p class="empty">Nothing to preview yet.</p>
+    }
+    else
+    {
+        <div class="wa-bubble">@BuildMessage(__rows[0])<span class="wa-time">@AppClock.Today.ToString("h:mm tt")</span></div>
+    }
+</div>
+
+<div class="card">
+    <h2><span class="h2-ico"><Icon Name="users" Size="20" Stroke="1.6" /></span>Visitors <span>@__rows.Count at this service</span></h2>
     @if (__loading)
     {
         <p class="hint">Loading...</p>
@@ -52,33 +66,48 @@
     }
     else
     {
-        <table class="tbl">
-            <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Thanked</th><th></th></tr></thead>
+        <div class="mtable-wrap flat"><table class="mtable ty-table">
+            <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Thank-you</th><th></th></tr></thead>
             <tbody>
                 @foreach (var r in __rows)
                 {
                     <tr>
-                        <td>@r.Visitor.FullName</td>
-                        <td>@(string.IsNullOrWhiteSpace(r.Visitor.fstrPhoneNumber) ? "-" : r.Visitor.fstrPhoneNumber)</td>
-                        <td><span class="tag">@VisitLabel(r.Visits)</span></td>
-                        <td>
-                            @if (r.ThankedOn.HasValue) { <text>Thanked by @r.ThankedBy, @r.ThankedOn.Value.ToString("dd MMM yyyy")</text> }
+                        <td class="who"><span class="av" style="background:@AvatarStyle.Colour(r.Visitor.flngKey)">@AvatarStyle.Initials(r.Visitor.fstrFirstname, r.Visitor.fstrLastname)</span><span class="who-text"><b>@r.Visitor.FullName</b></span></td>
+                        <td data-label="Phone">@(string.IsNullOrWhiteSpace(r.Visitor.fstrPhoneNumber) ? "-" : r.Visitor.fstrPhoneNumber)</td>
+                        <td data-label="Status"><span class="chip @(r.Visits <= 1 ? "g" : "v")">@VisitLabel(r.Visits)</span></td>
+                        <td data-label="Thank-you">
+                            @if (r.Pending)
+                            {
+                                <span class="ty-ask">
+                                    <span class="ty-ask-q">Did it send?</span>
+                                    <span class="ty-ask-btns">
+                                        <button type="button" class="ty-yes" @onclick="() => ConfirmSentAsync(r)">Yes, sent</button>
+                                        <button type="button" class="ty-no" @onclick="() => MarkFailedAsync(r)">Didn't send</button>
+                                    </span>
+                                </span>
+                            }
+                            else if (r.FailedOn.HasValue)
+                            {
+                                <span class="ty-bad">&#10005; Not sent - call instead</span>
+                                <small class="ty-by">Marked @r.FailedOn.Value.ToString("dd MMM") by @r.FailedBy</small>
+                            }
+                            else if (r.ThankedOn.HasValue) { <span class="ty-ok">&#10003; Thanked by @r.ThankedBy, @r.ThankedOn.Value.ToString("dd MMM")</span> }
                             else { <text>-</text> }
                         </td>
                         <td>
                             @if (r.Link is null)
                             {
-                                <span class="hint">Can't send</span>
+                                <span class="btn-wa off"><Icon Name="message" Size="16" />Can't send</span>
                             }
                             else
                             {
-                                <a class="btn btn-primary btn-sm" href="@r.Link" target="_blank" rel="noopener" @onclick="() => MarkThankedAsync(r)">@(r.ThankedOn.HasValue ? "Send again" : "WhatsApp")</a>
+                                <a class="btn-wa @(r.Pending ? "ghost" : "")" href="@r.Link" target="_blank" rel="noopener" @onclick="() => r.Pending = true"><Icon Name="message" Size="16" />@(r.Pending ? "Open again" : r.FailedOn.HasValue ? "Try again" : r.ThankedOn.HasValue ? "Send again" : "WhatsApp")</a>
                             }
                         </td>
                     </tr>
                 }
             </tbody>
-        </table>
+        </table></div>
     }
 </div>
 
@@ -86,6 +115,9 @@
     #region Private Fields
 
     private readonly CancellationTokenSource __cts = new();
+
+    /// <summary>Raised after a thank-you is logged so the page summary can refresh.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
     private ToastMessageModel? __toast;
     private List<ServiceModel> __past = [], __all = [];
     private ServiceModel? __next;
@@ -108,6 +140,10 @@
         public string? Link { get; set; }
         public DateTime? ThankedOn { get; set; }
         public string? ThankedBy { get; set; }
+        /// <summary>WhatsApp was opened and we are waiting to hear whether the message went out.</summary>
+        public bool Pending { get; set; }
+        public DateTime? FailedOn { get; set; }
+        public string? FailedBy { get; set; }
     }
 
     #endregion
@@ -164,10 +200,10 @@
 
                 // A thank-you note for this service means they were already messaged
                 var notes = await NoteRepo.SelectVisitorNote(visitorKey: v.flngKey, cancellationToken: __cts.Token);
-                var sent = notes.Where(n => ThankYouNotes.IsFor(n.fstrNote, date))
-                                .OrderByDescending(n => n.fdtmNoteDate).FirstOrDefault();
-                row.ThankedOn = sent?.fdtmNoteDate;
-                row.ThankedBy = sent?.fstrWho;
+                // The newest note decides: a later "not sent" replaces an earlier "sent", and a later send replaces a failure
+                var latest = ThankYouNotes.Latest(notes, date);
+                if (latest is not null && ThankYouNotes.IsFailedFor(latest.fstrNote, date)) { row.FailedOn = latest.fdtmNoteDate; row.FailedBy = latest.fstrWho; }
+                else if (latest is not null) { row.ThankedOn = latest.fdtmNoteDate; row.ThankedBy = latest.fstrWho; }
                 __rows.Add(row);
             }
             __rows = __rows.OrderBy(r => r.Visitor.fstrFirstname).ToList();
@@ -215,7 +251,8 @@
     // Builds the links just before rendering so edits to the messages are always used
     protected override bool ShouldRender() { foreach (var r in __rows) { var n = Normalise(r.Visitor.fstrPhoneNumber); r.Link = n is null ? null : $"https://wa.me/{n}?text={Uri.EscapeDataString(BuildMessage(r))}"; } return true; }
 
-    private async Task MarkThankedAsync(Row r)
+    /// <summary>The person confirmed the message went out, so the thank-you is logged now.</summary>
+    private async Task ConfirmSentAsync(Row r)
     {
         var date = __past.First(s => s.flngKey == __serviceKey).fdtmServiceDate.Date;
         var note = new VisitorNoteModel
@@ -226,7 +263,32 @@
             fstrWho = AppConstants.Who
         };
         __toast = await NoteRepo.AddVisitorNote(note, __cts.Token);
-        if (__toast.IsSuccess) { r.ThankedOn = note.fdtmNoteDate; r.ThankedBy = note.fstrWho; }
+        if (__toast.IsSuccess)
+        {
+            r.Pending = false; r.FailedOn = null; r.FailedBy = null;
+            r.ThankedOn = note.fdtmNoteDate; r.ThankedBy = note.fstrWho;
+            await OnChanged.InvokeAsync();
+        }
+    }
+
+    /// <summary>The message did not go out (wrong number, not on WhatsApp...): flag the visitor for a call.</summary>
+    private async Task MarkFailedAsync(Row r)
+    {
+        var date = __past.First(s => s.flngKey == __serviceKey).fdtmServiceDate.Date;
+        var note = new VisitorNoteModel
+        {
+            flngVisitorKey = r.Visitor.flngKey,
+            fdtmNoteDate = AppClock.Now,
+            fstrNote = ThankYouNotes.FailedText(date),
+            fstrWho = AppConstants.Who
+        };
+        __toast = await NoteRepo.AddVisitorNote(note, __cts.Token);
+        if (__toast.IsSuccess)
+        {
+            r.Pending = false; r.ThankedOn = null; r.ThankedBy = null;
+            r.FailedOn = note.fdtmNoteDate; r.FailedBy = note.fstrWho;
+            await OnChanged.InvokeAsync();
+        }
     }
 
     #endregion

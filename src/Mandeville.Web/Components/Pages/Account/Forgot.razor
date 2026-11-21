@@ -1,0 +1,25 @@
+@page "/account/forgot"
+@layout AuthLayout
+@attribute [AllowAnonymous]
+@inject IConfiguration Configuration
+
+<PageTitle>Forgot password</PageTitle>
+
+<h1 class="auth-title">Forgot your password?</h1>
+<p class="auth-sub">Passwords are reset by your church administrator, who will give you a temporary one. You will be asked to choose your own when you sign in.</p>
+
+<div class="auth-note">
+    <span class="input-ico static" aria-hidden="true"><Icon Name="lock" Size="19" Stroke="1.5" /></span>
+    <div>
+        @if (!string.IsNullOrWhiteSpace(Configuration["Church:ContactEmail"]))
+        {
+            <span>Send your request to </span><a class="auth-link" href="mailto:@Configuration["Church:ContactEmail"]?subject=Password%20reset">@Configuration["Church:ContactEmail"]</a><span>.</span>
+        }
+        else
+        {
+            <span>Ask your pastor or church administrator to reset your password.</span>
+        }
+    </div>
+</div>
+
+<a class="auth-submit as-link" href="/account/signin"><span class="lbl"><Icon Name="arrowleft" Size="19" Stroke="1.5" /> Back to sign in</span></a>

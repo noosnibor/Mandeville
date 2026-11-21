@@ -1,0 +1,38 @@
+@* The team lead's workspace: pick the month, then Schedule, Availability, Contacts or Statistics. *@
+<div class="ev-month">
+    <button class="btn btn-sm" aria-label="Previous month" @onclick="() => Shift(-1)">&lsaquo;</button>
+    <b>@__month.ToString("MMMM yyyy")</b>
+    <button class="btn btn-sm" aria-label="Next month" @onclick="() => Shift(1)">&rsaquo;</button>
+</div>
+
+<div class="fin-bar ev-subtabs">
+    @foreach (var name in __tabs)
+    {
+        var t = name;
+        <button class="svc-pill @(__tab == t ? "on" : "")" @onclick="() => __tab = t">@t</button>
+    }
+</div>
+
+@switch (__tab)
+{
+    case "Schedule":
+        <EvangelismScheduleTab Month="__month" />
+        break;
+    case "Availability":
+        <EvangelismAvailabilityTab Month="__month" />
+        break;
+    case "Contacts":
+        <EvangelismContactsTab />
+        break;
+    default:
+        <EvangelismStatsTab Month="__month" />
+        break;
+}
+
+@code {
+    private readonly string[] __tabs = ["Schedule", "Availability", "Contacts", "Statistics"];
+    private string __tab = "Schedule";
+    private DateTime __month = EvangelismRules.MonthOf(AppClock.Today);
+
+    private void Shift(int months) => __month = __month.AddMonths(months);
+}

@@ -65,9 +65,13 @@ builder.Services.AddScoped<IReconciliationRepository, ReconciliationRepository>(
 builder.Services.AddScoped<IReconciliationItemRepository, ReconciliationItemRepository>();
 builder.Services.AddScoped<IEvangelismServiceRepository, EvangelismServiceRepository>();
 builder.Services.AddScoped<IEvangelismAssignmentRepository, EvangelismAssignmentRepository>();
+builder.Services.AddScoped<IEvangelismAvailabilityRepository, EvangelismAvailabilityRepository>();
+builder.Services.AddScoped<IEvangelismContactRepository, EvangelismContactRepository>();
+builder.Services.AddScoped<Mandeville.Web.Outreach.EvangelismMailer>();
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<ILookupValueRepository, LookupValueRepository>();
 builder.Services.AddScoped<Mandeville.Web.Dashboards.RoleStatsService>();
+builder.Services.AddScoped<Mandeville.Web.Dashboards.FollowUpBadge>();
 builder.Services.AddScoped<IMemberAttendanceRepository, MemberAttendanceRepository>();
 builder.Services.AddScoped<IAppUserRepository, AppUserRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();

@@ -3,7 +3,15 @@
 
 <PageTitle>Incoming members</PageTitle>
 
-<div class="mod">
-    <div class="mhead"><div><h1>Incoming members</h1><p>From the altar to Tier 1, Tier 2, the interview and inauguration.</p></div></div>
-    <IncomingMembersTab />
+<div class="mod wide">
+    <div class="mhead"><span class="mhead-ico"><Icon Name="userplus" Size="26" Stroke="1.5" /></span><div><h1>Incoming members</h1><p>From the altar to Tier 1, Tier 2, the interview and inauguration.</p></div></div>
+    <div class="with-side">
+        <div class="side-main"><IncomingMembersTab OnChanged="() => __panelKey++" /></div>
+        <aside><RoleSidePanel @key="__panelKey" Kind="incoming" /></aside>
+    </div>
 </div>
+
+@code {
+    /// <summary>Changes after every save so the summary is loaded again.</summary>
+    private int __panelKey;
+}

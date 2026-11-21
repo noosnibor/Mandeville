@@ -1,0 +1,562 @@
+﻿@* The team lead plans the month: which Saturdays, which areas, who leads, and who is scheduled. *@
+@using global::Mandeville.Web.Outreach
+@implements IDisposable
+@inject IEvangelismServiceRepository ServiceRepo
+@inject IEvangelismAssignmentRepository AssignmentRepo
+@inject IEvangelismAvailabilityRepository AvailabilityRepo
+@inject IMemberRepository MemberRepo
+@inject IDepartmentRepository DepartmentRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="kstrip card">
+    <div><b>@__sessions.Count</b><span>Sessions</span></div>
+    <div><b>@Spots</b><span>People needed</span></div>
+    <div class="on"><b>@Filled</b><span>Scheduled</span></div>
+    <div><b class="@(StillOpen > 0 ? "warn" : "")">@StillOpen</b><span>Spots still open</span></div>
+    <div><b class="@(Declined > 0 ? "warn" : "")">@Declined</b><span>Can't make it</span></div>
+</div>
+
+<div class="fin-bar">
+    <button class="btn btn-primary" @onclick="OpenQuick">Plan the month</button>
+    <button class="btn" @onclick="NewSession">+ Add a session</button>
+    <button class="btn" disabled="@__busy" @onclick="AutoScheduleAsync">Auto-schedule from availability</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(__autoNote))
+{
+    <div class="ev-note card"><Icon Name="info" Size="18" Stroke="1.6" /><div>@__autoNote</div><button class="ev-x" aria-label="Dismiss" @onclick="() => __autoNote = null">&times;</button></div>
+}
+
+@foreach (var day in Days)
+{
+    <div class="ev-day-head">
+        <div class="evg-date"><b>@day.Day</b><span>@day.ToString("MMM")</span></div>
+        <h3>@day.ToString("dddd d MMMM")</h3>
+    </div>
+    <div class="ev-sessions">
+        @foreach (var s in __sessions.Where(x => x.fdtmServiceDate.Date == day))
+        {
+            var session = s;
+            var people = PeopleOf(session);
+            var counted = people.Count(a => a.fstrStatus != EvangelismRules.Declined);
+            <div class="ev-sess card">
+                <div class="ev-sess-top">
+                    <span class="chip @AreaChip(session.fstrArea)">@EvangelismRules.ShortArea(session.fstrArea)</span>
+                    <b>@(string.IsNullOrWhiteSpace(session.fstrLocation) ? "No location yet" : session.fstrLocation)</b>
+                    <small>@TimeText(session)</small>
+                    <span class="ev-fill @(session.flngSlots > 0 && counted >= session.flngSlots ? "full" : "")">@counted of @session.flngSlots</span>
+                </div>
+                <div class="ev-lead">Team lead: <b>@(string.IsNullOrWhiteSpace(session.fstrLeadName) ? "not chosen yet" : session.fstrLeadName)</b>@(session.fblnResultsDone ? " - results saved" : "")</div>
+                <div class="ev-people">
+                    @foreach (var a in people)
+                    {
+                        var assignment = a;
+                        <span class="ev-pill st-@(assignment.fstrStatus.ToLowerInvariant())">
+                            @assignment.DisplayName
+                            @if (assignment.fstrRole == "Team lead") { <em>lead</em> }
+                            <i>@assignment.fstrStatus</i>
+                            @if (!session.fblnResultsDone) { <button type="button" class="ev-x" title="Remove from this session" @onclick="() => RemovePersonAsync(assignment)">&times;</button> }
+                        </span>
+                    }
+                    @if (people.Count == 0) { <span class="hint">No one scheduled yet.</span> }
+                </div>
+                <div class="ev-sess-act">
+                    <button class="btn btn-sm" @onclick="() => OpenAddPerson(session)">+ Add person</button>
+                    <button class="btn btn-sm" @onclick="() => EditSession(session)">Edit</button>
+                    <button class="btn btn-sm" @onclick="() => __results = session">@(session.fblnResultsDone ? "Results" : "Enter results")</button>
+                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteSessionAsync(session)">Delete</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+@if (__sessions.Count == 0)
+{
+    <div class="card"><p class="empty" style="margin:0">Nothing is planned for @Month.ToString("MMMM yyyy") yet. Choose "Plan the month" to add every Saturday at once.</p></div>
+}
+
+@* ---------- Plan the month ---------- *@
+@if (__quick)
+{
+    <Modal Title="Plan the month" Subtitle="@MonthLabel" Icon="calendar" OnClose="() => __quick = false">
+        <ChildContent>
+            <p class="hint" style="margin-top:0">Adds the same sessions on each Saturday you tick. Days and areas that already have a session are skipped. You can change any session afterwards.</p>
+            <div class="field"><label>Saturdays</label>
+                <div class="ev-opts">
+                    @foreach (var d in EvangelismRules.Saturdays(Month))
+                    {
+                        var day = d;
+                        <button type="button" class="ev-opt @(__quickDays.Contains(day) ? "on" : "")" @onclick="() => ToggleQuickDay(day)">@day.ToString("ddd d MMM")</button>
+                    }
+                </div>
+            </div>
+            <div class="field"><label>Areas and people needed (team lead included)</label>
+                @foreach (var area in EvangelismRules.Areas)
+                {
+                    var a = area;
+                    <div class="ev-quick-row">
+                        <label class="ev-na"><input type="checkbox" checked="@__quickAreas.Contains(a)" @onchange="e => ToggleQuickArea(a, e)" /><span>@a</span></label>
+                        <input type="number" min="1" max="30" class="ev-num" @bind="__quickSlots[a]" />
+                    </div>
+                }
+            </div>
+            <div class="form-grid">
+                <div class="field"><label>Start time</label><input type="time" @bind="__time" /></div>
+                <div class="field"><label>Street evangelism location</label><input type="text" maxlength="150" placeholder="Where the street team goes" @bind="__quickStreet" /></div>
+            </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" disabled="@__busy" @onclick="CreateMonthAsync">Create sessions</button>
+            <button class="btn" @onclick="() => __quick = false">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@* ---------- Add / edit one session ---------- *@
+@if (__edit is not null)
+{
+    <Modal Title="@(__isNew ? "Add a session" : "Edit session")" Subtitle="One group on one Saturday" Icon="mega" OnClose="() => __edit = null">
+        <ChildContent>
+            <div class="form-grid">
+                <div class="field"><label>Saturday</label><input type="date" @bind="__edit.fdtmServiceDate" /></div>
+                <div class="field"><label>Start time</label><input type="time" @bind="__time" /></div>
+                <div class="field"><label>Area</label>
+                    <select @bind="__edit.fstrArea">@foreach (var a in EvangelismRules.Areas) { <option value="@a">@a</option> }</select>
+                </div>
+                <div class="field"><label>Location</label><input type="text" maxlength="150" @bind="__edit.fstrLocation" /></div>
+                <div class="field"><label>People needed (team lead included)</label><input type="number" min="0" max="60" @bind="__edit.flngSlots" /></div>
+                <div class="field"><label>Team lead</label>
+                    <select @bind="__edit.flngLeadMemberKey">
+                        <option value="">-- not chosen yet --</option>
+                        @foreach (var m in __team) { <option value="@m.flngKey">@m.DisplayName</option> }
+                    </select>
+                </div>
+            </div>
+            <p class="hint">The team lead collects the numbers for the group and enters them after the session.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" disabled="@__busy" @onclick="SaveSessionAsync">Save</button>
+            <button class="btn" @onclick="() => __edit = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@* ---------- Add a person ---------- *@
+@if (__addTo is not null)
+{
+    <Modal Title="Add a person" Subtitle="@AddSubtitle" Icon="users" OnClose="() => __addTo = null">
+        <ChildContent>
+            <div class="field">
+                <label>Team member</label>
+                <select @bind="__addMember">
+                    <option value="">-- choose --</option>
+                    @foreach (var m in AddCandidates())
+                    {
+                        <option value="@m.flngKey">@(SaidYes(m.flngKey, __addTo) ? "✓ " : "")@m.DisplayName (@MonthCount(m.flngKey) this month)</option>
+                    }
+                </select>
+            </div>
+            <p class="hint">A tick means they said they can serve this area on this day. Nobody can be given more than @EvangelismRules.MaxPerMonth sessions in a month, or two on the same Saturday.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" disabled="@__busy" @onclick="AddPersonAsync">Add</button>
+            <button class="btn" @onclick="() => __addTo = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@if (__results is not null)
+{
+    <EvangelismResultsModal Session="__results" OnClose="() => __results = null" OnSaved="OnResultsSavedAsync" />
+}
+
+@code {
+    #region Parameters
+
+    /// <summary>Any date in the month being planned.</summary>
+    [Parameter] public DateTime Month { get; set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<EvangelismServiceModel> __sessions = [];
+    private List<EvangelismAssignmentModel> __assignments = [];
+    private List<EvangelismChoiceModel> __choices = [];
+    private List<MemberModel> __team = [];
+    private DateTime? __loadedMonth;
+    private ToastMessageModel? __toast;
+    private string? __autoNote;
+    private bool __busy;
+
+    private EvangelismServiceModel? __edit;
+    private bool __isNew;
+    private TimeOnly? __time = new TimeOnly(10, 0);
+
+    private EvangelismServiceModel? __addTo;
+    private Guid? __addMember;
+
+    private EvangelismServiceModel? __results;
+
+    private bool __quick;
+    private string __quickStreet = string.Empty;
+    private readonly HashSet<DateTime> __quickDays = [];
+    private readonly HashSet<string> __quickAreas = [.. EvangelismRules.Areas];
+    private readonly Dictionary<string, int> __quickSlots = EvangelismRules.Areas.ToDictionary(a => a, EvangelismRules.DefaultSlots);
+
+    #endregion
+
+    #region Numbers on screen
+
+    private IEnumerable<DateTime> Days => __sessions.Select(s => s.fdtmServiceDate.Date).Distinct().OrderBy(d => d);
+    private int Spots => __sessions.Sum(s => s.flngSlots);
+    private int Filled => __sessions.Sum(s => CountOf(s));
+    private int StillOpen => __sessions.Sum(s => Math.Max(0, s.flngSlots - CountOf(s)));
+    private int Declined => __assignments.Count(a => a.fstrStatus == EvangelismRules.Declined);
+
+    private int CountOf(EvangelismServiceModel s) => __assignments.Count(a => a.flngServiceKey == s.flngKey && a.fstrStatus != EvangelismRules.Declined);
+
+    private List<EvangelismAssignmentModel> PeopleOf(EvangelismServiceModel s) =>
+        __assignments.Where(a => a.flngServiceKey == s.flngKey)
+            .OrderBy(a => a.fstrRole == "Team lead" ? 0 : 1).ThenBy(a => a.fstrFirstname).ThenBy(a => a.fstrLastname).ToList();
+
+    private static string AreaChip(string area) => area switch { EvangelismRules.Street => "g", EvangelismRules.Tele => "v", _ => "w" };
+
+    private static string TimeText(EvangelismServiceModel s) => s.ftimStartTime.HasValue ? DateTime.Today.Add(s.ftimStartTime.Value).ToString("h:mm tt") : "";
+
+    private int MonthCount(Guid memberKey) => __assignments.Count(a => a.flngMemberKey == memberKey && a.fstrStatus != EvangelismRules.Declined);
+
+    private bool SaidYes(Guid memberKey, EvangelismServiceModel? s) =>
+        s is not null && __choices.Any(c => c.flngMemberKey == memberKey && c.fdtmDate.Date == s.fdtmServiceDate.Date && c.fstrArea == s.fstrArea);
+
+    private string MonthLabel => Month.ToString("MMMM yyyy");
+
+    private string AddSubtitle => __addTo is null ? "" : $"{__addTo.fstrArea} - {__addTo.fdtmServiceDate:ddd d MMM}";
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        var department = await OutreachTeam.DepartmentKeyAsync(DepartmentRepo, __cts.Token);
+        __team = await MemberRepo.SelectMember(membershipStatus: "Active", departmentKey: department, cancellationToken: __cts.Token);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var month = EvangelismRules.MonthOf(Month);
+        if (__loadedMonth == month) return;
+        __loadedMonth = month;
+        __quickDays.Clear();
+        foreach (var d in EvangelismRules.Saturdays(month)) __quickDays.Add(d);
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync()
+    {
+        var from = EvangelismRules.MonthOf(Month);
+        var to = from.AddMonths(1).AddDays(-1);
+        __sessions = await ServiceRepo.SelectEvangelismService(fromDate: from, toDate: to, cancellationToken: __cts.Token);
+        __assignments = await AssignmentRepo.SelectEvangelismAssignment(fromDate: from, toDate: to, cancellationToken: __cts.Token);
+        __choices = await AvailabilityRepo.SelectEvangelismChoice(month: from, cancellationToken: __cts.Token);
+    }
+
+    private async Task OnResultsSavedAsync()
+    {
+        __results = null;
+        await LoadAsync();
+    }
+
+    #endregion
+
+    #region Plan the month
+
+    private void OpenQuick() => __quick = true;
+
+    private void ToggleQuickDay(DateTime day)
+    {
+        if (!__quickDays.Remove(day)) __quickDays.Add(day);
+    }
+
+    private void ToggleQuickArea(string area, ChangeEventArgs e)
+    {
+        if (e.Value is true) __quickAreas.Add(area);
+        else __quickAreas.Remove(area);
+    }
+
+    private async Task CreateMonthAsync()
+    {
+        if (__quickDays.Count == 0 || __quickAreas.Count == 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Tick at least one Saturday and one area" };
+            return;
+        }
+
+        __busy = true;
+        try
+        {
+            var made = 0;
+            foreach (var day in __quickDays.OrderBy(d => d))
+                foreach (var area in EvangelismRules.Areas.Where(a => __quickAreas.Contains(a)))
+                {
+                    if (__sessions.Any(s => s.fdtmServiceDate.Date == day && s.fstrArea == area)) continue;
+
+                    var session = new EvangelismServiceModel
+                    {
+                        fdtmServiceDate = day,
+                        ftimStartTime = __time?.ToTimeSpan(),
+                        fstrArea = area,
+                        fstrLocation = area == EvangelismRules.Street && !string.IsNullOrWhiteSpace(__quickStreet) ? __quickStreet.Trim() : EvangelismRules.DefaultLocation(area),
+                        flngSlots = Math.Max(1, __quickSlots.GetValueOrDefault(area, EvangelismRules.DefaultSlots(area))),
+                        fstrWho = AppConstants.Who
+                    };
+                    var result = await ServiceRepo.AddOrUpdateEvangelismService(session, true, __cts.Token);
+                    if (!result.IsSuccess) { __toast = result; return; }
+                    made++;
+                }
+
+            __quick = false;
+            __toast = new() { ToastType = ToastTypeModel.Success, Message = made == 0 ? "Those sessions already exist" : $"{made} session(s) added" };
+            await LoadAsync();
+        }
+        finally
+        {
+            __busy = false;
+        }
+    }
+
+    #endregion
+
+    #region One session
+
+    private void NewSession()
+    {
+        var saturday = EvangelismRules.Saturdays(Month).FirstOrDefault(d => d >= AppClock.Today);
+        __edit = new EvangelismServiceModel
+        {
+            fdtmServiceDate = saturday == default ? EvangelismRules.MonthOf(Month) : saturday,
+            fstrArea = EvangelismRules.Street,
+            flngSlots = EvangelismRules.DefaultSlots(EvangelismRules.Street)
+        };
+        __time = new TimeOnly(10, 0);
+        __isNew = true;
+    }
+
+    private void EditSession(EvangelismServiceModel s)
+    {
+        __edit = s.Copy();
+        __time = s.ftimStartTime.HasValue ? TimeOnly.FromTimeSpan(s.ftimStartTime.Value) : null;
+        __isNew = false;
+    }
+
+    private async Task SaveSessionAsync()
+    {
+        if (__edit is null) return;
+        if (string.IsNullOrWhiteSpace(__edit.fstrArea)) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Choose an area" }; return; }
+
+        __busy = true;
+        try
+        {
+            __edit.ftimStartTime = __time?.ToTimeSpan();
+            __edit.fstrWho = AppConstants.Who;
+            var result = await ServiceRepo.AddOrUpdateEvangelismService(__edit, __isNew, __cts.Token);
+            if (!result.IsSuccess) { __toast = result; return; }
+
+            await EnsureLeadAsync(__edit);
+            __toast = result;
+            __edit = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            __busy = false;
+        }
+    }
+
+    /// <summary>The team lead is also on the session's list, with the Team lead role. A lead who was replaced goes back to the area's usual role.</summary>
+    private async Task EnsureLeadAsync(EvangelismServiceModel session)
+    {
+        var existing = await AssignmentRepo.SelectEvangelismAssignment(serviceKey: session.flngKey, cancellationToken: __cts.Token);
+
+        foreach (var a in existing.Where(a => a.fstrRole == "Team lead" && a.flngMemberKey != session.flngLeadMemberKey))
+        {
+            var back = a.Copy();
+            back.fstrRole = EvangelismRules.RoleFor(session.fstrArea);
+            back.fstrWho = AppConstants.Who;
+            await AssignmentRepo.AddOrUpdateEvangelismAssignment(back, false, __cts.Token);
+        }
+
+        if (session.flngLeadMemberKey is not { } leadKey) return;
+        var lead = __team.FirstOrDefault(m => m.flngKey == leadKey);
+        if (lead is null) return;
+
+        var mine = existing.FirstOrDefault(a => a.flngMemberKey == leadKey);
+        if (mine is null)
+        {
+            await AssignmentRepo.AddOrUpdateEvangelismAssignment(NewAssignment(session, lead, "Team lead", EvangelismRules.Confirmed), true, __cts.Token);
+        }
+        else if (mine.fstrRole != "Team lead" || mine.fstrStatus == EvangelismRules.Declined)
+        {
+            var up = mine.Copy();
+            up.fstrRole = "Team lead";
+            if (up.fstrStatus == EvangelismRules.Declined) up.fstrStatus = EvangelismRules.Confirmed;
+            up.fstrWho = AppConstants.Who;
+            await AssignmentRepo.AddOrUpdateEvangelismAssignment(up, false, __cts.Token);
+        }
+    }
+
+    private static EvangelismAssignmentModel NewAssignment(EvangelismServiceModel session, MemberModel member, string role, string status) => new()
+    {
+        flngServiceKey = session.flngKey,
+        flngMemberKey = member.flngKey,
+        fstrTitle = member.fstrTitle,
+        fstrFirstname = member.fstrFirstname,
+        fstrLastname = member.fstrLastname,
+        fstrEmailAddress = member.fstrEmailAddress,
+        fstrSchedule = session.fstrArea,
+        fstrAssignment = session.fstrLocation,
+        fstrRole = role,
+        fstrStatus = status,
+        fstrWho = AppConstants.Who
+    };
+
+    private async Task DeleteSessionAsync(EvangelismServiceModel s)
+    {
+        __toast = await ServiceRepo.DeleteEvangelismService(s.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await LoadAsync();
+    }
+
+    #endregion
+
+    #region People on a session
+
+    private void OpenAddPerson(EvangelismServiceModel s)
+    {
+        __addTo = s;
+        __addMember = null;
+    }
+
+    private IEnumerable<MemberModel> AddCandidates()
+    {
+        if (__addTo is null) return [];
+        var onIt = __assignments.Where(a => a.flngServiceKey == __addTo.flngKey && a.fstrStatus != EvangelismRules.Declined)
+            .Select(a => a.flngMemberKey).ToHashSet();
+        return __team.Where(m => !onIt.Contains(m.flngKey))
+            .OrderByDescending(m => SaidYes(m.flngKey, __addTo)).ThenBy(m => m.fstrFirstname).ThenBy(m => m.fstrLastname);
+    }
+
+    private async Task AddPersonAsync()
+    {
+        if (__addTo is null || __addMember is not { } memberKey) { __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Choose a team member" }; return; }
+        var member = __team.FirstOrDefault(m => m.flngKey == memberKey);
+        if (member is null) return;
+
+        if (MonthCount(memberKey) >= EvangelismRules.MaxPerMonth)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = $"{member.DisplayName} already has {EvangelismRules.MaxPerMonth} sessions this month" };
+            return;
+        }
+        var date = __addTo.fdtmServiceDate.Date;
+        if (__assignments.Any(a => a.flngMemberKey == memberKey && a.fstrStatus != EvangelismRules.Declined && a.fdtmSessionDate.Date == date))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = $"{member.DisplayName} is already on another session that Saturday" };
+            return;
+        }
+
+        __busy = true;
+        try
+        {
+            var result = await AssignmentRepo.AddOrUpdateEvangelismAssignment(NewAssignment(__addTo, member, EvangelismRules.RoleFor(__addTo.fstrArea), EvangelismRules.Scheduled), true, __cts.Token);
+            __toast = result;
+            if (!result.IsSuccess) return;
+            __addTo = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            __busy = false;
+        }
+    }
+
+    private async Task RemovePersonAsync(EvangelismAssignmentModel a)
+    {
+        __toast = await AssignmentRepo.DeleteEvangelismAssignment(a.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await LoadAsync();
+    }
+
+    #endregion
+
+    #region Auto-schedule
+
+    /// <summary>
+    /// Fills the open spots from what the team said they can do. Safe to run again: it only adds people to spots that are still open
+    /// (for example after someone says they can't make it).
+    /// </summary>
+    private async Task AutoScheduleAsync()
+    {
+        __busy = true;
+        try
+        {
+            await LoadAsync();
+            if (__choices.Count == 0)
+            {
+                __toast = new() { ToastType = ToastTypeModel.Warning, Message = "No one has said they are available yet. Send the invites on the Availability tab first." };
+                return;
+            }
+
+            var today = AppClock.Today;
+            var needs = __sessions.Select(s =>
+            {
+                var members = __assignments.Where(a => a.flngServiceKey == s.flngKey && a.fstrStatus != EvangelismRules.Declined && a.flngMemberKey.HasValue)
+                    .Select(a => a.flngMemberKey!.Value).ToHashSet();
+                // Sessions that are over (or already have results) only count toward each person's total: they take nobody new
+                var closed = s.fblnResultsDone || s.fdtmServiceDate.Date < today;
+                return new EvangelismScheduler.SessionNeed
+                {
+                    Key = s.flngKey, Date = s.fdtmServiceDate.Date, Area = s.fstrArea,
+                    Capacity = closed ? members.Count : Math.Max(s.flngSlots, members.Count),
+                    Members = members
+                };
+            }).ToList();
+
+            var available = __choices.GroupBy(c => c.flngMemberKey)
+                .ToDictionary(g => g.Key, g => g.Select(c => (c.fdtmDate.Date, c.fstrArea)).ToHashSet());
+
+            var plan = EvangelismScheduler.Plan(needs, available);
+
+            var added = 0;
+            foreach (var pick in plan.Picks)
+            {
+                var session = __sessions.First(s => s.flngKey == pick.SessionKey);
+                var member = __team.FirstOrDefault(m => m.flngKey == pick.MemberKey);
+                if (member is null) continue;
+                var result = await AssignmentRepo.AddOrUpdateEvangelismAssignment(NewAssignment(session, member, EvangelismRules.RoleFor(session.fstrArea), EvangelismRules.Scheduled), true, __cts.Token);
+                if (!result.IsSuccess) { __toast = result; break; }
+                added++;
+            }
+
+            var left = __team.Where(m => plan.Unplaced.Contains(m.flngKey)).Select(m => m.DisplayName).OrderBy(n => n).ToList();
+            var parts = new List<string> { added == 0 ? "No one new could be added." : $"{added} people were scheduled." };
+            if (plan.StillOpen.Count > 0) parts.Add($"{plan.StillOpen.Values.Sum()} spots are still open because not enough people said yes to them.");
+            if (left.Count > 0) parts.Add("Could not be placed (their Saturdays are full): " + string.Join(", ", left) + ".");
+            __autoNote = string.Join(" ", parts);
+
+            await LoadAsync();
+        }
+        finally
+        {
+            __busy = false;
+        }
+    }
+
+    #endregion
+}

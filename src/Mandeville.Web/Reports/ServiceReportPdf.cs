@@ -130,8 +130,39 @@ public static class ServiceReportPdf
                         });
                     });
 
-                    // 3. Finance
-                    col.Item().PaddingTop(8).Element(c => Heading(c, "4. Financial overview"));
+                    if (r.MembersByTitle.Count > 0)
+                        col.Item().PaddingTop(4).Element(x => Line_(x, "Active members by title", string.Join("  |  ", r.MembersByTitle.Select(t => $"{t.Title} {t.Count}"))));
+
+                    // 4. Evangelism (numbers only)
+                    if (r.HasEvangelism)
+                    {
+                        col.Item().PaddingTop(8).Element(c => Heading(c, "4. Evangelism"));
+                        col.Item().Row(row =>
+                        {
+                            row.RelativeItem().PaddingRight(12).Column(c =>
+                            {
+                                c.Item().Element(x => Line_(x, "Last Saturday: sessions held", r.EvangelismSaturday.Sessions.ToString(), bold: true));
+                                c.Item().Element(x => Line_(x, "Present of scheduled", $"{r.EvangelismSaturday.Present} of {r.EvangelismSaturday.Scheduled} ({r.EvangelismSaturday.TurnUpPercent}%)"));
+                                c.Item().Element(x => Line_(x, "Flyers handed out", r.EvangelismSaturday.Flyers.ToString()));
+                                c.Item().Element(x => Line_(x, "Persons ministered to", r.EvangelismSaturday.Ministered.ToString()));
+                                c.Item().Element(x => Line_(x, "New contacts", r.EvangelismSaturday.NewContacts.ToString()));
+                                c.Item().Element(x => Line_(x, "Calls made / reached", $"{r.EvangelismSaturday.Calls} / {r.EvangelismSaturday.Reached}"));
+                            });
+                            row.RelativeItem().PaddingLeft(12).Column(c =>
+                            {
+                                c.Item().Element(x => Line_(x, $"{r.FinanceMonth} to date: sessions held", r.EvangelismMonth.Sessions.ToString(), bold: true));
+                                c.Item().Element(x => Line_(x, "Present of scheduled", $"{r.EvangelismMonth.Present} of {r.EvangelismMonth.Scheduled} ({r.EvangelismMonth.TurnUpPercent}%)"));
+                                c.Item().Element(x => Line_(x, "Flyers handed out", r.EvangelismMonth.Flyers.ToString()));
+                                c.Item().Element(x => Line_(x, "Persons ministered to", r.EvangelismMonth.Ministered.ToString()));
+                                c.Item().Element(x => Line_(x, "New contacts", r.EvangelismMonth.NewContacts.ToString()));
+                                c.Item().Element(x => Line_(x, "Calls made / reached", $"{r.EvangelismMonth.Calls} / {r.EvangelismMonth.Reached}"));
+                            });
+                        });
+                        col.Item().Element(x => Line_(x, "Contacts: being followed up / connected / unreachable", $"{r.ContactsActive} / {r.ContactsConnected} / {r.ContactsUnreachable}"));
+                    }
+
+                    // 5. Finance
+                    col.Item().PaddingTop(8).Element(c => Heading(c, r.HasEvangelism ? "5. Financial overview" : "4. Financial overview"));
                     col.Item().Element(x => Line_(x, $"Dues collected ({r.FinanceMonth} to date)", Money(r.DuesCollected)));
                     col.Item().Element(x => Line_(x, $"Other collections ({r.FinanceMonth} to date)", Money(r.OtherCollected)));
                     col.Item().Element(x => Line_(x, "Total collected", Money(r.TotalCollected), bold: true));

@@ -74,6 +74,27 @@ public class ServiceReport
     public int OverdueForContact { get; set; }
     public int FlaggedForMinister { get; set; }
 
+    /// <summary>Active members grouped by title (numbers only). Members without a title are counted under "No title".</summary>
+    public List<(string Title, int Count)> MembersByTitle { get; set; } = [];
+
+    #endregion
+
+    #region Evangelism (numbers only, never names)
+
+    /// <summary>True when any outreach session was planned in the month to date, so empty sections can be left out.</summary>
+    public bool HasEvangelism => EvangelismSaturday.Sessions > 0 || EvangelismMonth.Sessions > 0;
+
+    /// <summary>The week up to and including the service date.</summary>
+    public EvangelismNumbers EvangelismSaturday { get; set; } = new();
+
+    /// <summary>The first of the month up to the service date.</summary>
+    public EvangelismNumbers EvangelismMonth { get; set; } = new();
+
+    /// <summary>People met on the street who are still being followed up.</summary>
+    public int ContactsActive { get; set; }
+    public int ContactsConnected { get; set; }
+    public int ContactsUnreachable { get; set; }
+
     #endregion
 
     #region Finance
@@ -89,4 +110,19 @@ public class ServiceReport
     #endregion
 
     public string FileName => $"Service Report {ServiceDate:yyyy-MM-dd}.pdf";
+}
+
+/// <summary>Totals for a stretch of outreach sessions.</summary>
+public class EvangelismNumbers
+{
+    public int Sessions { get; set; }
+    public int Scheduled { get; set; }
+    public int Present { get; set; }
+    public int Flyers { get; set; }
+    public int Ministered { get; set; }
+    public int NewContacts { get; set; }
+    public int Calls { get; set; }
+    public int Reached { get; set; }
+
+    public int TurnUpPercent => Scheduled == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * Present / Scheduled));
 }

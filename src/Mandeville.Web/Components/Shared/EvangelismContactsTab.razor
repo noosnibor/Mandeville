@@ -1,0 +1,393 @@
+@* People met on the street who asked for a call. Tele members log their calls here; names stay in the app and never reach the report. *@
+@using global::Mandeville.Web.Outreach
+@implements IDisposable
+@inject IEvangelismContactRepository ContactRepo
+@inject IEvangelismAssignmentRepository AssignmentRepo
+@inject IMemberRepository MemberRepo
+@inject IDepartmentRepository DepartmentRepo
+
+<ToastBar Toast="__toast" />
+
+<div class="kstrip card">
+    <div><b>@__all.Count(c => c.fstrStatus != EvangelismRules.ContactUnreachable)</b><span>Active contacts</span></div>
+    <div><b class="@(Waiting > 0 ? "warn" : "")">@Waiting</b><span>Waiting for a call</span></div>
+    <div class="on"><b>@__all.Count(c => c.fstrStatus == EvangelismRules.ContactConnected)</b><span>Connected</span></div>
+    <div><b>@__all.Count(c => c.fstrStatus == EvangelismRules.ContactUnreachable)</b><span>Unreachable</span></div>
+</div>
+
+<div class="fin-bar">
+    <input class="ev-search" placeholder="Search name, phone or need" @bind="__search" @bind:event="oninput" />
+    <select class="ev-filter" @bind="__filter">
+        <option value="">Active contacts</option>
+        @foreach (var s in EvangelismRules.ContactStatuses) { <option value="@s">@s</option> }
+    </select>
+    @if (IsLead)
+    {
+        <button class="btn btn-primary" style="margin-left:auto" @onclick="NewContact">+ Add contact</button>
+    }
+</div>
+
+@if (IsLead && Shown.Any(c => c.flngCallerKey is null && c.fstrStatus != EvangelismRules.ContactUnreachable))
+{
+    <div class="ev-note card">
+        <Icon Name="info" Size="18" Stroke="1.6" />
+        <div>
+            <b>@Shown.Count(c => c.flngCallerKey is null && c.fstrStatus != EvangelismRules.ContactUnreachable) contact(s) have no caller.</b>
+            <select @bind="__bulkCaller" style="margin:0 .4rem">
+                <option value="">Choose a caller</option>
+                @foreach (var m in __team) { <option value="@m.flngKey">@m.DisplayName</option> }
+            </select>
+            <button class="btn btn-sm btn-primary" disabled="@(__bulkCaller == "" || __busy)" @onclick="AssignAllAsync">Give them to this caller</button>
+        </div>
+    </div>
+}
+
+<div class="fin-list card">
+    @foreach (var c in Shown)
+    {
+        var contact = c;
+        <div class="fin-row">
+            <div class="care-av sm" style="background:@AvatarStyle.Colour(contact.flngKey)">@AvatarStyle.Initials(contact.fstrFirstname, contact.fstrLastname)</div>
+            <div class="fin-nm">
+                <b>@contact.FullName</b>
+                <small>@Line(contact)</small>
+            </div>
+            <span class="chip fin-type @StatusChip(contact)">@contact.fstrStatus</span>
+            <div class="fin-act ev-acts">
+                @if (!string.IsNullOrWhiteSpace(contact.fstrPhoneNumber) && contact.fstrStatus != EvangelismRules.ContactUnreachable)
+                {
+                    <a class="btn btn-sm" href="@TelLink(contact)">Call</a>
+                }
+                @if (contact.fstrStatus != EvangelismRules.ContactUnreachable)
+                {
+                    <button class="btn btn-sm btn-primary" @onclick="() => OpenCall(contact)">Log call</button>
+                }
+                <button class="btn btn-sm" @onclick="() => OpenHistoryAsync(contact)">History</button>
+                @if (IsLead)
+                {
+                    <button class="btn btn-sm" @onclick="() => EditContact(contact)">Edit</button>
+                }
+            </div>
+        </div>
+    }
+    @if (!Shown.Any()) { <p class="empty" style="margin:0">@(IsLead ? "No contacts yet. Add the people met on the street, or enter them in the session results." : "You have no contacts to call right now.")</p> }
+</div>
+<p class="hint">After @EvangelismRules.MaxFailedCalls calls with no answer, or a wrong number, a contact becomes Unreachable and drops off the calling list. @EvangelismRules.KeepUnreachableDays days later the name and number are erased and only the count is kept.</p>
+
+@if (__edit is not null)
+{
+    <Modal Title="@(__editNew ? "Add contact" : "Edit contact")" Subtitle="Person met on the street" Icon="phone" OnClose="() => __edit = null">
+        <ChildContent>
+            <div class="form-grid">
+                <div class="field"><label>First name</label><input type="text" @bind="__edit.fstrFirstname" /></div>
+                <div class="field"><label>Last name</label><input type="text" @bind="__edit.fstrLastname" /></div>
+                <div class="field"><label>Phone</label><input type="tel" @bind="__edit.fstrPhoneNumber" /></div>
+                <div class="field"><label>Date met</label><input type="date" @bind="__edit.fdtmMet" /></div>
+                <div class="field"><label>Caller</label>
+                    <select @bind="__editCaller">
+                        <option value="">Not assigned</option>
+                        @foreach (var m in __team) { <option value="@m.flngKey">@m.DisplayName</option> }
+                    </select>
+                </div>
+                <div class="field"><label>Status</label>
+                    <select @bind="__edit.fstrStatus">
+                        @foreach (var s in EvangelismRules.ContactStatuses) { <option value="@s">@s</option> }
+                    </select>
+                </div>
+            </div>
+            <div class="field"><label>What do they need?</label><SuggestBox @bind-Value="__edit.fstrNeed" Suggestions="FixedLists.Needs" Placeholder="Type or pick: prayer, a visit..." /></div>
+            <div class="field"><label>Notes</label><textarea rows="2" @bind="__edit.fstrNotes"></textarea></div>
+            <label class="check ev-consent"><input type="checkbox" @bind="__edit.fblnConsent" /><span>They agreed to be contacted</span></label>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" disabled="@__busy" @onclick="SaveContactAsync">Save</button>
+            @if (!__editNew) { <button class="btn btn-danger" disabled="@__busy" @onclick="DeleteContactAsync">Delete</button> }
+            <button class="btn" @onclick="() => __edit = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@if (__call is not null)
+{
+    <Modal Title="@("Call " + __call.FullName)" Subtitle="@__call.fstrPhoneNumber" Icon="phone" OnClose="() => __call = null">
+        <ChildContent>
+            <div class="ev-seg-row">
+                @foreach (var o in EvangelismRules.Outcomes)
+                {
+                    var outcome = o;
+                    <button class="ev-opt @(__outcome == outcome ? "on" : "")" @onclick="() => __outcome = outcome">@outcome</button>
+                }
+            </div>
+            @if (!__call.fblnConsent)
+            {
+                <p class="hint" style="color:var(--warn-ink)">No consent to be contacted is recorded for this person. Please check with the team lead before calling.</p>
+            }
+            @if (__outcome == EvangelismRules.WrongNumber)
+            {
+                <p class="hint">A wrong number makes the contact Unreachable straight away.</p>
+            }
+            <div class="field"><label>Note (optional)</label><textarea rows="2" @bind="__note"></textarea></div>
+            @if (!IsLead && __ownKey is null)
+            {
+                <p class="hint">Your member record could not be found, so the call is saved without your name.</p>
+            }
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary" disabled="@__busy" @onclick="SaveCallAsync">Save call</button>
+            <button class="btn" @onclick="() => __call = null">Cancel</button>
+        </Footer>
+    </Modal>
+}
+
+@if (__history is not null)
+{
+    <Modal Title="@("Calls to " + __history.FullName)" Subtitle="@__history.fstrPhoneNumber" Icon="phone" OnClose="() => __history = null">
+        <ChildContent>
+            @foreach (var a in __attempts)
+            {
+                <div class="ev-hist"><b>@a.fstrOutcome</b> <span>@a.fdtmWhen.ToString("ddd d MMM, h:mm tt")@(string.IsNullOrWhiteSpace(a.fstrMemberName) ? "" : " - " + a.fstrMemberName)</span>@if (!string.IsNullOrWhiteSpace(a.fstrNote)) { <small>@a.fstrNote</small> }</div>
+            }
+            @if (__attempts.Count == 0) { <p class="empty">No calls logged yet.</p> }
+        </ChildContent>
+        <Footer><button class="btn" @onclick="() => __history = null">Close</button></Footer>
+    </Modal>
+}
+
+@code {
+    #region Parameters
+
+    /// <summary>The signed-in member's key when this is the "My assignments" view: only their own contacts are shown.</summary>
+    [Parameter] public Guid? OwnMemberKey { get; set; }
+
+    /// <summary>Raised after a call is logged so a parent can refresh its totals.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    #endregion
+
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<EvangelismContactModel> __all = [];
+    private List<MemberModel> __team = [];
+    private string __search = "";
+    private string __filter = "";
+    private string __bulkCaller = "";
+    private bool __busy;
+    private ToastMessageModel? __toast;
+
+    private EvangelismContactModel? __edit;
+    private bool __editNew;
+    private string __editCaller
+    {
+        get => __edit?.flngCallerKey?.ToString() ?? "";
+        set { if (__edit is not null) __edit.flngCallerKey = Guid.TryParse(value, out var g) ? g : null; }
+    }
+
+    private EvangelismContactModel? __call;
+    private string __outcome = EvangelismRules.Reached;
+    private string? __note;
+    private Guid? __ownKey;
+
+    private EvangelismContactModel? __history;
+    private List<EvangelismAttemptModel> __attempts = [];
+
+    #endregion
+
+    #region Display helpers
+
+    private bool IsLead => OwnMemberKey is null;
+    private int Waiting => __all.Count(c => c.fstrStatus is EvangelismRules.ContactNew or EvangelismRules.ContactAssigned or EvangelismRules.ContactFollowUp);
+
+    private IEnumerable<EvangelismContactModel> Shown
+    {
+        get
+        {
+            var q = __all.AsEnumerable();
+            q = string.IsNullOrEmpty(__filter) ? q.Where(c => c.fstrStatus != EvangelismRules.ContactUnreachable) : q.Where(c => c.fstrStatus == __filter);
+            if (!string.IsNullOrWhiteSpace(__search))
+            {
+                var s = __search.Trim();
+                q = q.Where(c => c.FullName.Contains(s, StringComparison.OrdinalIgnoreCase)
+                    || (c.fstrPhoneNumber ?? "").Contains(s, StringComparison.OrdinalIgnoreCase)
+                    || (c.fstrNeed ?? "").Contains(s, StringComparison.OrdinalIgnoreCase));
+            }
+            return q.OrderBy(c => c.fstrStatus == EvangelismRules.ContactUnreachable ? 1 : 0).ThenByDescending(c => c.fdtmMet);
+        }
+    }
+
+    private static string Line(EvangelismContactModel c)
+    {
+        var parts = new List<string>();
+        if (c.fblnPurged) { parts.Add("Details erased"); return string.Join(" - ", parts); }
+        if (!string.IsNullOrWhiteSpace(c.fstrPhoneNumber)) parts.Add(c.fstrPhoneNumber);
+        if (!string.IsNullOrWhiteSpace(c.fstrNeed)) parts.Add(c.fstrNeed);
+        parts.Add("met " + c.fdtmMet.ToString("d MMM"));
+        parts.Add(string.IsNullOrWhiteSpace(c.fstrCallerName) ? "no caller yet" : "caller " + c.fstrCallerName);
+        if (c.flngAttempts > 0) parts.Add(c.flngAttempts + " call(s)");
+        parts.Add(c.fblnConsent ? "agreed to be contacted" : "no consent recorded");
+        return string.Join(" - ", parts);
+    }
+
+    private static string StatusChip(EvangelismContactModel c) => c.fstrStatus switch
+    {
+        EvangelismRules.ContactConnected => "g",
+        EvangelismRules.ContactUnreachable => "",
+        EvangelismRules.ContactContacted => "v",
+        _ => "w"
+    };
+
+    private static string TelLink(EvangelismContactModel c) => "tel:" + new string((c.fstrPhoneNumber ?? "").Where(ch => char.IsDigit(ch) || ch == '+').ToArray());
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Contacts past their keep-until date lose their personal details before anything is shown
+        await ContactRepo.PurgeEvangelismContacts(__cts.Token);
+        if (IsLead)
+        {
+            var department = await OutreachTeam.DepartmentKeyAsync(DepartmentRepo, __cts.Token);
+            __team = await MemberRepo.SelectMember(membershipStatus: "Active", departmentKey: department, cancellationToken: __cts.Token);
+        }
+        else
+        {
+            __ownKey = OwnMemberKey;
+        }
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    private async Task LoadAsync() =>
+        __all = await ContactRepo.SelectEvangelismContact(callerKey: OwnMemberKey, cancellationToken: __cts.Token);
+
+    #endregion
+
+    #region Add, edit and assign
+
+    private void NewContact()
+    {
+        __edit = new EvangelismContactModel { fdtmMet = AppClock.Today, fstrWho = AppConstants.Who };
+        __editNew = true;
+    }
+
+    private void EditContact(EvangelismContactModel c)
+    {
+        __edit = c.Copy();
+        __edit.fstrWho = AppConstants.Who;
+        __editNew = false;
+    }
+
+    private async Task SaveContactAsync()
+    {
+        if (__edit is null) return;
+        __busy = true;
+        try
+        {
+            // Giving a new contact a caller moves it out of "New"
+            if (__edit.flngCallerKey.HasValue && __edit.fstrStatus == EvangelismRules.ContactNew) __edit.fstrStatus = EvangelismRules.ContactAssigned;
+            __toast = await ContactRepo.AddOrUpdateEvangelismContact(__edit, __editNew, __cts.Token);
+            if (!__toast.IsSuccess) return;
+            __edit = null;
+            await LoadAsync();
+        }
+        finally { __busy = false; }
+    }
+
+    private async Task DeleteContactAsync()
+    {
+        if (__edit is null) return;
+        __busy = true;
+        try
+        {
+            __toast = await ContactRepo.DeleteEvangelismContact(__edit.flngKey, AppConstants.Who, __cts.Token);
+            if (!__toast.IsSuccess) return;
+            __edit = null;
+            await LoadAsync();
+        }
+        finally { __busy = false; }
+    }
+
+    private async Task AssignAllAsync()
+    {
+        if (!Guid.TryParse(__bulkCaller, out var caller)) return;
+        __busy = true;
+        try
+        {
+            var count = 0;
+            foreach (var c in Shown.Where(c => c.flngCallerKey is null && c.fstrStatus != EvangelismRules.ContactUnreachable).ToList())
+            {
+                var up = c.Copy();
+                up.flngCallerKey = caller;
+                if (up.fstrStatus == EvangelismRules.ContactNew) up.fstrStatus = EvangelismRules.ContactAssigned;
+                up.fstrWho = AppConstants.Who;
+                var result = await ContactRepo.AddOrUpdateEvangelismContact(up, false, __cts.Token);
+                if (result.IsSuccess) count++;
+            }
+            __bulkCaller = "";
+            __toast = new() { ToastType = ToastTypeModel.Success, Message = $"{count} contact(s) assigned" };
+            await LoadAsync();
+        }
+        finally { __busy = false; }
+    }
+
+    #endregion
+
+    #region Calls
+
+    private void OpenCall(EvangelismContactModel c)
+    {
+        __call = c;
+        __outcome = EvangelismRules.Reached;
+        __note = null;
+    }
+
+    /// <summary>A call belongs to the caller's Tele session of the last 7 days, so the session statistics can count it.</summary>
+    private async Task<Guid?> RecentTeleSessionAsync(Guid memberKey)
+    {
+        var today = AppClock.Today;
+        var mine = await AssignmentRepo.SelectEvangelismAssignment(memberKey: memberKey, fromDate: today.AddDays(-7), toDate: today, cancellationToken: __cts.Token);
+        return mine.Where(a => a.fstrSessionArea == EvangelismRules.Tele && a.fstrStatus != EvangelismRules.Declined)
+            .OrderByDescending(a => a.fdtmSessionDate).Select(a => (Guid?)a.flngServiceKey).FirstOrDefault();
+    }
+
+    private async Task SaveCallAsync()
+    {
+        if (__call is null) return;
+        __busy = true;
+        try
+        {
+            var caller = __ownKey ?? __call.flngCallerKey;
+            var attempt = new EvangelismAttemptModel
+            {
+                flngContactKey = __call.flngKey,
+                flngMemberKey = caller,
+                flngSessionKey = caller.HasValue ? await RecentTeleSessionAsync(caller.Value) : null,
+                fstrOutcome = __outcome,
+                fstrNote = __note,
+                fstrWho = AppConstants.Who
+            };
+            __toast = await ContactRepo.AddEvangelismAttempt(attempt, __cts.Token);
+            if (!__toast.IsSuccess) return;
+
+            __call = null;
+            await LoadAsync();
+            await OnChanged.InvokeAsync();
+        }
+        finally { __busy = false; }
+    }
+
+    private async Task OpenHistoryAsync(EvangelismContactModel c)
+    {
+        __attempts = await ContactRepo.SelectEvangelismAttempt(c.flngKey, __cts.Token);
+        __history = c;
+    }
+
+    #endregion
+}

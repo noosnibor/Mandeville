@@ -50,7 +50,18 @@ public partial class VisitorRepository
             __dataAccess.QueryAsync<ConnectWorkloadModel>("mandeville.sp_SelectConnectWorkload", CommandType.StoredProcedure, parameters),
             cancellationToken);
 
-        return AsSafeList(result);
+        var workload = AsSafeList(result);
+
+        // Only people still being followed up as visitors count. Once someone is staged as an incoming member
+        // (or becomes a member) they leave the connector's workload, so the count starts again from zero.
+        var open = (await SelectVisitor(cancellationToken: cancellationToken))
+            .Where(v => v.flngFollowUpMemberKey is not null && v.fstrStatus is "Visitor" or "Regular Visitor")
+            .GroupBy(v => v.flngFollowUpMemberKey!.Value)
+            .ToDictionary(g => g.Key, g => g.Count());
+        foreach (var w in workload) w.flngAssigned = open.GetValueOrDefault(w.flngMemberKey);
+
+        // Without a team filter the list only holds people who have someone assigned
+        return departmentKey is null ? workload.Where(w => w.flngAssigned > 0).ToList() : workload;
     }
 
     #endregion

@@ -1,6 +1,8 @@
 ﻿@page "/Error"
 @attribute [AllowAnonymous]
 @using System.Diagnostics
+@using Microsoft.AspNetCore.Diagnostics
+@inject IConfiguration Configuration
 
 <PageTitle>Error</PageTitle>
 
@@ -12,6 +14,12 @@
     <p>
         <strong>Request ID:</strong> <code>@RequestId</code>
     </p>
+}
+
+@if (!string.IsNullOrEmpty(Detail))
+{
+    <h3>What went wrong</h3>
+    <p><code>@Detail</code></p>
 }
 
 <h3>Development Mode</h3>
@@ -30,6 +38,7 @@
     private HttpContext? HttpContext { get; set; }
 
     private string? RequestId { get; set; }
+    private string? Detail { get; set; }
     private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
 
     protected override void OnInitialized() =>

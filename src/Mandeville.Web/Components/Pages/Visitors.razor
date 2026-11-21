@@ -3,36 +3,34 @@
 
 <PageTitle>Visitors</PageTitle>
 
-<div class="with-side"><div class="side-main">
-
-<div class="mod">
-<div class="mhead"><div><h1>Visitors</h1><p>Welcome guests and record their visits. The Connections team takes it from the altar.</p></div></div>
+<div class="mod wide">
+<div class="mhead"><span class="mhead-ico"><Icon Name="userplus" Size="26" Stroke="1.5" /></span><div><h1>Visitors</h1><p>Welcome guests and record their visits. The Connections team takes it from the altar.</p></div></div>
 
 @if ((__canAdd ? 1 : 0) + (__canReturning ? 1 : 0) + (__canThank ? 1 : 0) > 1)
 {
     <div class="tabs">
-        @if (__canAdd) { <button class="tab @(__tab == 0 ? "active" : "")" @onclick="() => __tab = 0">Add visitor</button> }
-        @if (__canReturning) { <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1">Returning visitor</button> }
-        @if (__canThank) { <button class="tab @(__tab == 2 ? "active" : "")" @onclick="() => __tab = 2">Thank you messages</button> }
+        @if (__canAdd) { <button class="tab @(__tab == 0 ? "active" : "")" @onclick="() => __tab = 0"><Icon Name="userplus" Size="18" />Add Visitor</button> }
+        @if (__canReturning) { <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1"><Icon Name="refresh" Size="18" />Returning Visitor</button> }
+        @if (__canThank) { <button class="tab @(__tab == 2 ? "active" : "")" @onclick="() => __tab = 2"><Icon Name="mail" Size="18" />Thank You Messages</button> }
     </div>
 }
 
+<div class="with-side"><div class="side-main">
 @switch (__tab)
 {
     case 0:
-        <AddVisitorTab />
+        <AddVisitorTab OnChanged="() => __panelKey++" OnServiceChosen="s => { __viewDate = s; __panelKey++; }" />
         break;
     case 2:
-        <VisitorThankYouTab />
+        <VisitorThankYouTab OnChanged="() => __panelKey++" />
         break;
     default:
-        <ReturningVisitorTab />
+        <ReturningVisitorTab OnChanged="() => __panelKey++" />
         break;
 }
 </div>
-
+<aside><RoleSidePanel @key="__panelKey" ServiceDate="@__viewDate" Kind="@(__tab == 0 ? "visit-add" : __tab == 2 ? "visit-thank" : "visit-return")" /></aside>
 </div>
-<aside><RoleSidePanel Kind="care" /></aside>
 </div>
 
 @code {
@@ -41,6 +39,8 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private int __tab;
+    private int __panelKey;
+    private string? __viewDate;
     private bool __canAdd = true, __canReturning = true, __canThank = true;
 
     #endregion
