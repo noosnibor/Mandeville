@@ -1,13 +1,13 @@
-@* Page banner: soft blue gradient card with a title, a subtitle and an icon chip on the right. *@
+@* Page banner: soft blue gradient card with an icon chip on the left, a title and a subtitle. *@
 <div class="pbanner">
+    @if (!string.IsNullOrWhiteSpace(Icon))
+    {
+        <div class="pbanner-icon"><Icon Name="@Icon" Size="26" Stroke="1.5" /></div>
+    }
     <div class="pbanner-text">
         <h1>@Title</h1>
         @if (!string.IsNullOrWhiteSpace(Subtitle)) { <p>@Subtitle</p> }
     </div>
-    @if (!string.IsNullOrWhiteSpace(Icon))
-    {
-        <div class="pbanner-icon"><Icon Name="@Icon" Size="26" /></div>
-    }
 </div>
 
 @code {

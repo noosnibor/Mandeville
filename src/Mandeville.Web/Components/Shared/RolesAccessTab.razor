@@ -12,8 +12,9 @@
         @foreach (var r in __roles)
         {
             <button type="button" class="acc-role @(r.flngKey == __sel?.flngKey ? "on" : "")" @onclick="() => SelectAsync(r)">
+                <i class="acc-rav" style="background:@AvatarStyle.Colour(r.flngKey)">@(string.IsNullOrWhiteSpace(r.fstrLabel) ? "?" : r.fstrLabel.Trim()[..1].ToUpper())</i>
                 <span>@r.fstrLabel</span>
-                <span class="acc-pill">@r.flngUsers @(r.flngUsers == 1 ? "user" : "users")</span>
+                <small>@r.flngUsers @(r.flngUsers == 1 ? "user" : "users")</small>
             </button>
         }
         <p class="hint">The Administrator role always has everything, so you can never lock yourself out.</p>
@@ -40,36 +41,37 @@
 
             @foreach (var group in Pages.GroupBy(p => p.Group))
             {
-                <div class="acc-group">@group.Key</div>
-                @foreach (var pg in group)
-                {
-                    var e = Edit(pg);
-                    <div class="acc-page @(e.On ? "" : "off")">
-                        <div class="acc-row">
-                            <b>@pg.Name</b>
-                            <button type="button" class="acc-sw @(e.On ? "on" : "")" role="switch" aria-checked="@(e.On ? "true" : "false")" aria-label="@pg.Name"
-                                    disabled="@__sel.fblnLocked" @onclick="() => TogglePage(e)"></button>
-                        </div>
-                        @if (e.On && (pg.Tabs.Length > 0 || pg.OwnOnlyOption))
-                        {
-                            <div class="acc-sub">
-                                @foreach (var tab in pg.Tabs)
-                                {
-                                    <label class="acc-chk"><input type="checkbox" checked="@e.Tabs.Contains(tab)" disabled="@__sel.fblnLocked" @onchange="() => ToggleTab(pg, e, tab)" />@tab</label>
-                                }
-                                @if (pg.OwnOnlyOption)
-                                {
-                                    <label class="acc-chk">Sees
-                                        <select disabled="@__sel.fblnLocked" value="@(e.Own ? "own" : "all")" @onchange="ev => SetOwn(e, ev.Value?.ToString())">
-                                            <option value="all">everyone's records</option>
-                                            <option value="own">only their own records</option>
-                                        </select>
-                                    </label>
-                                }
+                <div class="acc-gh"><span>@group.Key</span><b>@group.Count(p => Edit(p).On) of @group.Count() on</b></div>
+                <div class="acc-pcard">
+                    @foreach (var pg in group)
+                    {
+                        var e = Edit(pg);
+                        <div class="acc-prow @(e.On ? "" : "off")">
+                            <div class="acc-ptop">
+                                <div><b>@pg.Name</b><small>@PageSummary(pg, e)</small></div>
+                                <button type="button" class="acc-sw @(e.On ? "on" : "")" role="switch" aria-checked="@(e.On ? "true" : "false")" aria-label="@pg.Name"
+                                        disabled="@__sel.fblnLocked" @onclick="() => TogglePage(e)"></button>
                             </div>
-                        }
-                    </div>
-                }
+                            @if (e.On && (pg.Tabs.Length > 0 || pg.OwnOnlyOption))
+                            {
+                                <div class="acc-opts">
+                                    @foreach (var tab in pg.Tabs)
+                                    {
+                                        var t = tab;
+                                        <button type="button" class="acc-chip @(e.Tabs.Contains(t) ? "on" : "")" disabled="@__sel.fblnLocked" @onclick="() => ToggleTab(pg, e, t)">@(e.Tabs.Contains(t) ? "✓ " : "")@t</button>
+                                    }
+                                    @if (pg.OwnOnlyOption)
+                                    {
+                                        <div class="acc-seg">
+                                            <button type="button" class="@(e.Own ? "" : "on")" disabled="@__sel.fblnLocked" @onclick='() => SetOwn(e, "all")'>Everyone's records</button>
+                                            <button type="button" class="@(e.Own ? "on" : "")" disabled="@__sel.fblnLocked" @onclick='() => SetOwn(e, "own")'>Only their own</button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
             }
 
             @if (HasOwn)
@@ -79,14 +81,14 @@
 
             @if (!__sel.fblnLocked)
             {
-                <div class="acc-save">
-                    <button class="btn btn-primary btn-sm" disabled="@(!__dirty || __saving)" @onclick="SaveAsync">@(__saving ? "Saving..." : "Save changes")</button>
-                    @if (__dirty)
-                    {
+                @if (__dirty)
+                {
+                    <div class="acc-bar">
+                        <i></i><span>Unsaved changes</span>
                         <button class="btn btn-sm" @onclick="DiscardAsync">Discard</button>
-                        <span class="acc-dirty">Unsaved changes</span>
-                    }
-                </div>
+                        <button class="btn btn-primary btn-sm" disabled="@__saving" @onclick="SaveAsync">@(__saving ? "Saving..." : "Save changes")</button>
+                    </div>
+                }
                 <p class="hint">People who are signed in get the change within about a minute (pages already open show it when they are next opened).</p>
             }
         }
@@ -187,6 +189,16 @@ else if (__modal == "delete" && __sel is not null)
             __edit[pg.Key] = e;
         }
         return e;
+    }
+
+    /// <summary>The one-line summary under a page name.</summary>
+    private static string PageSummary(PageInfo pg, PageEdit e)
+    {
+        if (!e.On) return "Off";
+        var parts = new List<string>();
+        if (pg.Tabs.Length > 0) parts.Add($"{e.Tabs.Count} of {pg.Tabs.Length} tabs");
+        if (pg.OwnOnlyOption) parts.Add(e.Own ? "Sees only their own records" : "Sees everyone's records");
+        return parts.Count == 0 ? "On" : string.Join(" · ", parts);
     }
 
     private int OnCount => Pages.Count(p => Edit(p).On);

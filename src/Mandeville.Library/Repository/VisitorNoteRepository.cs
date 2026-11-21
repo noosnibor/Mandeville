@@ -13,7 +13,6 @@ public partial interface IVisitorNoteRepository
 {
     Task<List<VisitorNoteModel>> SelectVisitorNote(Guid? key = null, Guid? visitorKey = null, bool? active = true, CancellationToken cancellationToken = default);
     Task<ToastMessageModel> AddVisitorNote(VisitorNoteModel obj, CancellationToken cancellationToken = default);
-    Task<ToastMessageModel> DeleteVisitorNote(Guid key, string? who, CancellationToken cancellationToken = default);
 }
 
 #endregion
@@ -45,7 +44,7 @@ public partial class VisitorNoteRepository(IDataAccess dataAccess) : IVisitorNot
 
     #endregion
 
-    #region Command Operations (Add / Delete)
+    #region Command Operations (Add)
 
     /// <inheritdoc />
     public async Task<ToastMessageModel> AddVisitorNote(VisitorNoteModel obj, CancellationToken cancellationToken = default)
@@ -72,32 +71,6 @@ public partial class VisitorNoteRepository(IDataAccess dataAccess) : IVisitorNot
                 cancellationToken);
 
             return FromRowCount(rows, true, "Note");
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            return FromException(ex);
-        }
-    }
-
-    /// <inheritdoc />
-    public async Task<ToastMessageModel> DeleteVisitorNote(Guid key, string? who, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var parameters = new DynamicParameters();
-            parameters.Add("@flngKey", key);
-            parameters.Add("@fstrWho", who);
-            parameters.Add("@fdtmWhen", AppClock.Now);
-
-            var rows = await WithCancellation(
-                __dataAccess.ExecuteAsync("mandeville.sp_DeleteVisitorNote", CommandType.StoredProcedure, parameters),
-                cancellationToken);
-
-            return FromDelete(rows, "Note");
         }
         catch (OperationCanceledException)
         {

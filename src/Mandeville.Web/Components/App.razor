@@ -5,10 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
-    <meta name="theme-color" content="#4F46E5" />
+    <meta name="theme-color" content="#f2f6fd" />
+    <meta name="color-scheme" content="light dark" />
+    <script src="@Assets["theme.js"]"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Mandeville.Web.styles.css"]" />
@@ -21,6 +23,7 @@
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["celebrate.js"]"></script>
+    <script src="@Assets["signin.js"]"></script>
     <script>
         // Press / anywhere (outside a text field) to jump to the menu filter.
         document.addEventListener('keydown', function (e) {

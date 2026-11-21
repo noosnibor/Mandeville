@@ -1,9 +1,9 @@
-<div class="card">
+<div>
     <ToastBar Toast="__toast" />
 
-    <div class="toolbar">
-        <input type="text" placeholder="Search @Title.ToLower()" @bind="__search" @bind:event="oninput" />
-        <button class="btn btn-primary" @onclick="NewItem">+ Add</button>
+    <div class="fin-bar">
+        <input type="text" class="fin-search" placeholder="Search @Title.ToLower()" @bind="__search" @bind:event="oninput" />
+        <button class="btn btn-primary" style="margin-left:auto" @onclick="NewItem">+ Add</button>
     </div>
 
     @if (__edit is not null)
@@ -37,36 +37,25 @@
         </Modal>
     }
 
-    <table class="table table-cards">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Description</th>
-                @if (ShowDues) { <th>Dues</th> }
-                <th>Status</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var item in Filtered)
-            {
-                <tr>
-                    <td data-label="Name">@item.Name</td>
-                    <td data-label="Description">@item.Description</td>
-                    @if (ShowDues) { <td data-label="Dues">@(item.IsDues ? "Yes" : "")</td> }
-                    <td data-label="Status"><span class="badge @(item.Active ? "badge-ok" : "badge-off")">@(item.Active ? "Active" : "Inactive")</span></td>
-                    <td data-label="" class="row-actions">
-                        <button class="btn btn-sm" @onclick="() => EditItem(item)">Edit</button>
-                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteAsync(item)">Delete</button>
-                    </td>
-                </tr>
-            }
-            @if (!Filtered.Any())
-            {
-                <tr><td colspan="5" class="empty">Nothing here yet.</td></tr>
-            }
-        </tbody>
-    </table>
+    <div class="fin-list card">
+        @foreach (var item in Filtered)
+        {
+            <div class="fin-row @(item.Active ? "" : "off")">
+                <div class="care-av sm" style="background:@(item.Active ? AvatarStyle.Colour(item.Key) : "var(--inactive)")">@(string.IsNullOrWhiteSpace(item.Name) ? "?" : item.Name.Trim()[..1].ToUpper())</div>
+                <div class="fin-nm">
+                    <b>@item.Name</b>
+                    <small>@(string.IsNullOrWhiteSpace(item.Description) ? "-" : item.Description)</small>
+                </div>
+                @if (ShowDues && item.IsDues) { <span class="chip v fin-type">Member dues</span> }
+                <span class="chip fin-type @(item.Active ? "g" : "")">@(item.Active ? "Active" : "Inactive")</span>
+                <div class="fin-act">
+                    <button class="btn btn-sm" @onclick="() => EditItem(item)">Edit</button>
+                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteAsync(item)">Delete</button>
+                </div>
+            </div>
+        }
+        @if (!Filtered.Any()) { <p class="empty" style="margin:0">Nothing here yet.</p> }
+    </div>
     <p class="hint">Items that are in use cannot be deleted. Make them inactive instead.</p>
 </div>
 

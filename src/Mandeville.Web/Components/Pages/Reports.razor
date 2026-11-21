@@ -8,21 +8,23 @@
 
 <PageTitle>Reports</PageTitle>
 
-<PageBanner Title="Service reports" Subtitle="One PDF per service date, ready for the Minister's meetings" Icon="report" />
+<div class="page-head">
+    <div class="ph-title"><span class="mhead-ico"><Icon Name="report" Size="22" Stroke="1.5" /></span><div><h1>Service reports</h1><p>One PDF per service date, ready for the Minister's meetings</p></div></div>
+    @if (__report is not null)
+    {
+        <a class="btn btn-primary" href="reports/service/@__report.ServiceKey" target="_blank" download>Download PDF</a>
+    }
+</div>
 
 <ToastBar Toast="__toast" />
 
-<div class="mfilter">
-    <select @bind="__serviceKey" @bind:after="LoadReportAsync" aria-label="Service">
+<div class="fin-bar">
+    <select class="rep-pick" @bind="__serviceKey" @bind:after="LoadReportAsync" aria-label="Service">
         @foreach (var s in __services)
         {
             <option value="@s.flngKey">@s.fdtmServiceDate.ToString("ddd d MMM yyyy") - @s.fstrServiceName</option>
         }
     </select>
-    @if (__report is not null)
-    {
-        <a class="btn btn-primary btn-sm" href="reports/service/@__report.ServiceKey" target="_blank" download>Download PDF</a>
-    }
 </div>
 
 @if (!__loaded)
@@ -36,6 +38,13 @@ else if (__services.Count == 0)
 else if (__report is not null)
 {
     var r = __report;
+
+    <div class="kstrip card">
+        <div class="on"><b>@r.VisitorsAttended</b><span>Visitors attended</span></div>
+        <div><b>@r.MembersPresent</b><span>Members present (@r.PresentPercent%)</span></div>
+        <div><b>@r.IncomingTotal</b><span>Incoming in the process</span></div>
+        <div><b>@Money(r.TotalCollected)</b><span>Collected in @r.FinanceMonth</span></div>
+    </div>
 
     <div class="rep-grid">
         <section class="card">

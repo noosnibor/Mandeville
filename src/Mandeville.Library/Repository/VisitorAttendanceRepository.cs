@@ -46,7 +46,7 @@ public partial class VisitorAttendanceRepository(IDataAccess dataAccess) : IVisi
 
     #endregion
 
-    #region Command Operations (Add / Update / Delete)
+    #region Command Operations (Add / Update)
 
     /// <inheritdoc />
     public async Task<ToastMessageModel> AddOrUpdateVisitorAttendance(VisitorAttendanceModel obj, bool insert = true, CancellationToken cancellationToken = default)
@@ -94,6 +94,10 @@ public partial class VisitorAttendanceRepository(IDataAccess dataAccess) : IVisi
         }
     }
 
+    #endregion
+
+    #region Delete
+
     /// <inheritdoc />
     public async Task<ToastMessageModel> DeleteVisitorAttendance(Guid key, string? who, CancellationToken cancellationToken = default)
     {
@@ -108,7 +112,7 @@ public partial class VisitorAttendanceRepository(IDataAccess dataAccess) : IVisi
                 __dataAccess.ExecuteAsync("mandeville.sp_DeleteVisitorAttendance", CommandType.StoredProcedure, parameters),
                 cancellationToken);
 
-            return FromDelete(rows, "Visitor Attendance");
+            return FromDelete(rows, "Visitor attendance");
         }
         catch (OperationCanceledException)
         {

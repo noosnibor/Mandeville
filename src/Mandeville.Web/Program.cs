@@ -68,6 +68,7 @@ builder.Services.AddScoped<IEvangelismAssignmentRepository, EvangelismAssignment
 builder.Services.AddScoped<IServiceRepository, ServiceRepository>();
 builder.Services.AddScoped<ILookupValueRepository, LookupValueRepository>();
 builder.Services.AddScoped<Mandeville.Web.Dashboards.RoleStatsService>();
+builder.Services.AddScoped<Mandeville.Web.Dashboards.FollowUpBadge>();
 builder.Services.AddScoped<IMemberAttendanceRepository, MemberAttendanceRepository>();
 builder.Services.AddScoped<IAppUserRepository, AppUserRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();

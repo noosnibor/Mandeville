@@ -57,9 +57,5 @@ public static class CardDesigns
         return list[spread % list.Count];
     }
 
-    /// <summary>The picture for a file name, or the default when the name is unknown or not offered for this card.</summary>
-    public static CardDesign Resolve(CelebrationModel card, string? file) =>
-        For(card).FirstOrDefault(d => d.File == file) ?? Default(card);
-
     #endregion
 }

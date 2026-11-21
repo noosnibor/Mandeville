@@ -21,6 +21,8 @@ public sealed class RolePanelData
     public string Title { get; init; } = string.Empty;
     public List<StatTile> Tiles { get; init; } = [];
     public List<StatBar> Bars { get; init; } = [];
+    /// <summary>An optional figure shown in its own strip under the tiles.</summary>
+    public StatTile? Highlight { get; init; }
     public List<AttentionItem> Attention { get; init; } = [];
 }
 
@@ -89,17 +91,18 @@ public sealed class RoleStatsService(
 
     #region Members care (Visitors page)
 
-    /// <summary>Visitors this week, who still needs a thank-you, upcoming celebrations and this month's thank-yous.</summary>
+    /// <summary>Visitors this week, who still needs a thank-you and this month's thank-yous.</summary>
     public async Task<RolePanelData> GetMembersCareAsync(CancellationToken ct = default)
     {
         var today = AppClock.Today;
         var attendance = await __visitorAttendanceRepo.SelectVisitorAttendance(cancellationToken: ct);
         var notes = await __noteRepo.SelectVisitorNote(cancellationToken: ct);
         var visitors = (await __visitorRepo.SelectVisitor(cancellationToken: ct)).ToDictionary(v => v.flngKey);
-        var days = int.TryParse(__configuration["Celebrations:DaysBefore"], out var d) && d is >= 0 and <= 60 ? d : 3;
-        var upcoming = (await __celebrationRepo.SelectUpcoming(days, ct)).Count(c => !c.Sent);
+        // Visits of deleted visitors no longer count
+        attendance = attendance.Where(a => visitors.ContainsKey(a.flngVisitorKey)).ToList();
 
-        bool Thanked(VisitorAttendanceModel a) => notes.Any(n => n.flngVisitorKey == a.flngVisitorKey && ThankYouNotes.IsFor(n.fstrNote, a.fdtmServiceDate));
+        VisitorNoteModel? LatestNote(VisitorAttendanceModel a) => ThankYouNotes.Latest(notes.Where(n => n.flngVisitorKey == a.flngVisitorKey), a.fdtmServiceDate);
+        bool Thanked(VisitorAttendanceModel a) => LatestNote(a) is { } n && ThankYouNotes.IsFor(n.fstrNote, a.fdtmServiceDate);
 
         var thisWeek = attendance.Where(a => a.fdtmServiceDate.Date >= today.AddDays(-6)).Select(a => a.flngVisitorKey).Distinct().Count();
         var recent = attendance.Where(a => a.fdtmServiceDate.Date >= today.AddDays(-14)).ToList();
@@ -124,8 +127,138 @@ public sealed class RoleStatsService(
             [
                 new("Visitors this week", thisWeek.ToString()),
                 new("Awaiting thank you", waiting.Count.ToString(), waiting.Count > 0),
-                new($"Celebrations in {days} days", upcoming.ToString()),
                 new("Thanked this month", thankedThisMonth.ToString())
+            ],
+            Bars = [new("Thanked this month", thankedThisMonth, Math.Max(monthVisits.Count, thankedThisMonth))],
+            Attention = attention
+        };
+    }
+
+    #endregion
+
+    #region Visitors page (one summary per tab)
+
+    /// <summary>The date of the latest service on or before today, which is the "current service".</summary>
+    private async Task<DateTime> CurrentServiceDateAsync(CancellationToken ct)
+    {
+        var today = AppClock.Today;
+        var services = await __serviceRepo.SelectService(cancellationToken: ct);
+        return services.Where(s => s.fdtmServiceDate.Date <= today).Select(s => s.fdtmServiceDate.Date).DefaultIfEmpty(today).Max();
+    }
+
+    /// <summary>Add Visitor tab: who came to the current service, altar calls and how many are followed up.</summary>
+    public async Task<RolePanelData> GetVisitorAddAsync(DateTime? chosenService = null, CancellationToken ct = default)
+    {
+        var today = AppClock.Today;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var serviceDate = chosenService ?? await CurrentServiceDateAsync(ct);
+        var attendance = await __visitorAttendanceRepo.SelectVisitorAttendance(cancellationToken: ct);
+        var visitors = (await __visitorRepo.SelectVisitor(cancellationToken: ct)).ToDictionary(v => v.flngKey);
+        // Visits of deleted visitors no longer count
+        attendance = attendance.Where(a => visitors.ContainsKey(a.flngVisitorKey)).ToList();
+
+        // Ask for the service date directly, the same way the visitor list does, so the counts always match the list.
+        var atService = await __visitorAttendanceRepo.SelectVisitorAttendance(serviceDate: serviceDate, cancellationToken: ct);
+        atService = atService.Where(a => visitors.ContainsKey(a.flngVisitorKey)).ToList();
+        var altar = atService.Where(a => !string.IsNullOrEmpty(a.fstrAltarReason)).GroupBy(a => a.flngVisitorKey).Select(g => g.First()).ToList();
+        var newThisMonth = attendance.GroupBy(a => a.flngVisitorKey).Count(g => g.Min(a => a.fdtmServiceDate).Date >= monthStart);
+
+        bool FollowedUp(VisitorAttendanceModel a) => visitors.TryGetValue(a.flngVisitorKey, out var v) && v.fdtmLastContactDate is { } c && c.Date >= a.fdtmServiceDate.Date;
+        var followedUp = altar.Count(FollowedUp);
+
+        var attention = altar.Where(a => !FollowedUp(a))
+            .Select(a => new AttentionItem($"{a.VisitorName} - altar call, not followed up", DaysText((today - a.fdtmServiceDate.Date).Days), true)).Take(4).ToList();
+        attention.AddRange(atService.Select(a => a.flngVisitorKey).Distinct()
+            .Where(k => visitors.TryGetValue(k, out var v) && string.IsNullOrWhiteSpace(v.fstrPhoneNumber))
+            .Take(3).Select(k => new AttentionItem($"{visitors[k].FullName} - no phone number", "new", false)));
+
+        return new RolePanelData
+        {
+            Title = "Visitor",
+            Tiles =
+            [
+                new("Altar calls followed up", followedUp.ToString()),
+                new("Altar calls waiting", (altar.Count - followedUp).ToString(), altar.Count - followedUp > 0)
+            ],
+            Highlight = new("New this month - first-time visitors since 1 " + monthStart.ToString("MMM"), newThisMonth.ToString()),
+            Bars = [new("Altar calls followed up", followedUp, altar.Count)],
+            Attention = attention
+        };
+    }
+
+    /// <summary>Returning Visitor tab: who is coming back, who is close to joining and who has gone quiet.</summary>
+    public async Task<RolePanelData> GetVisitorReturningAsync(CancellationToken ct = default)
+    {
+        var today = AppClock.Today;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var attendance = await __visitorAttendanceRepo.SelectVisitorAttendance(cancellationToken: ct);
+        var visitors = (await __visitorRepo.SelectVisitor(cancellationToken: ct)).Where(v => v.fstrStatus != "Member").ToList();
+        // Visits of deleted visitors no longer count
+        var activeKeys = visitors.Select(v => v.flngKey).ToHashSet();
+        attendance = attendance.Where(a => activeKeys.Contains(a.flngVisitorKey)).ToList();
+
+        var seenThisMonth = attendance.Where(a => a.fdtmServiceDate.Date >= monthStart).Select(a => a.flngVisitorKey).Distinct().ToList();
+        var returnedThisMonth = visitors.Count(v => v.flngVisitCount >= 2 && seenThisMonth.Contains(v.flngKey));
+        var second = visitors.Count(v => v.flngVisitCount == 2);
+        var thirdPlus = visitors.Where(v => v.flngVisitCount >= 3).ToList();
+        var quiet = visitors.Where(v => v.flngVisitCount >= 2 && v.fdtmLastAttended is { } l && (today - l.Date).Days > 21).OrderBy(v => v.fdtmLastAttended).ToList();
+
+        var attention = quiet.Take(4)
+            .Select(v => new AttentionItem($"{v.FullName} - last seen {AgoText(v.fdtmLastAttended)}", DaysText((today - v.fdtmLastAttended!.Value.Date).Days), true)).ToList();
+        attention.AddRange(thirdPlus.Where(v => v.fdtmClassStartedOn is null).Take(3)
+            .Select(v => new AttentionItem($"{v.FullName} - {v.flngVisitCount} visits, invite to join", $"{v.flngVisitCount} visits", false)));
+
+        return new RolePanelData
+        {
+            Title = "Returning",
+            Tiles =
+            [
+                new("Returned this month", returnedThisMonth.ToString()),
+                new("On their second visit", second.ToString()),
+                new("Third visit or more", thirdPlus.Count.ToString()),
+                new("Not seen in 3 weeks", quiet.Count.ToString(), quiet.Count > 0)
+            ],
+            Bars = [new("Returned this month", returnedThisMonth, Math.Max(seenThisMonth.Count, returnedThisMonth))],
+            Attention = attention
+        };
+    }
+
+    /// <summary>Thank You tab: who still needs a thank-you message and how this month is going.</summary>
+    public async Task<RolePanelData> GetVisitorThankAsync(CancellationToken ct = default)
+    {
+        var today = AppClock.Today;
+        var attendance = await __visitorAttendanceRepo.SelectVisitorAttendance(cancellationToken: ct);
+        var notes = await __noteRepo.SelectVisitorNote(cancellationToken: ct);
+        var visitors = (await __visitorRepo.SelectVisitor(cancellationToken: ct)).ToDictionary(v => v.flngKey);
+        // Visits of deleted visitors no longer count
+        attendance = attendance.Where(a => visitors.ContainsKey(a.flngVisitorKey)).ToList();
+
+        VisitorNoteModel? LatestNote(VisitorAttendanceModel a) => ThankYouNotes.Latest(notes.Where(n => n.flngVisitorKey == a.flngVisitorKey), a.fdtmServiceDate);
+        bool Thanked(VisitorAttendanceModel a) => LatestNote(a) is { } n && ThankYouNotes.IsFor(n.fstrNote, a.fdtmServiceDate);
+        bool NotSent(VisitorAttendanceModel a) => LatestNote(a) is { } n && ThankYouNotes.IsFailedFor(n.fstrNote, a.fdtmServiceDate);
+        bool NoPhone(VisitorAttendanceModel a) => visitors.TryGetValue(a.flngVisitorKey, out var v) && string.IsNullOrWhiteSpace(v.fstrPhoneNumber);
+
+        var thisWeek = attendance.Where(a => a.fdtmServiceDate.Date >= today.AddDays(-6)).Select(a => a.flngVisitorKey).Distinct().Count();
+        var waiting = attendance.Where(a => a.fdtmServiceDate.Date >= today.AddDays(-14) && !Thanked(a)).OrderBy(a => a.fdtmServiceDate).ToList();
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var monthVisits = attendance.Where(a => a.fdtmServiceDate.Date >= monthStart).ToList();
+        var thankedThisMonth = monthVisits.Count(Thanked);
+
+        // Messages that failed come first so they are not forgotten
+        var attention = waiting.OrderByDescending(NotSent).ThenBy(a => a.fdtmServiceDate).Take(6)
+            .Select(a => new AttentionItem(
+                NotSent(a) ? $"{a.VisitorName} - thank-you not sent, call instead" : NoPhone(a) ? $"{a.VisitorName} - no phone number" : $"{a.VisitorName} - not thanked",
+                NotSent(a) ? "not sent" : NoPhone(a) ? "can't send" : DaysText((today - a.fdtmServiceDate.Date).Days), true)).ToList();
+
+        return new RolePanelData
+        {
+            Title = "Thank-you",
+            Tiles =
+            [
+                new("Awaiting thank you", waiting.Count.ToString(), waiting.Count > 0),
+                new("Thanked this month", thankedThisMonth.ToString()),
+                new("Can't send (no phone)", waiting.Count(NoPhone).ToString(), waiting.Any(NoPhone)),
+                new("Visitors this week", thisWeek.ToString())
             ],
             Bars = [new("Thanked this month", thankedThisMonth, Math.Max(monthVisits.Count, thankedThisMonth))],
             Attention = attention
@@ -143,6 +276,8 @@ public sealed class RoleStatsService(
         var monthStart = new DateTime(today.Year, today.Month, 1);
         var attendance = await __visitorAttendanceRepo.SelectVisitorAttendance(cancellationToken: ct);
         var visitors = (await __visitorRepo.SelectVisitor(cancellationToken: ct)).ToDictionary(v => v.flngKey);
+        // Visits of deleted visitors no longer count
+        attendance = attendance.Where(a => visitors.ContainsKey(a.flngVisitorKey)).ToList();
 
         var due = visitors.Values.Where(v => v.fstrStatus != "Member" && v.fdtmNextContactDate is { } n && n.Date <= today).ToList();
 
@@ -185,6 +320,109 @@ public sealed class RoleStatsService(
                 new("New visitors called within 24 hours", followedUp, newKeys.Count),
                 new("Prayer requests called within 24 hours", inTime, recentPrayer.Count)
             ],
+            Attention = attention
+        };
+    }
+
+    /// <summary>Team Lead tab: the altar calls at the chosen service, who still needs a connector and this month's new visitors.</summary>
+    public async Task<RolePanelData> GetConnectLeadAsync(DateTime? service = null, CancellationToken ct = default)
+    {
+        var today = AppClock.Today;
+        var date = (service ?? today).Date;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var attendance = await __visitorAttendanceRepo.SelectVisitorAttendance(cancellationToken: ct);
+        var visitors = (await __visitorRepo.SelectVisitor(cancellationToken: ct)).ToDictionary(v => v.flngKey);
+        // Visits of deleted visitors no longer count
+        attendance = attendance.Where(a => visitors.ContainsKey(a.flngVisitorKey)).ToList();
+
+        // The same people the Team Lead list shows: still visitors (not staged as incoming members, not deleted)
+        bool StillVisitor(VisitorAttendanceModel a) => visitors.TryGetValue(a.flngVisitorKey, out var v) && (v.fstrStatus is "Visitor" or "Regular Visitor");
+        var altar = attendance.Where(a => a.fdtmServiceDate.Date == date && !string.IsNullOrEmpty(a.fstrAltarReason) && StillVisitor(a))
+            .GroupBy(a => a.flngVisitorKey).Select(g => g.First()).ToList();
+        bool Unassigned(VisitorAttendanceModel a) => !(visitors.TryGetValue(a.flngVisitorKey, out var v) && v.flngFollowUpMemberKey is not null);
+        var waiting = altar.Where(Unassigned).ToList();
+
+        var newThisMonth = attendance.GroupBy(a => a.flngVisitorKey).Count(g => g.Min(a => a.fdtmServiceDate).Date >= monthStart);
+        var prayerWeek = attendance.Count(a => a.fstrAltarReason == "Prayer" && a.fdtmServiceDate.Date >= today.AddDays(-6) && StillVisitor(a));
+
+        return new RolePanelData
+        {
+            Title = "Team lead",
+            Tiles =
+            [
+                new("Altar calls this service", altar.Count.ToString()),
+                new("Waiting to be assigned", waiting.Count.ToString(), waiting.Count > 0),
+                new("New visitors this month", newThisMonth.ToString()),
+                new("Prayer requests this week", prayerWeek.ToString())
+            ],
+            Bars = [new("Assigned this service", altar.Count - waiting.Count, altar.Count)],
+            Attention = waiting.Take(6)
+                .Select(a => new AttentionItem($"{a.VisitorName} - not assigned", DaysText((today - a.fdtmServiceDate.Date).Days), true)).ToList()
+        };
+    }
+
+    /// <summary>My Team Members tab: the people assigned to one team member and the calls they owe.</summary>
+    public async Task<RolePanelData> GetConnectTeamAsync(Guid? memberKey, CancellationToken ct = default)
+    {
+        var today = AppClock.Today;
+        List<VisitorModel> mine = memberKey is null
+            ? []
+            : (await __visitorRepo.SelectVisitor(followUpMemberKey: memberKey, cancellationToken: ct))
+                .Where(v => v.fstrStatus is "Visitor" or "Regular Visitor").ToList();
+
+        var due = mine.Where(v => v.fdtmNextContactDate is { } n && n.Date <= today).OrderBy(v => v.fdtmNextContactDate).ToList();
+        var overdue = due.Count(v => (today - v.fdtmNextContactDate!.Value.Date).Days > 1);
+        var calledWeek = mine.Count(v => v.fdtmLastContactDate is { } c && c.Date >= today.AddDays(-6));
+        var contacted = mine.Count(v => v.fdtmLastContactDate is not null);
+
+        return new RolePanelData
+        {
+            Title = "My team",
+            Tiles =
+            [
+                new("Assigned to them", mine.Count.ToString()),
+                new("Follow-ups due", due.Count.ToString(), due.Count > 0),
+                new("Calls overdue (over 24 hours)", overdue.ToString(), overdue > 0),
+                new("Called this week", calledWeek.ToString())
+            ],
+            Bars = [new("Contacted at least once", contacted, mine.Count)],
+            Attention = due.Take(6)
+                .Select(v => new AttentionItem($"{v.FullName} - follow-up call", DaysText((today - v.fdtmNextContactDate!.Value.Date).Days), (today - v.fdtmNextContactDate!.Value.Date).Days > 1)).ToList()
+        };
+    }
+
+    #endregion
+
+    #region Incoming members
+
+    /// <summary>Incoming members page: who is ready to join, who has no connector and how far people have got.</summary>
+    public async Task<RolePanelData> GetIncomingAsync(CancellationToken ct = default)
+    {
+        var list = await __visitorRepo.SelectVisitor(status: "Incoming Member", active: true, cancellationToken: ct);
+
+        // The stage follows the dates: the latest date filled in decides it (0 = not started, 4 = inauguration)
+        static int Stage(VisitorModel v) =>
+            v.fdtmInauguratedOn.HasValue ? 4 : v.fdtmInterviewOn.HasValue ? 3 : v.fdtmTier2On.HasValue ? 2 : v.fdtmClassStartedOn.HasValue ? 1 : 0;
+
+        var ready = list.Where(v => Stage(v) == 4).ToList();
+        var noConnector = list.Where(v => v.flngFollowUpMemberKey is null).ToList();
+        var started = list.Count(v => Stage(v) >= 1);
+
+        var attention = ready.Select(v => new AttentionItem($"{v.FullName} - ready to add to members", "now", true))
+            .Concat(noConnector.Where(v => Stage(v) < 4).Select(v => new AttentionItem($"{v.FullName} - no connector", "waiting", true)))
+            .Take(6).ToList();
+
+        return new RolePanelData
+        {
+            Title = "Incoming",
+            Tiles =
+            [
+                new("In progress", list.Count.ToString()),
+                new("Ready to add to members", ready.Count.ToString(), ready.Count > 0),
+                new("Waiting for a connector", noConnector.Count.ToString(), noConnector.Count > 0),
+                new("Not started", list.Count(v => Stage(v) == 0).ToString())
+            ],
+            Bars = [new("Reached Tier 1 or beyond", started, list.Count)],
             Attention = attention
         };
     }
