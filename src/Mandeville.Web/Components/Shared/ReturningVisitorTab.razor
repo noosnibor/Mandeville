@@ -51,6 +51,9 @@
                 <p class="rv-info"><Icon Name="info" Size="16" Stroke="1.6" />A visitor can only be recorded once per service date.</p>
             </div>
 
+            <VisitorContactNotes Visitor="__selected" OnChanged="OnChanged" />
+            <VisitorReferral Visitor="__selected" OnChanged="OnChanged" />
+
             <div class="card">
                 <h2><span class="h2-ico"><Icon Name="clock" Size="20" Stroke="1.6" /></span>Previous Visits <span>@__history.Count shown</span></h2>
                 @foreach (var a in __history)

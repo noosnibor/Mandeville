@@ -11,6 +11,9 @@ public partial interface IVisitorRepository
     /// <summary>Assigns (or, with a null member, unassigns) the connection-team member following up a visitor.</summary>
     Task<ToastMessageModel> AssignVisitorConnect(Guid visitorKey, Guid? memberKey, string? who, CancellationToken cancellationToken = default);
 
+    /// <summary>Refers a visitor to the connection team lead with a reason; a null reason cancels the referral.</summary>
+    Task<ToastMessageModel> ReferVisitor(Guid visitorKey, string? reason, string? who, CancellationToken cancellationToken = default);
+
     /// <summary>Team members with the number of open visitors each one has been given.</summary>
     Task<List<ConnectWorkloadModel>> SelectConnectWorkload(Guid? departmentKey = null, CancellationToken cancellationToken = default);
 }
@@ -35,6 +38,27 @@ public partial class VisitorRepository
                 cancellationToken);
 
             return rows >= 1 ? Success("Connector saved") : FromRowCount(0, false, "connector");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { return FromException(ex); }
+    }
+
+    /// <inheritdoc />
+    public async Task<ToastMessageModel> ReferVisitor(Guid visitorKey, string? reason, string? who, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var parameters = new DynamicParameters();
+            parameters.Add("@flngKey", visitorKey);
+            parameters.Add("@fstrReferralReason", reason);
+            parameters.Add("@fstrWho", who);
+            parameters.Add("@fdtmWhen", AppClock.Now);
+
+            var rows = await WithCancellation(
+                __dataAccess.ExecuteAsync("mandeville.sp_ReferVisitor", CommandType.StoredProcedure, parameters),
+                cancellationToken);
+
+            return rows >= 1 ? Success(reason is null ? "Referral cancelled" : "Referred to the connection team lead") : FromRowCount(0, false, "referral");
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex) { return FromException(ex); }

@@ -1,0 +1,95 @@
+@implements IDisposable
+@inject IVisitorRepository VisitorRepo
+
+<ToastBar Toast="__toast" />
+
+@* Member care refers a visitor to the connection team lead. No altar call is needed:
+   the lead sees the referral in Connections and chooses the team member who follows up. *@
+@if (Visitor.fstrReferralReason is not null || Visitor.flngFollowUpMemberKey is null)
+{
+    <div class="drawer-card ref-card">
+        <h4><span class="ref-ico"><Icon Name="userplus" Size="18" Stroke="1.7" /></span>Refer to Connections</h4>
+
+        @if (Visitor.fstrReferralReason is null)
+        {
+            <p class="ref-sub">Send this visitor to the connection team lead.</p>
+            <select class="ref-select" aria-label="Reason for the referral" @bind="__reason">
+                <option value="">Choose a reason...</option>
+                @foreach (var r in FixedLists.AltarReasons) { <option value="@r">@r</option> }
+            </select>
+            <button class="ref-go" @onclick="ReferAsync">Refer to team lead <span aria-hidden="true">&rarr;</span></button>
+        }
+        else if (Visitor.flngFollowUpMemberKey is null)
+        {
+            <div class="ref-status wait">
+                <span class="ref-dot"><Icon Name="clock" Size="18" Stroke="1.8" /></span>
+                <div><b>Waiting for team lead</b><small>@Visitor.fstrReferralReason &middot; referred @(Visitor.fdtmReferralDate?.ToString("d MMM") ?? "")</small></div>
+                <button class="btn btn-sm" @onclick="CancelAsync">Cancel</button>
+            </div>
+        }
+        else
+        {
+            <div class="ref-status done">
+                <span class="ref-dot"><Icon Name="check" Size="18" Stroke="2" /></span>
+                <div><b>Assigned to @(Visitor.fstrFollowUpName ?? "a team member")</b><small>@Visitor.fstrReferralReason &middot; referred @(Visitor.fdtmReferralDate?.ToString("d MMM") ?? "")</small></div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private string? __reason;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    #region Parameters
+
+    /// <summary>The visitor being referred.</summary>
+    [Parameter, EditorRequired] public VisitorModel Visitor { get; set; } = default!;
+
+    /// <summary>Raised after a referral is made or cancelled so the parent can refresh.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    #endregion
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    #region Referral
+
+    private async Task ReferAsync()
+    {
+        if (string.IsNullOrWhiteSpace(__reason))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Choose a reason for the referral" };
+            return;
+        }
+
+        __toast = await VisitorRepo.ReferVisitor(Visitor.flngKey, __reason, AppConstants.Who, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        Visitor.fstrReferralReason = __reason;
+        Visitor.fdtmReferralDate = AppClock.Today;
+        __reason = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task CancelAsync()
+    {
+        __toast = await VisitorRepo.ReferVisitor(Visitor.flngKey, null, AppConstants.Who, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        Visitor.fstrReferralReason = null;
+        Visitor.fdtmReferralDate = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    #endregion
+}

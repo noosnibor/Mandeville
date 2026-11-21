@@ -207,6 +207,7 @@ else
             var reason = visits.Where(a => !string.IsNullOrWhiteSpace(a.fstrAltarReason))
                                .OrderByDescending(a => a.fdtmServiceDate).Select(a => a.fstrAltarReason).FirstOrDefault();
             if (reason is not null) __reasons[v.flngKey] = FixedLists.IsMembershipReason(reason) ? "Membership" : reason;
+            else if (!string.IsNullOrWhiteSpace(v.fstrReferralReason)) __reasons[v.flngKey] = FixedLists.IsMembershipReason(v.fstrReferralReason) ? "Membership" : v.fstrReferralReason; // referred by Member care
         }
     }
 
