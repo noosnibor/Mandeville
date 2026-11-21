@@ -321,7 +321,7 @@
     #region Message building
 
     private string NextText() => __next is null ? "" :
-        $"{__next.fstrServiceName}, {__next.fdtmServiceDate:dddd d MMMM}" +
+        $"{__next.fstrServiceName} is, {__next.fdtmServiceDate:MMMM dd}" +
         (__next.ftimStartTime.HasValue ? $" at {DateTime.Today.Add(__next.ftimStartTime.Value):h:mm tt}" : "") +
         (string.IsNullOrWhiteSpace(__next.fstrLocation) ? "" : $", {__next.fstrLocation}");
 
@@ -329,8 +329,8 @@
     {
         var template = r.Visits <= 1 ? __firstTemplate : r.Visits == 2 ? __returnTemplate : __thirdTemplate;
         var date = __past.First(s => s.flngKey == __serviceKey).fdtmServiceDate;
-        var next = __next is null ? "" : $" Our next service is {NextText()}.";
-        return template.Replace("{name}", r.Visitor.fstrFirstname).Replace("{date}", date.ToString("dddd d MMMM"))
+        var next = __next is null ? "" : $"{NextText()}";
+        return template.Replace("{name}", r.Visitor.fstrFirstname).Replace("{date}", date.ToString("MMMM dd"))
                        .Replace("{next}", next).Replace("{sender}", __yourName);
     }
 
