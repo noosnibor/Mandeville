@@ -61,7 +61,10 @@ else
                     @if (u.IsLocked) { <text> &middot; <span class="care-lock">Locked</span></text> }
                 </small>
             </div>
-            <span class="chip fin-type @(u.fstrRole == AppRoles.Administrator ? "v" : "g")">@LabelOf(u.fstrRole)</span>
+            @foreach (var code in u.GetAllRoles())
+            {
+                <span class="chip fin-type @(code == AppRoles.Administrator ? "v" : "g")">@LabelOf(code)</span>
+            }
             <div class="fin-act">
                 <button class="btn btn-sm" @onclick="() => StartEdit(u)">Edit</button>
                 <button class="btn btn-sm" @onclick="() => ResetPasswordAsync(u)">Reset password</button>
@@ -81,26 +84,44 @@ else
                 <div class="field"><label>Name</label><input type="text" maxlength="100" @bind="__edit.fstrDisplayName" /></div>
                 <div class="field"><label>Email (their sign-in)</label><input type="email" maxlength="150" @bind="__edit.fstrEmail" /></div>
                 <div class="field">
-                    <label>Role</label>
-                    <select @bind="__edit.fstrRole">
+                    <label>@(__edit.fstrRole == AppRoles.Administrator ? "Role" : "Primary role")</label>
+                    <select value="@__edit.fstrRole" @onchange="OnPrimaryChanged">
                         @foreach (var r in __roles) { <option value="@r.fstrName">@r.fstrLabel</option> }
                     </select>
                 </div>
-                @if (NeedsMember(__edit.fstrRole))
+                @if (NeedsMember(__edit))
                 {
                     <div class="field">
-                        <label>@(NeedsCoreMember(__edit.fstrRole) ? "Core member" : "Member")</label>
+                        <label>@(NeedsCoreMember(__edit) ? "Core member" : "Member")</label>
                         <select @bind="__edit.flngMemberKey">
                             <option value="">-- choose --</option>
-                            @foreach (var m in (NeedsCoreMember(__edit.fstrRole) ? __core : __active)) { <option value="@m.flngKey">@m.FullName</option> }
+                            @foreach (var m in (NeedsCoreMember(__edit) ? __core : __active)) { <option value="@m.flngKey">@m.FullName</option> }
                         </select>
                     </div>
                 }
             </div>
-            @if (NeedsMember(__edit.fstrRole))
+            @if (__edit.fstrRole != AppRoles.Administrator)
             {
-                <p class="hint">This role only sees its own records, so the account has to belong to one member.</p>
+                <div class="field">
+                    <label>Also has these roles</label>
+                    <div class="role-pick">
+                        @foreach (var r in ExtraRoleChoices)
+                        {
+                            var isOn = HasExtra(r.fstrName);
+                            <button type="button" class="@(isOn ? "on" : "")" aria-pressed="@(isOn ? "true" : "false")" @onclick="() => ToggleExtra(r.fstrName)">@r.fstrLabel</button>
+                        }
+                    </div>
+                </div>
+                @if (AccessSummary.Count > 0)
+                {
+                    <div class="role-eff"><b>What this person can open</b>@string.Join(" · ", AccessSummary)</div>
+                }
             }
+            @if (NeedsMember(__edit))
+            {
+                <p class="hint">At least one of these roles only sees its own records, so the account has to belong to one member.</p>
+            }
+            <p class="hint">Access from all roles is combined: a page is open if any role allows it. Changes reach a signed-in person within about a minute.</p>
             <p class="hint">What each role can open is set on the Roles &amp; access tab.</p>
         </ChildContent>
         <Footer>
@@ -138,6 +159,7 @@ else
     private Guid? __myKey;
     private List<AppUserModel> __users = [];
     private List<RoleModel> __roles = [];
+    private Dictionary<string, List<RolePermissionModel>> __permissions = [];
     private string __tab = "users";
     private string? __search;
     private string __roleFilter = string.Empty;
@@ -171,6 +193,7 @@ else
     {
         __users = await UserRepo.SelectAppUser(cancellationToken: __cts.Token);
         __roles = await RoleRepo.SelectRole(cancellationToken: __cts.Token);
+        await LoadPermissionsAsync();
         __core = await MemberRepo.SelectMember(coreMember: true, active: true, cancellationToken: __cts.Token);
         __active = await MemberRepo.SelectMember(membershipStatus: "Active", active: true, cancellationToken: __cts.Token);
     }
@@ -190,21 +213,91 @@ else
         .Where(u => string.IsNullOrWhiteSpace(__search)
             || u.fstrDisplayName.Contains(__search.Trim(), StringComparison.OrdinalIgnoreCase)
             || (u.fstrEmail ?? string.Empty).Contains(__search.Trim(), StringComparison.OrdinalIgnoreCase))
-        .Where(u => string.IsNullOrEmpty(__roleFilter) || u.fstrRole == __roleFilter)
+        .Where(u => string.IsNullOrEmpty(__roleFilter) || u.GetAllRoles().Contains(__roleFilter))
         .ToList();
 
-    private bool NeedsMember(string? role) => __roles.FirstOrDefault(r => r.fstrName == role)?.NeedsMember ?? false;
+    /// <summary>True when any of the person's roles only sees its own records, so the account belongs to one member.</summary>
+    private bool NeedsMember(AppUserModel u) => RolesOf(u).Any(r => r.NeedsMember);
 
     /// <summary>Pastoral Care style roles belong to a Core Member; other own-records roles to any active member.</summary>
-    private bool NeedsCoreMember(string? role) => __roles.FirstOrDefault(r => r.fstrName == role)?.OwnsPage(PageKeys.Pastoral) ?? false;
+    private bool NeedsCoreMember(AppUserModel u) => RolesOf(u).Any(r => r.OwnsPage(PageKeys.Pastoral));
+
+    /// <summary>The saved roles that the person has (primary first).</summary>
+    private List<RoleModel> RolesOf(AppUserModel u) =>
+        u.GetAllRoles().Select(code => __roles.FirstOrDefault(r => r.fstrName == code)).OfType<RoleModel>().ToList();
 
     /// <summary>The friendly name of a role (falls back to the built-in label when the role was removed).</summary>
     private string LabelOf(string? role) => __roles.FirstOrDefault(r => r.fstrName == role)?.fstrLabel ?? AppRoles.Label(role);
 
-    private static string RoleCss(string role) => role == AppRoles.Administrator ? "i" : "ok";
+
+    #endregion
+
+    #region Roles (extra roles, combined access, reload)
+
+    /// <summary>The roles that can be added on top of the primary role (not the Administrator, not the primary role itself).</summary>
+    private IEnumerable<RoleModel> ExtraRoleChoices => __roles.Where(r => !r.fblnLocked && r.fstrName != __edit?.fstrRole);
+
+    private bool HasExtra(string code) => AppUserModel.SplitRoles(__edit?.fstrExtraRoles).Contains(code, StringComparer.OrdinalIgnoreCase);
+
+    private void ToggleExtra(string code)
+    {
+        if (__edit is null) return;
+        var extras = AppUserModel.SplitRoles(__edit.fstrExtraRoles);
+        if (extras.RemoveAll(e => string.Equals(e, code, StringComparison.OrdinalIgnoreCase)) == 0) extras.Add(code);
+        __edit.fstrExtraRoles = extras.Count == 0 ? null : string.Join(',', extras);
+    }
+
+    /// <summary>Changing the primary role: it can no longer also be an extra role, and the Administrator has no extras.</summary>
+    private void OnPrimaryChanged(ChangeEventArgs e)
+    {
+        if (__edit is null) return;
+        __edit.fstrRole = e.Value?.ToString() ?? string.Empty;
+        var extras = AppUserModel.SplitRoles(__edit.fstrExtraRoles).Where(x => !string.Equals(x, __edit.fstrRole, StringComparison.OrdinalIgnoreCase)).ToList();
+        __edit.fstrExtraRoles = __edit.fstrRole == AppRoles.Administrator || extras.Count == 0 ? null : string.Join(',', extras);
+    }
+
+    /// <summary>The pages the person can open with all of their roles together, for example "Visitors (all tabs)".</summary>
+    private List<string> AccessSummary
+    {
+        get
+        {
+            if (__edit is null) return [];
+            var permissions = __edit.GetAllRoles().SelectMany(code => __permissions.TryGetValue(code, out var p) ? p : new List<RolePermissionModel>()).ToList();
+            var claims = AccessClaims.Build(permissions);
+            var result = new List<string>();
+            foreach (var pageKey in claims.Where(c => c.Type == AppClaims.Page).Select(c => c.Value))
+            {
+                var page = PageRegistry.Find(pageKey);
+                if (page is null) continue;
+
+                var detail = new List<string>();
+                if (page.Tabs.Length > 0)
+                {
+                    var tabCount = claims.Count(c => c.Type == AppClaims.Tab && c.Value.StartsWith(page.Key + "|", StringComparison.Ordinal));
+                    detail.Add(tabCount >= page.Tabs.Length ? "all tabs" : $"{tabCount} of {page.Tabs.Length} tabs");
+                }
+                if (claims.Any(c => c.Type == AppClaims.OwnOnly && c.Value == page.Key)) detail.Add("own records only");
+
+                result.Add(detail.Count == 0 ? page.Name : $"{page.Name} ({string.Join(", ", detail)})");
+            }
+            return result;
+        }
+    }
 
     /// <summary>Called by the Roles &amp; access tab after it changed a role, so the dropdowns stay current.</summary>
-    private async Task ReloadRolesAsync() => __roles = await RoleRepo.SelectRole(cancellationToken: __cts.Token);
+    private async Task ReloadRolesAsync()
+    {
+        __roles = await RoleRepo.SelectRole(cancellationToken: __cts.Token);
+        await LoadPermissionsAsync();
+    }
+
+    /// <summary>Keeps what each role may open, so the edit form can show the combined access.</summary>
+    private async Task LoadPermissionsAsync()
+    {
+        __permissions = [];
+        foreach (var role in __roles.Where(r => !r.fblnLocked))
+            __permissions[role.fstrName] = await RoleRepo.SelectRolePermission(roleName: role.fstrName, cancellationToken: __cts.Token);
+    }
 
     private int ActiveAdmins => __users.Count(u => u.fblnActive && u.fstrRole == AppRoles.Administrator);
 
@@ -224,7 +317,7 @@ else
         __edit = new AppUserModel
         {
             flngKey = u.flngKey, fstrEmail = u.fstrEmail, fstrDisplayName = u.fstrDisplayName, fstrPasswordHash = u.fstrPasswordHash,
-            fstrRole = u.fstrRole, flngMemberKey = u.flngMemberKey, fblnMustChangePassword = u.fblnMustChangePassword, fblnActive = u.fblnActive
+            fstrRole = u.fstrRole, fstrExtraRoles = u.fstrExtraRoles, flngMemberKey = u.flngMemberKey, fblnMustChangePassword = u.fblnMustChangePassword, fblnActive = u.fblnActive
         };
         __isNew = false;
     }
@@ -252,13 +345,16 @@ else
             return;
         }
 
-        if (NeedsMember(__edit.fstrRole) && __edit.flngMemberKey is null)
+        if (NeedsMember(__edit) && __edit.flngMemberKey is null)
         {
-            __toast = Warn(NeedsCoreMember(__edit.fstrRole) ? "Choose the Core Member this account belongs to" : "Choose the member this account belongs to");
+            __toast = Warn(NeedsCoreMember(__edit) ? "Choose the Core Member this account belongs to" : "Choose the member this account belongs to");
             return;
         }
 
-        if (!NeedsMember(__edit.fstrRole)) __edit.flngMemberKey = null;
+        if (!NeedsMember(__edit)) __edit.flngMemberKey = null;
+
+        // The Administrator already opens everything, so it carries no extra roles; and a role is never listed twice
+        __edit.fstrExtraRoles = __edit.fstrRole == AppRoles.Administrator ? null : (__edit.GetAllRoles().Count > 1 ? string.Join(',', __edit.GetAllRoles().Skip(1)) : null);
 
         // Never leave the system without an administrator
         if (!__isNew && __edit.fstrRole != AppRoles.Administrator && IsLastAdmin(__edit.flngKey))

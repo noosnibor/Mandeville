@@ -50,6 +50,7 @@ builder.Services.AddScoped<IMemberTypeRepository, MemberTypeRepository>();
 builder.Services.AddScoped<IServiceAssignmentRepository, ServiceAssignmentRepository>();
 builder.Services.AddScoped<IDepartmentRepository, DepartmentRepository>();
 builder.Services.AddScoped<IPaymentTypeRepository, PaymentTypeRepository>();
+builder.Services.AddScoped<IMessageTemplateRepository, MessageTemplateRepository>();
 builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository>();
 builder.Services.AddScoped<IMemberRepository, MemberRepository>();
 builder.Services.AddScoped<IMemberDepartmentRepository, MemberDepartmentRepository>();

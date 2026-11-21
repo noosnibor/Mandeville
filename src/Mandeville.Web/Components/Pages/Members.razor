@@ -503,14 +503,6 @@ else
         new("Female", __members.Count(m => m.fstrGender == "Female"), "#f9a8d4", "#ec4899")
     ];
 
-    /// <summary>Bar height as a percentage; the tallest bar fills the chart.</summary>
-    private int BarHeight(int value)
-    {
-        var max = Bars().Max(b => b.Value);
-        if (max == 0 || value == 0) return 3;
-        return Math.Max(6, (int)Math.Round(value * 100.0 / max));
-    }
-
     #endregion
 
     #region Details panel
@@ -626,12 +618,6 @@ else
     private void ToggleDepartment(Guid key, bool selected)
     {
         if (selected) __selectedDepartments.Add(key); else { __selectedDepartments.Remove(key); __leadDepartments.Remove(key); }
-    }
-
-    /// <summary>Tags the member as a team lead of a department they belong to.</summary>
-    private void ToggleLead(Guid key, bool lead)
-    {
-        if (lead) __leadDepartments.Add(key); else __leadDepartments.Remove(key);
     }
 
     private async Task SaveAsync()

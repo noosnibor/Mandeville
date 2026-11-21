@@ -15,6 +15,9 @@ public sealed record StatBar(string Label, int Done, int Total);
 /// <summary>One person in the "Needs attention" list.</summary>
 public sealed record AttentionItem(string Text, string Tag, bool Warn);
 
+/// <summary>One service in a "per service" list: how many people came, and how many were male and female.</summary>
+public sealed record ServiceCount(string Label, int Total, int Male, int Female);
+
 /// <summary>Everything the side panel shows for one role.</summary>
 public sealed class RolePanelData
 {
@@ -24,40 +27,26 @@ public sealed class RolePanelData
     /// <summary>An optional figure shown in its own strip under the tiles.</summary>
     public StatTile? Highlight { get; init; }
     public List<AttentionItem> Attention { get; init; } = [];
-}
-
-/// <summary>One member in a team lead's "My team" table.</summary>
-public sealed record TeamMemberRow(string Name, bool[] Attended, DateTime? LastContact, bool FollowUp);
-
-/// <summary>A department the signed-in person leads, with its members' activity.</summary>
-public sealed class TeamData
-{
-    public Guid DepartmentKey { get; init; }
-    public string DepartmentName { get; init; } = string.Empty;
-    public int PresentLastSunday { get; init; }
-    public int MissedThree { get; init; }
-    public List<TeamMemberRow> Members { get; init; } = [];
+    /// <summary>An optional list of the services in one month with their visitor counts, and the heading for it.</summary>
+    public List<ServiceCount> PerService { get; init; } = [];
+    public string PerServiceTitle { get; init; } = string.Empty;
+    /// <summary>The month's total across the services in <see cref="PerService"/>.</summary>
+    public ServiceCount? PerServiceTotal { get; init; }
 }
 
 #endregion
 
 /// <summary>
-/// Works out the numbers shown in the side panel on the Visitors, Connections and Prayerline and Pastoral Care pages,
-/// and the "My team" section for team leads. Everything is calculated from data the app already keeps.
+/// Works out the numbers shown in the side panel on the Visitors, Connections and Prayerline and Pastoral Care pages.
+/// Everything is calculated from data the app already keeps.
 /// </summary>
 public sealed class RoleStatsService(
     IServiceRepository serviceRepo,
     IVisitorRepository visitorRepo,
     IVisitorAttendanceRepository visitorAttendanceRepo,
     IVisitorNoteRepository noteRepo,
-    ICelebrationRepository celebrationRepo,
     IPastoralAssignmentRepository assignmentRepo,
-    IPastoralContactRepository contactRepo,
-    IMemberAttendanceRepository memberAttendanceRepo,
-    IMemberDepartmentRepository memberDepartmentRepo,
-    IMemberRepository memberRepo,
-    IDepartmentRepository departmentRepo,
-    IConfiguration configuration)
+    IPastoralContactRepository contactRepo)
 {
     #region Private Fields
 
@@ -65,14 +54,8 @@ public sealed class RoleStatsService(
     private readonly IVisitorRepository __visitorRepo = visitorRepo;
     private readonly IVisitorAttendanceRepository __visitorAttendanceRepo = visitorAttendanceRepo;
     private readonly IVisitorNoteRepository __noteRepo = noteRepo;
-    private readonly ICelebrationRepository __celebrationRepo = celebrationRepo;
     private readonly IPastoralAssignmentRepository __assignmentRepo = assignmentRepo;
     private readonly IPastoralContactRepository __contactRepo = contactRepo;
-    private readonly IMemberAttendanceRepository __memberAttendanceRepo = memberAttendanceRepo;
-    private readonly IMemberDepartmentRepository __memberDepartmentRepo = memberDepartmentRepo;
-    private readonly IMemberRepository __memberRepo = memberRepo;
-    private readonly IDepartmentRepository __departmentRepo = departmentRepo;
-    private readonly IConfiguration __configuration = configuration;
 
     #endregion
 
@@ -146,7 +129,7 @@ public sealed class RoleStatsService(
         return services.Where(s => s.fdtmServiceDate.Date <= today).Select(s => s.fdtmServiceDate.Date).DefaultIfEmpty(today).Max();
     }
 
-    /// <summary>Add Visitor tab: who came to the current service, altar calls and how many are followed up.</summary>
+    /// <summary>Add Visitor tab: how many visitors (and how many men and women) came to the service, altar calls, and visitors per recent service.</summary>
     public async Task<RolePanelData> GetVisitorAddAsync(DateTime? chosenService = null, CancellationToken ct = default)
     {
         var today = AppClock.Today;
@@ -166,6 +149,23 @@ public sealed class RoleStatsService(
         bool FollowedUp(VisitorAttendanceModel a) => visitors.TryGetValue(a.flngVisitorKey, out var v) && v.fdtmLastContactDate is { } c && c.Date >= a.fdtmServiceDate.Date;
         var followedUp = altar.Count(FollowedUp);
 
+        // Each visitor counts once for the service, whatever their age
+        var visitorKeys = atService.Select(a => a.flngVisitorKey).Distinct().ToList();
+        bool IsGender(Guid key, string gender) => string.Equals(visitors[key].fstrGender, gender, StringComparison.OrdinalIgnoreCase);
+        var maleCount = visitorKeys.Count(k => IsGender(k, "Male"));
+        var femaleCount = visitorKeys.Count(k => IsGender(k, "Female"));
+
+        // The services in the month of the chosen service (up to today), newest first, with zero for a service nobody was recorded at
+        var serviceDates = (await __serviceRepo.SelectService(cancellationToken: ct))
+            .Select(s => s.fdtmServiceDate.Date)
+            .Where(d => d <= today && d.Year == serviceDate.Year && d.Month == serviceDate.Month)
+            .Distinct().OrderByDescending(d => d).ToList();
+        var perService = serviceDates.Select(date =>
+        {
+            var keys = attendance.Where(a => a.fdtmServiceDate.Date == date).Select(a => a.flngVisitorKey).Distinct().ToList();
+            return new ServiceCount(date.ToString("ddd d MMM"), keys.Count, keys.Count(k => IsGender(k, "Male")), keys.Count(k => IsGender(k, "Female")));
+        }).ToList();
+
         var attention = altar.Where(a => !FollowedUp(a))
             .Select(a => new AttentionItem($"{a.VisitorName} - altar call, not followed up", DaysText((today - a.fdtmServiceDate.Date).Days), true)).Take(4).ToList();
         attention.AddRange(atService.Select(a => a.flngVisitorKey).Distinct()
@@ -177,12 +177,17 @@ public sealed class RoleStatsService(
             Title = "Visitor",
             Tiles =
             [
-                new("Altar calls followed up", followedUp.ToString()),
-                new("Altar calls waiting", (altar.Count - followedUp).ToString(), altar.Count - followedUp > 0)
+                new("Visitors at this service", visitorKeys.Count.ToString()),
+                new("Altar calls waiting", (altar.Count - followedUp).ToString(), altar.Count - followedUp > 0),
+                new("Male", maleCount.ToString()),
+                new("Female", femaleCount.ToString())
             ],
             Highlight = new("New this month - first-time visitors since 1 " + monthStart.ToString("MMM"), newThisMonth.ToString()),
             Bars = [new("Altar calls followed up", followedUp, altar.Count)],
-            Attention = attention
+            Attention = attention,
+            PerService = perService,
+            PerServiceTitle = "Visitors per service - " + serviceDate.ToString("MMMM"),
+            PerServiceTotal = new ServiceCount(serviceDate.ToString("MMMM") + " total", perService.Sum(x => x.Total), perService.Sum(x => x.Male), perService.Sum(x => x.Female))
         };
     }
 
@@ -465,54 +470,6 @@ public sealed class RoleStatsService(
             Attention = attention
         };
     }
-
-    #endregion
-
-    #region Team lead (My team)
-
-    /// <summary>The departments this member leads, each with the members' attendance over the last four services and the last contact.</summary>
-    public async Task<List<TeamData>> GetMyTeamsAsync(Guid memberKey, CancellationToken ct = default)
-    {
-        var mine = (await __memberDepartmentRepo.SelectMemberDepartment(memberKey: memberKey, cancellationToken: ct)).Where(l => l.fblnLead).ToList();
-        if (mine.Count == 0) return [];
-
-        var today = AppClock.Today;
-        var services = (await __serviceRepo.SelectService(toDate: today, cancellationToken: ct))
-            .Where(s => s.fdtmServiceDate.Date <= today).OrderByDescending(s => s.fdtmServiceDate).Take(4).Reverse().ToList();
-        var attendance = await __memberAttendanceRepo.SelectMemberAttendance(cancellationToken: ct);
-        var lastContact = (await __contactRepo.SelectPastoralContact(cancellationToken: ct))
-            .GroupBy(c => c.flngMemberKey).ToDictionary(g => g.Key, g => g.Max(c => c.fdtmContactDate));
-        var departments = (await __departmentRepo.SelectDepartment(cancellationToken: ct)).ToDictionary(x => x.flngKey);
-
-        var teams = new List<TeamData>();
-        foreach (var link in mine)
-        {
-            var members = await __memberRepo.SelectMember(membershipStatus: "Active", departmentKey: link.flngDepartmentKey, cancellationToken: ct);
-            var rows = new List<TeamMemberRow>();
-            foreach (var m in members)
-            {
-                var present = services.Select(s => attendance.Any(a => a.flngMemberKey == m.flngKey && a.flngServiceKey == s.flngKey)).ToArray();
-                lastContact.TryGetValue(m.flngKey, out var last);
-                DateTime? lastDate = last == default ? null : last;
-                var missedThree = present.Length >= 3 && present.TakeLast(3).All(p => !p);
-                var longSince = lastDate is null || (today - lastDate.Value.Date).Days > 30;
-                rows.Add(new TeamMemberRow(m.FullName, present, lastDate, missedThree || (longSince && present.Length > 0 && !present[^1])));
-            }
-
-            teams.Add(new TeamData
-            {
-                DepartmentKey = link.flngDepartmentKey,
-                DepartmentName = departments.TryGetValue(link.flngDepartmentKey, out var dept) ? dept.fstrName : link.fstrDepartmentName ?? "Team",
-                PresentLastSunday = rows.Count(r => r.Attended.Length > 0 && r.Attended[^1]),
-                MissedThree = rows.Count(r => r.Attended.Length >= 3 && r.Attended.TakeLast(3).All(p => !p)),
-                Members = rows
-            });
-        }
-        return teams;
-    }
-
-    /// <summary>Shown as "9 days ago" in the table.</summary>
-    public static string Ago(DateTime? date) => AgoText(date);
 
     #endregion
 }

@@ -3,6 +3,7 @@
 @inject IVisitorRepository VisitorRepo
 @inject IVisitorAttendanceRepository AttendanceRepo
 @inject IVisitorNoteRepository NoteRepo
+@inject IMessageTemplateRepository TemplateRepo
 
 <ToastBar Toast="__toast" />
 
@@ -36,9 +37,18 @@
 <div class="card">
     <h2><span class="h2-ico"><Icon Name="edit" Size="20" Stroke="1.6" /></span>Messages</h2>
     <p class="hint" style="margin-top:0">Use {name}, {date}, {next} and {sender}; they are filled in for each visitor.</p>
-    <div class="field"><label>First visit</label><textarea rows="5" @bind="__firstTemplate" @bind:event="oninput"></textarea></div>
-    <div class="field"><label>Returning (2nd visit)</label><textarea rows="5" @bind="__returnTemplate" @bind:event="oninput"></textarea></div>
-    <div class="field"><label>Returning (3rd visit onward, invites to membership class or a cell group)</label><textarea rows="6" @bind="__thirdTemplate" @bind:event="oninput"></textarea></div>
+    <div class="field"><label>First visit</label><textarea rows="5" maxlength="@MessageTemplateCodes.MaxLength" @bind="__firstTemplate" @bind:event="oninput"></textarea></div>
+    <div class="field"><label>Returning (2nd visit)</label><textarea rows="5" maxlength="@MessageTemplateCodes.MaxLength" @bind="__returnTemplate" @bind:event="oninput"></textarea></div>
+    <div class="field"><label>Returning (3rd visit onward, invites to membership class or a cell group)</label><textarea rows="6" maxlength="@MessageTemplateCodes.MaxLength" @bind="__thirdTemplate" @bind:event="oninput"></textarea></div>
+    <div class="ty-save">
+        <button class="btn btn-primary btn-sm" disabled="@(__saving || !TemplatesChanged)" @onclick="SaveTemplatesAsync">Save messages</button>
+        <button class="btn btn-sm" disabled="@(__saving || !DiffersFromStandard)" @onclick="ResetTemplates">Reset to standard wording</button>
+        @if (TemplatesChanged) { <span class="hint">Unsaved changes</span> }
+    </div>
+    @if (__savedOn is not null)
+    {
+        <p class="hint" style="margin:.7rem 0 0">Last saved by @__savedBy, @__savedOn.Value.ToString("d MMM HH:mm"). Everyone who sends thank-yous uses these messages.</p>
+    }
 </div>
 
 <div class="card">
@@ -91,7 +101,7 @@
                                 <span class="ty-bad">&#10005; Not sent - call instead</span>
                                 <small class="ty-by">Marked @r.FailedOn.Value.ToString("dd MMM") by @r.FailedBy</small>
                             }
-                            else if (r.ThankedOn.HasValue) { <span class="ty-ok">&#10003; Thanked by @r.ThankedBy, @r.ThankedOn.Value.ToString("dd MMM")</span> }
+                            else if (r.ThankedOn.HasValue) { <span class="ty-ok" title="Thanked @r.ThankedOn.Value.ToString("dd MMM")">&#10003; @r.ThankedBy</span> }
                             else { <text>-</text> }
                         </td>
                         <td>
@@ -133,6 +143,13 @@
     private string __returnTemplate = $"Hello {{name}}, it was so good to see you again on {{date}}! {char.ToUpper(Behalf[0])}{Behalf[1..]}, thank you for worshipping with us again. We are glad you are growing with us.{{next}} If there is anything we can pray about with you, or if you would like to know more about becoming part of the church family, just reply to this message. God bless you.\n{{sender}}, {Team}";
     private string __thirdTemplate = $"Hello {{name}}, it was so good to see you again on {{date}}! {char.ToUpper(Behalf[0])}{Behalf[1..]}, thank you for worshipping with us again. We are glad you are growing with us.{{next}} We would love to invite you to our membership class, or to join a cell group, so you can connect more closely with the church family. Just reply to this message and we will share the details. God bless you.\n{{sender}}, {Team}";
 
+    // What the boxes held when they were last loaded or saved, and the built-in wording to go back to
+    private string __savedFirst = string.Empty, __savedReturn = string.Empty, __savedThird = string.Empty;
+    private string __standardFirst = string.Empty, __standardReturn = string.Empty, __standardThird = string.Empty;
+    private string? __savedBy;
+    private DateTime? __savedOn;
+    private bool __saving;
+
     private sealed class Row
     {
         public VisitorModel Visitor { get; set; } = new();
@@ -154,6 +171,7 @@
     {
         try
         {
+            await LoadTemplatesAsync();
             __all = (await ServiceRepo.SelectService(cancellationToken: __cts.Token)).OrderBy(s => s.fdtmServiceDate).ToList();
             __past = __all.Where(s => s.fdtmServiceDate.Date <= AppClock.Today).OrderByDescending(s => s.fdtmServiceDate).ToList();
             if (__past.Count > 0)
@@ -166,6 +184,92 @@
     }
 
     public void Dispose() { __cts.Cancel(); __cts.Dispose(); }
+
+    #endregion
+
+    #region Saved messages
+
+    /// <summary>True when the boxes hold wording that has not been saved yet.</summary>
+    private bool TemplatesChanged => __firstTemplate != __savedFirst || __returnTemplate != __savedReturn || __thirdTemplate != __savedThird;
+
+    /// <summary>True when the boxes are not the built-in wording.</summary>
+    private bool DiffersFromStandard => __firstTemplate != __standardFirst || __returnTemplate != __standardReturn || __thirdTemplate != __standardThird;
+
+    /// <summary>Remembers the built-in wording, then replaces it with whatever was saved before (if anything).</summary>
+    private async Task LoadTemplatesAsync()
+    {
+        __standardFirst = __firstTemplate;
+        __standardReturn = __returnTemplate;
+        __standardThird = __thirdTemplate;
+
+        try
+        {
+            var saved = await TemplateRepo.SelectMessageTemplate(cancellationToken: __cts.Token);
+            string Pick(string code, string fallback) => saved.FirstOrDefault(t => t.fstrCode == code)?.fstrText ?? fallback;
+
+            __firstTemplate = Pick(MessageTemplateCodes.ThankFirst, __firstTemplate);
+            __returnTemplate = Pick(MessageTemplateCodes.ThankSecond, __returnTemplate);
+            __thirdTemplate = Pick(MessageTemplateCodes.ThankThird, __thirdTemplate);
+
+            var latest = saved.OrderByDescending(t => t.fdtmWhen).FirstOrDefault();
+            __savedBy = latest?.fstrWho;
+            __savedOn = latest?.fdtmWhen;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { /* the built-in wording is used when the saved messages cannot be read */ }
+
+        RememberSaved();
+    }
+
+    private void RememberSaved()
+    {
+        __savedFirst = __firstTemplate;
+        __savedReturn = __returnTemplate;
+        __savedThird = __thirdTemplate;
+    }
+
+    private async Task SaveTemplatesAsync()
+    {
+        if (__saving) return;
+
+        if (string.IsNullOrWhiteSpace(__firstTemplate) || string.IsNullOrWhiteSpace(__returnTemplate) || string.IsNullOrWhiteSpace(__thirdTemplate))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Each message needs some text before it can be saved" };
+            return;
+        }
+
+        __saving = true;
+        try
+        {
+            var who = AppConstants.Who;
+            __toast = await TemplateRepo.SaveMessageTemplates(
+            [
+                new() { fstrCode = MessageTemplateCodes.ThankFirst, fstrText = __firstTemplate.Trim() },
+                new() { fstrCode = MessageTemplateCodes.ThankSecond, fstrText = __returnTemplate.Trim() },
+                new() { fstrCode = MessageTemplateCodes.ThankThird, fstrText = __thirdTemplate.Trim() }
+            ], who, __cts.Token);
+
+            if (__toast.IsSuccess)
+            {
+                __firstTemplate = __firstTemplate.Trim();
+                __returnTemplate = __returnTemplate.Trim();
+                __thirdTemplate = __thirdTemplate.Trim();
+                RememberSaved();
+                __savedBy = who;
+                __savedOn = AppClock.Now;
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally { __saving = false; }
+    }
+
+    /// <summary>Puts the built-in wording back in the boxes. It is only saved when Save messages is pressed.</summary>
+    private void ResetTemplates()
+    {
+        __firstTemplate = __standardFirst;
+        __returnTemplate = __standardReturn;
+        __thirdTemplate = __standardThird;
+    }
 
     #endregion
 

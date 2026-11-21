@@ -43,6 +43,21 @@
             }
         </div>
 
+        @if (__data.PerService.Count > 0)
+        {
+        <div class="side-card">
+            <h3><span class="h2-ico"><Icon Name="church" Size="22" Stroke="1.6" /></span>@__data.PerServiceTitle</h3>
+            @foreach (var s in __data.PerService)
+            {
+                <div class="side-li"><span>@s.Label<small class="side-sub">@s.Male male &middot; @s.Female female</small></span><span class="side-tag">@s.Total</span></div>
+            }
+            @if (__data.PerServiceTotal is { } sum)
+            {
+                <div class="side-li"><span><b>@sum.Label</b><small class="side-sub">@sum.Male male &middot; @sum.Female female</small></span><span class="side-tag">@sum.Total</span></div>
+            }
+        </div>
+        }
+
         @if (Data is null || __data.Attention.Count > 0)
         {
         <div class="side-card">
