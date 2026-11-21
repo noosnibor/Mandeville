@@ -26,38 +26,19 @@ public sealed class RolePanelData
     public List<AttentionItem> Attention { get; init; } = [];
 }
 
-/// <summary>One member in a team lead's "My team" table.</summary>
-public sealed record TeamMemberRow(string Name, bool[] Attended, DateTime? LastContact, bool FollowUp);
-
-/// <summary>A department the signed-in person leads, with its members' activity.</summary>
-public sealed class TeamData
-{
-    public Guid DepartmentKey { get; init; }
-    public string DepartmentName { get; init; } = string.Empty;
-    public int PresentLastSunday { get; init; }
-    public int MissedThree { get; init; }
-    public List<TeamMemberRow> Members { get; init; } = [];
-}
-
 #endregion
 
 /// <summary>
-/// Works out the numbers shown in the side panel on the Visitors, Connections and Prayerline and Pastoral Care pages,
-/// and the "My team" section for team leads. Everything is calculated from data the app already keeps.
+/// Works out the numbers shown in the side panel on the Visitors, Connections and Prayerline and Pastoral Care pages.
+/// Everything is calculated from data the app already keeps.
 /// </summary>
 public sealed class RoleStatsService(
     IServiceRepository serviceRepo,
     IVisitorRepository visitorRepo,
     IVisitorAttendanceRepository visitorAttendanceRepo,
     IVisitorNoteRepository noteRepo,
-    ICelebrationRepository celebrationRepo,
     IPastoralAssignmentRepository assignmentRepo,
-    IPastoralContactRepository contactRepo,
-    IMemberAttendanceRepository memberAttendanceRepo,
-    IMemberDepartmentRepository memberDepartmentRepo,
-    IMemberRepository memberRepo,
-    IDepartmentRepository departmentRepo,
-    IConfiguration configuration)
+    IPastoralContactRepository contactRepo)
 {
     #region Private Fields
 
@@ -65,14 +46,8 @@ public sealed class RoleStatsService(
     private readonly IVisitorRepository __visitorRepo = visitorRepo;
     private readonly IVisitorAttendanceRepository __visitorAttendanceRepo = visitorAttendanceRepo;
     private readonly IVisitorNoteRepository __noteRepo = noteRepo;
-    private readonly ICelebrationRepository __celebrationRepo = celebrationRepo;
     private readonly IPastoralAssignmentRepository __assignmentRepo = assignmentRepo;
     private readonly IPastoralContactRepository __contactRepo = contactRepo;
-    private readonly IMemberAttendanceRepository __memberAttendanceRepo = memberAttendanceRepo;
-    private readonly IMemberDepartmentRepository __memberDepartmentRepo = memberDepartmentRepo;
-    private readonly IMemberRepository __memberRepo = memberRepo;
-    private readonly IDepartmentRepository __departmentRepo = departmentRepo;
-    private readonly IConfiguration __configuration = configuration;
 
     #endregion
 
@@ -465,54 +440,6 @@ public sealed class RoleStatsService(
             Attention = attention
         };
     }
-
-    #endregion
-
-    #region Team lead (My team)
-
-    /// <summary>The departments this member leads, each with the members' attendance over the last four services and the last contact.</summary>
-    public async Task<List<TeamData>> GetMyTeamsAsync(Guid memberKey, CancellationToken ct = default)
-    {
-        var mine = (await __memberDepartmentRepo.SelectMemberDepartment(memberKey: memberKey, cancellationToken: ct)).Where(l => l.fblnLead).ToList();
-        if (mine.Count == 0) return [];
-
-        var today = AppClock.Today;
-        var services = (await __serviceRepo.SelectService(toDate: today, cancellationToken: ct))
-            .Where(s => s.fdtmServiceDate.Date <= today).OrderByDescending(s => s.fdtmServiceDate).Take(4).Reverse().ToList();
-        var attendance = await __memberAttendanceRepo.SelectMemberAttendance(cancellationToken: ct);
-        var lastContact = (await __contactRepo.SelectPastoralContact(cancellationToken: ct))
-            .GroupBy(c => c.flngMemberKey).ToDictionary(g => g.Key, g => g.Max(c => c.fdtmContactDate));
-        var departments = (await __departmentRepo.SelectDepartment(cancellationToken: ct)).ToDictionary(x => x.flngKey);
-
-        var teams = new List<TeamData>();
-        foreach (var link in mine)
-        {
-            var members = await __memberRepo.SelectMember(membershipStatus: "Active", departmentKey: link.flngDepartmentKey, cancellationToken: ct);
-            var rows = new List<TeamMemberRow>();
-            foreach (var m in members)
-            {
-                var present = services.Select(s => attendance.Any(a => a.flngMemberKey == m.flngKey && a.flngServiceKey == s.flngKey)).ToArray();
-                lastContact.TryGetValue(m.flngKey, out var last);
-                DateTime? lastDate = last == default ? null : last;
-                var missedThree = present.Length >= 3 && present.TakeLast(3).All(p => !p);
-                var longSince = lastDate is null || (today - lastDate.Value.Date).Days > 30;
-                rows.Add(new TeamMemberRow(m.FullName, present, lastDate, missedThree || (longSince && present.Length > 0 && !present[^1])));
-            }
-
-            teams.Add(new TeamData
-            {
-                DepartmentKey = link.flngDepartmentKey,
-                DepartmentName = departments.TryGetValue(link.flngDepartmentKey, out var dept) ? dept.fstrName : link.fstrDepartmentName ?? "Team",
-                PresentLastSunday = rows.Count(r => r.Attended.Length > 0 && r.Attended[^1]),
-                MissedThree = rows.Count(r => r.Attended.Length >= 3 && r.Attended.TakeLast(3).All(p => !p)),
-                Members = rows
-            });
-        }
-        return teams;
-    }
-
-    /// <summary>Shown as "9 days ago" in the table.</summary>
-    public static string Ago(DateTime? date) => AgoText(date);
 
     #endregion
 }

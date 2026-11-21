@@ -59,7 +59,7 @@ public class AccountService(IAppUserRepository userRepo, IRoleRepository roleRep
     }
 
     /// <summary>
-    /// The cookie identity for an account: who they are, plus the pages, tabs and "own records only" settings of their role.
+    /// The cookie identity for an account: who they are, plus the pages, tabs and "own records only" settings of their role (or roles).
     /// These are copied into the cookie (signed and encrypted) at sign-in, so nothing has to be looked up on every click.
     /// </summary>
     public async Task<ClaimsPrincipal> CreatePrincipalAsync(AppUserModel user, CancellationToken cancellationToken = default)
@@ -69,20 +69,12 @@ public class AccountService(IAppUserRepository userRepo, IRoleRepository roleRep
             new(ClaimTypes.NameIdentifier, user.flngKey.ToString()),
             new(ClaimTypes.Name, user.fstrDisplayName),
             new(ClaimTypes.Email, user.fstrEmail),
-            new(ClaimTypes.Role, user.fstrRole),
         };
         if (user.flngMemberKey is Guid memberKey) claims.Add(new Claim(AppClaims.MemberKey, memberKey.ToString()));
         if (user.fblnMustChangePassword) claims.Add(new Claim(AppClaims.MustChange, "1"));
 
-        var role = (await __roleRepo.SelectRole(name: user.fstrRole, cancellationToken: cancellationToken)).FirstOrDefault();
-        claims.Add(new Claim(AppClaims.RoleLabel, role?.fstrLabel ?? AppRoles.Label(user.fstrRole)));
-
-        // The Administrator is allowed everything by rule, so only other roles carry page claims
-        if (user.fstrRole != AppRoles.Administrator)
-        {
-            var permissions = await __roleRepo.SelectRolePermission(roleName: user.fstrRole, cancellationToken: cancellationToken);
-            claims.AddRange(AccessClaims.Build(permissions));
-        }
+        // Role claims, the combined label and the combined page access of every role the person has
+        claims.AddRange(await RoleAccess.BuildClaimsAsync(__roleRepo, user.GetAllRoles(), cancellationToken));
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Cookies", ClaimTypes.Name, ClaimTypes.Role));
     }

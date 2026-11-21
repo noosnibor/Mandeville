@@ -66,6 +66,7 @@ public class AppUserRepository(IDataAccess dataAccess) : IAppUserRepository
             parameters.Add("@fstrDisplayName", obj.fstrDisplayName?.Trim());
             parameters.Add("@fstrPasswordHash", obj.fstrPasswordHash);
             parameters.Add("@fstrRole", obj.fstrRole);
+            parameters.Add("@fstrExtraRoles", string.IsNullOrWhiteSpace(obj.fstrExtraRoles) ? null : obj.fstrExtraRoles.Trim());
             parameters.Add("@flngMemberKey", obj.flngMemberKey);
             parameters.Add("@fblnMustChangePassword", obj.fblnMustChangePassword);
             parameters.Add("@fblnActive", obj.fblnActive);
