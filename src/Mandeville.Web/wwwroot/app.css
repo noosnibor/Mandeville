@@ -2044,8 +2044,3 @@ select, .mfilter select, .field select, .table select, .card select, .icon-field
 .ref-actions { display: flex; justify-content: flex-end; margin-top: .6rem; }
 .ref-save { width: auto; padding: .75rem 1.8rem; }
 @media (max-width: 768px) { .ref-row { flex-wrap: wrap; } .ref-pick { width: 100%; } }
-
-/* ===== 20. WAFIF Connection HQ Log button ===== */
-.cl-formbtn { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; padding: .65rem 1.1rem; border-radius: 999px; background: var(--brand); color: #fff; font-weight: 700; font-size: .88rem; text-decoration: none; box-shadow: 0 10px 20px -12px var(--brand); }
-.cl-formbtn:hover { filter: brightness(1.07); }
-@media (max-width: 768px) { .cl-formbtn { width: 100%; justify-content: center; margin-left: 0; } }
