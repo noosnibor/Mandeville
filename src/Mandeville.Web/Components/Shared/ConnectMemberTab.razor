@@ -4,6 +4,7 @@
 @inject IVisitorAttendanceRepository AttendanceRepo
 @inject IMemberRepository MemberRepo
 @inject IDepartmentRepository DepartmentRepo
+@inject IConfiguration Configuration
 
 <ToastBar Toast="__toast" />
 
@@ -16,6 +17,17 @@
             @foreach (var m in __team) { <option value="@m.flngKey">@m.FullName</option> }
         </select>
         <span class="cl-note"><Icon Name="info" Size="16" Stroke="1.6" />A team member only sees their own list when they sign in.</span>
+        @if (__formUrl is not null)
+        {
+            <a class="cl-formbtn" href="@__formUrl" target="_blank" rel="noopener noreferrer"><Icon Name="note" Size="16" Stroke="1.8" />WAFIF Connection HQ Log<span aria-hidden="true">&nearr;</span></a>
+        }
+    </div>
+}
+else if (__formUrl is not null)
+{
+    @* The WAFIF Connection HQ Log button for a team member (no picker). It opens the Google Form in a new tab. *@
+    <div class="cl-line">
+        <a class="cl-formbtn" href="@__formUrl" target="_blank" rel="noopener noreferrer"><Icon Name="note" Size="16" Stroke="1.8" />WAFIF Connection HQ Log<span aria-hidden="true">&nearr;</span></a>
     </div>
 }
 
@@ -143,10 +155,16 @@ else
     private string? __newNote;
     private ToastMessageModel? __toast;
 
+    /// <summary>The Google Form address from the app settings (Church:ConnectionFormUrl); null when it is not set or not a web address.</summary>
+    private string? __formUrl;
+
     #endregion
 
     protected override async Task OnInitializedAsync()
     {
+        var url = Configuration["Church:ConnectionFormUrl"];
+        __formUrl = Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var formUri) && formUri.Scheme == Uri.UriSchemeHttps ? formUri.AbsoluteUri : null;
+
         if (CanPick)
         {
             var departments = await DepartmentRepo.SelectDepartment(active: true, cancellationToken: __cts.Token);
@@ -207,6 +225,7 @@ else
             var reason = visits.Where(a => !string.IsNullOrWhiteSpace(a.fstrAltarReason))
                                .OrderByDescending(a => a.fdtmServiceDate).Select(a => a.fstrAltarReason).FirstOrDefault();
             if (reason is not null) __reasons[v.flngKey] = FixedLists.IsMembershipReason(reason) ? "Membership" : reason;
+            else if (!string.IsNullOrWhiteSpace(v.fstrReferralReason)) __reasons[v.flngKey] = FixedLists.IsMembershipReason(v.fstrReferralReason) ? "Membership" : v.fstrReferralReason; // referred by Member care
         }
     }
 

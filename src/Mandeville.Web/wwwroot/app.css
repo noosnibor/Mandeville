@@ -2015,3 +2015,37 @@ select, .mfilter select, .field select, .table select, .card select, .icon-field
 /* Thank-you messages: the Save / Reset row under the message boxes */
 .ty-save { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .4rem; }
 .ty-save .hint { margin: 0; }
+
+/* ===== 18. Visitors: note count ===== */
+.note-count { margin-left: .4rem; font-size: .72rem; font-weight: 600; color: var(--muted); display: inline-flex; align-items: center; gap: .2rem; vertical-align: middle; }
+
+/* ===== 19. Member care referrals ===== */
+.ref-card h4, .ref-lead h2 { display: flex; align-items: center; gap: .6rem; }
+.ref-ico { width: 2rem; height: 2rem; border-radius: .7rem; background: var(--brand-soft, var(--surface-2)); color: var(--brand); display: inline-grid; place-items: center; flex: none; }
+.ref-sub { margin: .1rem 0 .9rem; color: var(--muted); font-size: .85rem; }
+.ref-select, .ref-pick { width: 100%; border-radius: .95rem; padding: .75rem .9rem; }
+.ref-select { margin-bottom: 1rem; }
+.ref-go { width: 100%; border: 0; border-radius: .95rem; padding: .8rem; background: var(--brand); color: #fff; font-weight: 700; font-size: .92rem; cursor: pointer; box-shadow: 0 10px 20px -10px var(--brand); }
+.ref-go:hover { filter: brightness(1.06); }
+.ref-status { display: flex; align-items: center; gap: .75rem; background: var(--surface-2); border-radius: 1.1rem; padding: .8rem .9rem; margin-top: .6rem; }
+.ref-status > div { flex: 1; min-width: 0; }
+.ref-status b { display: block; font-size: .9rem; }
+.ref-status small { color: var(--muted); }
+.ref-dot { width: 2.2rem; height: 2.2rem; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.ref-status.wait .ref-dot { background: var(--warn-soft); color: var(--warn-ink); }
+.ref-status.done .ref-dot { background: var(--ok-soft); color: var(--ok-ink); }
+.ref-count { margin-left: auto; }
+.ref-row { display: flex; align-items: center; gap: .9rem; padding: .9rem; border-radius: 1.2rem; background: var(--surface-2); margin-bottom: .6rem; }
+.ref-who { flex: 1; min-width: 9rem; }
+.ref-who b { display: block; }
+.ref-who small { color: var(--muted); }
+.ref-tag { padding: .25rem .65rem; border-radius: 999px; background: var(--brand-soft, var(--surface)); color: var(--brand); font-weight: 600; font-size: .74rem; white-space: nowrap; }
+.ref-pick { width: 12.5rem; flex: none; padding: .55rem .8rem; border-radius: .85rem; }
+.ref-actions { display: flex; justify-content: flex-end; margin-top: .6rem; }
+.ref-save { width: auto; padding: .75rem 1.8rem; }
+@media (max-width: 768px) { .ref-row { flex-wrap: wrap; } .ref-pick { width: 100%; } }
+
+/* ===== 20. WAFIF Connection HQ Log button ===== */
+.cl-formbtn { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; padding: .65rem 1.1rem; border-radius: 999px; background: var(--brand); color: #fff; font-weight: 700; font-size: .88rem; text-decoration: none; box-shadow: 0 10px 20px -12px var(--brand); }
+.cl-formbtn:hover { filter: brightness(1.07); }
+@media (max-width: 768px) { .cl-formbtn { width: 100%; justify-content: center; margin-left: 0; } }

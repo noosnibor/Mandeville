@@ -34,6 +34,12 @@ public class VisitorModel
     public string? fstrWho { get; set; }
     public DateTime? fdtmWhen { get; set; }
 
+    /// <summary>Set when Member care refers the visitor to the connection team lead (for example Membership). Null when not referred.</summary>
+    public string? fstrReferralReason { get; set; }
+
+    /// <summary>The day the referral was made.</summary>
+    public DateTime? fdtmReferralDate { get; set; }
+
     #endregion
 
     #region Read-only (joined / calculated)
