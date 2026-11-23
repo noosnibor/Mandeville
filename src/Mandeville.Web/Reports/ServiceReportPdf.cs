@@ -7,7 +7,7 @@ namespace Mandeville.Web.Reports;
 /// <summary>Draws a <see cref="ServiceReport"/> as a one-page A4 PDF.</summary>
 public static class ServiceReportPdf
 {
-    private const string Teal = "#0f766e";
+    private const string Teal = "#1670d6";
     private const string Ink = "#12151c";
     private const string Muted = "#667085";
     private const string Line = "#e4e7ec";

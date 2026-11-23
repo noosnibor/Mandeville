@@ -18,18 +18,18 @@
 
 <PageBanner Title="Member Management" Subtitle="A complete overview of your members and their attendance" Icon="users" />
 
-<div class="tabs">
+<div class="tabs tabs-seg">
     @if (__tabList)
     {
-        <button class="tab @(__tab == "list" ? "active" : "")" @onclick='() => __tab = "list"'><Icon Name="users" Size="18" />Member list</button>
+        <button class="tab @(__tab == "list" ? "active" : "")" @onclick='() => ShowTab("list")'><Icon Name="users" Size="18" />Member list</button>
     }
     @if (__tabAttendance)
     {
-        <button class="tab @(__tab == "attendance" ? "active" : "")" @onclick='() => __tab = "attendance"'><Icon Name="calendar" Size="18" />Attendance</button>
+        <button class="tab @(__tab == "attendance" ? "active" : "")" @onclick='() => ShowTab("attendance")'><Icon Name="calendar" Size="18" />Attendance</button>
     }
     @if (__tabCelebrations)
     {
-        <button class="tab @(__tab == "celebrations" ? "active" : "")" @onclick='OpenCelebrationsAsync'><Icon Name="gift" Size="18" />Celebrations@(__celebrationCount > 0 ? $" ({__celebrationCount})" : "")</button>
+        <button class="tab @(__tab == "celebrations" ? "active" : "")" @onclick='OpenCelebrationsAsync'><Icon Name="gift" Size="18" />Celebrations @if (__celebrationCount > 0) { <span class="tab-count">@__celebrationCount</span> }</button>
     }
 </div>
 
@@ -46,7 +46,7 @@ else
     <ToastBar Toast="__toast" />
 
     @* ---------- Summary strip ---------- *@
-    <div class="mstrip">
+    <div class="mstrip mstrip-members">
         <div class="mstrip-total"><Icon Name="users" Size="18" Stroke="1.6" /><b>@__members.Count</b><span>Members shown</span></div>
         @foreach (var bar in Bars())
         {
@@ -55,11 +55,12 @@ else
     </div>
 
     @* ---------- Filters ---------- *@
-    <div class="mfilter">
+    <div class="mfilter mfilter-members">
         <label class="mfilter-search">
             <Icon Name="search" Size="18" Stroke="1.5" />
-            <input type="text" placeholder="Search name or email..." aria-label="Search name or email" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
+            <input type="text" placeholder="Search members" aria-label="Search by name, email, type, assignment or status" value="@__search" @oninput="OnSearchInput" @onkeydown="OnSearchKey" />
         </label>
+        <small class="mfilter-hint">Name, email, type, assignment or status</small>
         <select @bind="__filterType" aria-label="Member type">
             <option value="">All types</option>
             @foreach (var t in __types) { <option value="@t.flngKey">@t.fstrName</option> }
@@ -82,7 +83,7 @@ else
         var items = PageItems();
         var first = __members.IndexOf(items[0]);
         <div class="mtable-wrap">
-            <table class="mtable">
+            <table class="mtable mtable-members">
                 <thead>
                     <tr><th class="n">#</th><th>Member</th><th>Email</th><th>Assignment</th><th>Carer</th><th>Status</th><th class="r">Actions</th></tr>
                 </thead>
@@ -224,7 +225,7 @@ else
     @* ---------- Add / edit popup ---------- *@
     @if (__edit is not null)
     {
-        <Modal Title="@(__isNew ? "Add member" : "Edit member")" Subtitle="@(__isNew ? "Fill in their details to add them to the group" : "Update their details")" Icon="userplus" OnClose="() => __edit = null">
+        <Modal Title="@(__isNew ? "Add member" : "Edit member")" Subtitle="@(__isNew ? "Fill in their details to add them to the group" : "Update their details")" Icon="userplus" CssClass="mem-edit" OnClose="() => __edit = null">
             <ChildContent>
                 <div class="modal-sec">Personal</div>
                 <div class="form-grid">
@@ -341,7 +342,7 @@ else
 
                 <div class="modal-sec">Pastoral care</div>
                 <div class="check-list">
-                    <label><input type="checkbox" @bind="__edit.fblnCoreMember" /> Core member (can be given members to care for)</label>
+                    <label><input type="checkbox" @bind="__edit.fblnCoreMember" /> Core member</label>
                 </div>
 
                 <div class="modal-sec">Notes</div>
@@ -369,6 +370,8 @@ else
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     private bool __tabList = true, __tabAttendance = true, __tabCelebrations = true;
     private List<MemberModel> __members = [];
+    /// <summary>Members loaded for the chosen type, assignment and status, before the search text is applied.</summary>
+    private List<MemberModel> __source = [];
     private List<MemberTypeModel> __types = [];
     private List<ServiceAssignmentModel> __assignments = [];
     private List<DepartmentModel> __departments = [];
@@ -434,15 +437,42 @@ else
 
     private async Task LoadAsync()
     {
-        __members = await MemberRepo.SelectMember(
+        __source = await MemberRepo.SelectMember(
             memberTypeKey: __filterType,
             serviceAssignmentKey: __filterAssignment,
             membershipStatus: string.IsNullOrEmpty(__filterStatus) ? null : __filterStatus,
-            search: string.IsNullOrWhiteSpace(__search) ? null : __search.Trim(),
             cancellationToken: __cts.Token);
 
+        ApplySearch();
+    }
+
+    /// <summary>
+    /// Filters the loaded members by the search text. The text is matched against the name, email,
+    /// member type, assignment and status, so one box can find a member any of those ways.
+    /// </summary>
+    private void ApplySearch()
+    {
+        var text = __search?.Trim();
+        IEnumerable<MemberModel> list = __source;
+
+        if (!string.IsNullOrEmpty(text))
+        {
+            bool Has(string? value) => value?.Contains(text, StringComparison.OrdinalIgnoreCase) == true;
+            list = list.Where(m => Has(m.DisplayName) || Has(m.FullName) || Has(m.fstrEmailAddress)
+                                   || Has(m.fstrMemberTypeName) || Has(m.fstrServiceAssignmentName)
+                                   || Has(m.fstrMembershipStatus));
+        }
+
         // Names are shown as "First Last", so the list is ordered A to Z the same way
-        __members = ByName(__members);
+        __members = ByName(list);
+    }
+
+    /// <summary>Filters the list as the person types, so no button press is needed.</summary>
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        __search = e.Value?.ToString();
+        __page = 1;
+        ApplySearch();
     }
 
     /// <summary>Orders members A to Z by the name that is shown (first name, then last name).</summary>
@@ -464,8 +494,18 @@ else
 
     private async Task OpenCelebrationsAsync()
     {
-        __tab = "celebrations";
+        ShowTab("celebrations");
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Switches tab. The last alert is cleared first, so a message that was already shown is not shown again
+    /// (the alert popup would replay) when the person comes back to the Member list.
+    /// </summary>
+    private void ShowTab(string tab)
+    {
+        __toast = null;
+        __tab = tab;
     }
 
     private async Task OnSearchKey(KeyboardEventArgs e)
@@ -497,7 +537,7 @@ else
     /// <summary>The four bars: active, inactive, male, female (for the members currently shown).</summary>
     private List<BarItem> Bars() =>
     [
-        new("Active", __members.Count(m => m.fstrMembershipStatus == "Active"), "#2dd4bf", "#0d9488"),
+        new("Active", __members.Count(m => m.fstrMembershipStatus == "Active"), "#4ea1ff", "#1670d6"),
         new("Inactive", __members.Count(m => m.fstrMembershipStatus == "Inactive"), "#b9c4d9", "#8b99b3"),
         new("Male", __members.Count(m => m.fstrGender == "Male"), "#7cc0ff", "#3b82f6"),
         new("Female", __members.Count(m => m.fstrGender == "Female"), "#f9a8d4", "#ec4899")

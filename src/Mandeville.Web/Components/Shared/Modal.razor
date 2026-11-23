@@ -3,7 +3,7 @@
    The parent decides when it is shown, by rendering it inside an @if. *@
 
 <div class="modal-backdrop" @onclick="CloseAsync">
-    <div class="modal-box" role="dialog" aria-modal="true" aria-label="@Title"
+    <div class="modal-box @CssClass" role="dialog" aria-modal="true" aria-label="@Title"
          @onclick:stopPropagation="true" @onkeydown="OnKeyDown" tabindex="-1" @ref="__box">
         <div class="modal-grip" aria-hidden="true"></div>
         <header class="modal-head">
@@ -36,6 +36,8 @@
     [Parameter] public string? Subtitle { get; set; }
     /// <summary>Name of an icon known to <see cref="Icon"/>.</summary>
     [Parameter] public string Icon { get; set; } = "userplus";
+    /// <summary>Optional extra class on the dialog box, so one dialog can have its own phone styling.</summary>
+    [Parameter] public string? CssClass { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public RenderFragment? Footer { get; set; }

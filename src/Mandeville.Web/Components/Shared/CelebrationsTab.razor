@@ -1,4 +1,4 @@
-﻿@* Birthdays and anniversaries coming up: a card per person, click one to see the card and send it by email, queue it, or share it on WhatsApp. *@
+@* Birthdays and anniversaries coming up: a card per person, click one to see the card and send it by email, queue it, or share it on WhatsApp. *@
 @implements IDisposable
 @inject ICelebrationRepository CelebrationRepo
 @inject IMemberPhotoRepository PhotoRepo
@@ -9,10 +9,13 @@
 
 <ToastBar Toast="__toast" />
 
+@* cel-has-open: on a phone the list gives way to the open card, which becomes its own screen *@
+<div class="cel-root @(__open is not null && __sub != "h" ? "cel-has-open" : "")">
 <div class="cel-top">
-    <div class="tabs">
+    <div class="tabs tabs-seg">
         <button class="tab @(__sub == "b" ? "active" : "")" @onclick='() => ShowTab("b")'><Icon Name="cake" Size="18" />Birthdays (@Birthdays.Count())</button>
         <button class="tab @(__sub == "a" ? "active" : "")" @onclick='() => ShowTab("a")'><Icon Name="rings" Size="18" />Anniversaries (@Anniversaries.Count())</button>
+        <button class="tab @(__sub == "q" ? "active" : "")" @onclick='() => ShowTab("q")'><Icon Name="layers" Size="18" />Queue (@__queue.Count)</button>
         <button class="tab @(__sub == "h" ? "active" : "")" @onclick='() => ShowTab("h")'><Icon Name="send" Size="18" />Sent (@__sent.Count)</button>
     </div>
     <div class="cel-stats">
@@ -22,7 +25,15 @@
     </div>
 </div>
 
-@if (__sub == "h")
+@if (__sub == "h" && __sent.Count == 0)
+{
+    <div class="cel-qempty">
+        <span class="cel-qeico s"><Icon Name="send" Size="26" Stroke="1.6" /></span>
+        <b>Nothing sent yet this year</b>
+        <small>Cards you send will be listed here.</small>
+    </div>
+}
+else if (__sub == "h")
 {
     <div class="card">
         <table class="table table-cards">
@@ -40,9 +51,43 @@
                         <td data-label="" class="row-actions"><button class="btn btn-sm" @onclick="() => UndoAsync(log)">Move back to upcoming</button></td>
                     </tr>
                 }
-                @if (__sent.Count == 0) { <tr><td colspan="6" class="empty">Nothing has been sent yet this year.</td></tr> }
             </tbody>
         </table>
+    </div>
+}
+else if (__sub == "q")
+{
+    <div class="cel-queue">
+        <p class="cel-qhint"><Icon Name="clock" Size="16" Stroke="1.8" /><span>Cards here email automatically at <b>@Mailer.SendHour:00</b> on the day.</span></p>
+        @foreach (var q in __queue)
+        {
+            var row = q;
+            var failed = row.fstrStatus == "Failed";
+            var isBirthday = row.fstrType == "Birthday";
+            <div class="cel-qi">
+                <span class="cel-qtile @(isBirthday ? "b" : "a")"><Icon Name="@(isBirthday ? "cake" : "rings")" Size="20" Stroke="1.8" /></span>
+                <div class="cel-qbody">
+                    <div class="cel-qname"><b>@row.fstrDisplayName</b><span class="cel-qpill @(failed ? "bad" : "ok")">@(failed ? "Failed" : "Queued")</span></div>
+                    <small>@row.fstrType · Sends @row.fdtmDueDate.ToString("ddd d MMM"), @Mailer.SendHour:00@(row.fblnHasImage ? " · with image" : "")@(!string.IsNullOrWhiteSpace(row.fstrMessage) ? " · with message" : "")</small>
+                    @if (failed)
+                    {
+                        <div class="cel-qnote">@(string.IsNullOrWhiteSpace(row.fstrError) ? "The queued email could not be sent." : row.fstrError)</div>
+                    }
+                </div>
+                <div class="cel-qacts">
+                    @if (failed) { <button class="btn btn-sm cel-qretry" disabled="@__busy" @onclick="() => RetryQueueAsync(row.flngKey)">Retry</button> }
+                    <button class="btn btn-sm cel-qcancel" disabled="@__busy" @onclick="() => CancelQueueAsync(row.flngKey)">Cancel</button>
+                </div>
+            </div>
+        }
+        @if (__queue.Count == 0)
+        {
+            <div class="cel-qempty">
+                <span class="cel-qeico"><Icon Name="inbox" Size="26" Stroke="1.6" /></span>
+                <b>Queue is empty</b>
+                <small>Open a birthday or anniversary and choose <i>Add to queue</i> to send it at @Mailer.SendHour:00.</small>
+            </div>
+        }
     </div>
 }
 else
@@ -50,7 +95,11 @@ else
     var list = __sub == "b" ? Birthdays : Anniversaries;
     @if (!list.Any())
     {
-        <div class="mpanel"><p class="empty" style="margin:0">No @(__sub == "b" ? "birthdays" : "anniversaries") in the next @Days day@(Days == 1 ? "" : "s").</p></div>
+        <div class="cel-qempty">
+            <span class="cel-qeico @(__sub == "b" ? "b" : "a")"><Icon Name="@(__sub == "b" ? "cake" : "rings")" Size="26" Stroke="1.6" /></span>
+            <b>No @(__sub == "b" ? "birthdays" : "anniversaries") coming up</b>
+            <small>Nothing in the next @Days day@(Days == 1 ? "" : "s"). New ones appear here automatically.</small>
+        </div>
     }
     else
     {
@@ -76,13 +125,13 @@ else
     @if (__open is not null)
     {
         var o = __open;
-        <div class="mpanel cel-inline" id="cel-panel">
+        <div class="mpanel cel-inline @(__editing ? "cel-editing" : "")" id="cel-panel">
             <div class="cel-inline-head">
                 <div>
                     <b>@o.DisplayName &middot; @(o.IsBirthday ? "Birthday" : "Anniversary") card</b>
                     <small>@o.Date.ToString("dddd d MMMM")@(o.Emails.Count > 0 ? " · " + string.Join(", ", o.Emails) : " · no email on record")</small>
                 </div>
-                <button class="btn btn-sm" @onclick="CloseCard">Close</button>
+                <button class="btn btn-sm cel-close" @onclick="CloseCard"><Icon Name="chevronleft" Size="16" Stroke="2" />Close</button>
             </div>
 
             @if (o.Sent)
@@ -106,6 +155,12 @@ else
                 <div class="cel-note">Add an email on the member profile, or send it on WhatsApp.</div>
             }
 
+            @* Phone only: the card is shown first and these open the edit sheet *@
+            <div class="cel-edit-row">
+                <button class="btn" @onclick="() => __editing = true">Change design</button>
+                <button class="btn" @onclick="() => __editing = true">Edit message</button>
+            </div>
+
             <div class="cel-inline-body">
                 <div>
                     <div class="cel-photo">
@@ -120,7 +175,8 @@ else
                     </div>
                 </div>
 
-                <div>
+                <div class="cel-sheet">
+                    <div class="cel-sheet-head"><b>Edit card</b><button class="btn btn-sm" @onclick="() => __editing = false">Done</button></div>
                     <div class="field">
                         <label>Card image</label>
                         <div class="cel-designs">
@@ -191,7 +247,10 @@ else
 
             <p class="hint"><b>On a phone:</b> WhatsApp opens with the card and you choose the group. <b>On a computer:</b> the card is copied and WhatsApp Web opens. Open the group and press Ctrl+V to paste the card. The message is already printed on it.</p>
 
-            <div class="cel-actions">
+            <div class="cel-actions @(__moreOpen ? "more-open" : "")">
+                <button class="btn cel-send" onclick="celebrate.send()">Send to WhatsApp group</button>
+                <button class="btn cel-more-btn" aria-label="More ways to send" aria-expanded="@(__moreOpen ? "true" : "false")" @onclick="() => __moreOpen = !__moreOpen">&bull;&bull;&bull;</button>
+                <div class="cel-menu" @onclick="() => __moreOpen = false">
                 @if (!o.Sent && o.QueueStatus is null)
                 {
                     var canEmail = o.Emails.Count > 0 && Mailer.IsConfigured;
@@ -202,47 +261,16 @@ else
                         <span class="cel-note bad" style="align-self:center">@EmailBlockedReason(o)</span>
                     }
                 }
-                <button class="btn cel-send" onclick="celebrate.send()">Send to WhatsApp group</button>
                 <button class="btn btn-sm" @onclick="CopyImageAsync">Copy card</button>
                 <button class="btn btn-sm" onclick="celebrate.download()">Download card</button>
                 <button class="btn btn-sm" @onclick="MarkManualAsync">I already sent it</button>
+                </div>
                 <button id="cel-mark" hidden @onclick="MarkWhatsAppAsync"></button>
             </div>
         </div>
     }
-
-    <div class="card">
-        <h3 class="cel-qhead"><span class="h2-ico"><Icon Name="layers" Size="20" Stroke="1.6" /></span>Queue</h3>
-        <table class="table table-cards">
-            <thead><tr><th>Name</th><th>Type</th><th>Sends</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-                @foreach (var q in __queue)
-                {
-                    var row = q;
-                    <tr>
-                        <td data-label="Name">@row.fstrDisplayName</td>
-                        <td data-label="Type">@row.fstrType</td>
-                        <td data-label="Sends">@row.fdtmDueDate.ToString("ddd d MMM"), @Mailer.SendHour:00</td>
-                        <td data-label="Status">
-                            @if (row.fstrStatus == "Failed") { <span class="badge badge-warn" title="@row.fstrError">Failed</span> }
-                            else { <span class="badge">Queued</span> }
-                            @if (row.fblnHasImage) { <small> with image</small> }
-                            @if (!string.IsNullOrWhiteSpace(row.fstrMessage)) { <small> and message</small> }
-                        </td>
-                        <td data-label="" class="row-actions">
-                            @if (row.fstrStatus == "Failed") { <button class="btn btn-sm" disabled="@__busy" @onclick="() => RetryQueueAsync(row.flngKey)">Retry</button> }
-                            <button class="btn btn-sm" disabled="@__busy" @onclick="() => CancelQueueAsync(row.flngKey)">Cancel</button>
-                        </td>
-                    </tr>
-                }
-                @if (__queue.Count == 0)
-                {
-                    <tr><td colspan="5" class="empty"><span class="att-empty-ico"><Icon Name="inbox" Size="30" Stroke="1.4" /></span><span class="empty-line">Nothing is waiting in the queue.</span></td></tr>
-                }
-            </tbody>
-        </table>
-    </div>
 }
+</div>
 
 @code {
     #region Parameters
@@ -277,6 +305,8 @@ else
     /// <summary>The message under the card: the email body and the WhatsApp caption (starts as the default text, the admin can edit it).</summary>
     private string __extra = string.Empty;
     private string __sub = "b";
+    private bool __editing;    // phone: the Edit card sheet is open
+    private bool __moreOpen;   // phone: the ••• send menu is open
     private bool __busy;
     private ToastMessageModel? __toast;
 
@@ -406,6 +436,9 @@ else
     /// <summary>Click on a name: opens its card below the list, or closes it when it is already open.</summary>
     private async Task ToggleCard(CelebrationModel c)
     {
+        __editing = false;
+        __moreOpen = false;
+
         if (__open?.Id == c.Id)
         {
             __open = null;
@@ -442,7 +475,12 @@ else
                      : new() { ToastType = ToastTypeModel.Danger, Message = "Could not copy the card. Use Download card instead." };
     }
 
-    private void CloseCard() => __open = null;
+    private void CloseCard()
+    {
+        __open = null;
+        __editing = false;
+        __moreOpen = false;
+    }
 
     /// <summary>The card was shared on WhatsApp (called by the share button once WhatsApp opened).</summary>
     private Task MarkWhatsAppAsync() => MarkAsync("WhatsApp");

@@ -12,6 +12,29 @@
     <div><b class="@(__rows.Count(r => r.Altar && r.AssignTo is null) > 0 ? "warn" : "")">@__rows.Count(r => r.Altar && r.AssignTo is null)</b><span>Altar, not assigned</span></div>
 </div>
 
+@* ---------- Referred by Member care: waiting for the team lead to choose a connecter ---------- *@
+@if (__referrals.Count > 0)
+{
+    <div class="ref-lead card">
+        <h2><span class="ref-ico"><Icon Name="userplus" Size="18" Stroke="1.7" /></span>Referred by Member care <span class="chip g ref-count">@__referrals.Count waiting</span></h2>
+        <p class="ref-sub">Choose who follows each person up.</p>
+        @foreach (var v in __referrals)
+        {
+            var visitor = v;
+            <div class="ref-row">
+                <div class="ucard-avatar" style="background:@AvatarStyle.Colour(visitor.flngKey)">@AvatarStyle.Initials(visitor.fstrFirstname, visitor.fstrLastname)</div>
+                <div class="ref-who"><b>@visitor.FullName</b><small>@(string.IsNullOrWhiteSpace(visitor.fstrPhoneNumber) ? "No phone" : visitor.fstrPhoneNumber) &middot; referred @(visitor.fdtmReferralDate?.ToString("d MMM") ?? "")</small></div>
+                <span class="ref-tag">@visitor.fstrReferralReason</span>
+                <select class="ref-pick" aria-label="Assign @visitor.FullName to" @bind="__refAssign[visitor.flngKey]">
+                    <option value="">Assign to...</option>
+                    @foreach (var m in __connectors) { <option value="@m.flngKey">@m.FullName</option> }
+                </select>
+            </div>
+        }
+        <div class="ref-actions"><button class="ref-go ref-save" @onclick="SaveReferralsAsync">Save</button></div>
+    </div>
+}
+
 <div class="cl-line">
     <span class="svc-line-label">Service date</span>
     <input class="mdate" type="date" max="@AppClock.Today.ToString("yyyy-MM-dd")" @bind="__date" />
@@ -98,6 +121,8 @@
     /// <summary>Raised with the service date ("yyyy-MM-dd") after loading or saving, so the summary refreshes.</summary>
     [Parameter] public EventCallback<string> OnChanged { get; set; }
     private DateTime? __date = AppClock.Today;
+    private List<VisitorModel> __referrals = [];
+    private Dictionary<Guid, Guid?> __refAssign = [];
     private List<LeadRow> __rows = [];
     private List<MemberModel> __connectors = [];
     private List<ConnectWorkloadModel> __workload = [];
@@ -192,6 +217,42 @@
         }).ToList();
 
         __workload = await VisitorRepo.SelectConnectWorkload(__teamDepartmentKey, __cts.Token);
+        await LoadReferralsAsync();
+    }
+
+    /// <summary>Visitors Member care has referred who still have no connecter, oldest first.</summary>
+    private async Task LoadReferralsAsync()
+    {
+        var all = await VisitorRepo.SelectVisitor(cancellationToken: __cts.Token);
+        __referrals = all.Where(v => v.fstrReferralReason is not null && v.flngFollowUpMemberKey is null && v.fstrStatus is "Visitor" or "Regular Visitor")
+                         .OrderBy(v => v.fdtmReferralDate).ThenBy(v => v.fstrLastname).ToList();
+        __refAssign = __referrals.ToDictionary(v => v.flngKey, _ => (Guid?)null);
+    }
+
+    /// <summary>Assigns every referred visitor the lead has chosen a connecter for.</summary>
+    private async Task SaveReferralsAsync()
+    {
+        var chosen = __referrals.Where(v => __refAssign.GetValueOrDefault(v.flngKey) is not null).ToList();
+        if (chosen.Count == 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Choose a team member for at least one referral" };
+            return;
+        }
+
+        foreach (var v in chosen)
+        {
+            var assign = await VisitorRepo.AssignVisitorConnect(v.flngKey, __refAssign[v.flngKey], AppConstants.Who, __cts.Token);
+            if (!assign.IsSuccess)
+            {
+                __toast = assign;
+                await LoadAsync();
+                return;
+            }
+        }
+
+        await LoadAsync();
+        await NotifyAsync();
+        __toast = new() { ToastType = ToastTypeModel.Success, Message = $"Assigned. {chosen.Count} referral(s) now with the team" };
     }
 
     #endregion
