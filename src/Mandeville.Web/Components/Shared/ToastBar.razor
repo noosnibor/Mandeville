@@ -1,11 +1,41 @@
-@if (Toast is not null && !string.IsNullOrWhiteSpace(Toast.Message))
+@if (Toast is not null && !string.IsNullOrWhiteSpace(Toast.Message) && !ReferenceEquals(Toast, __dismissed))
 {
-    <div class="toast-bar @CssClass" role="alert">@Toast.Message</div>
+    @* On a phone this is a centred popup over a blurred screen (see app.css); elsewhere it stays an inline bar *@
+    <div class="toast-wrap" @key="Toast" @onclick="Dismiss">
+        <div class="toast-bar @CssClass" role="alert" @onclick:stopPropagation="true">
+            <span class="toast-ico" aria-hidden="true">
+                @if (Toast.ToastType == ToastTypeModel.Success)
+                {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                }
+                else
+                {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 6v7M12 17.5v.1" /></svg>
+                }
+            </span>
+            <div class="toast-body"><b class="toast-title">@Title</b><span>@Toast.Message</span></div>
+        </div>
+    </div>
 }
 
 @code {
     /// <summary>The result of the last repository call (success, warning or danger).</summary>
     [Parameter] public ToastMessageModel? Toast { get; set; }
+
+    /// <summary>The alert the person has closed by tapping outside it (it is not shown again).</summary>
+    private ToastMessageModel? __dismissed;
+
+    /// <summary>Closes the alert when the person taps the screen around it.</summary>
+    private void Dismiss() => __dismissed = Toast;
+
+    /// <summary>The short heading shown above the message in the phone popup.</summary>
+    private string Title => Toast?.ToastType switch
+    {
+        ToastTypeModel.Success => "Success",
+        ToastTypeModel.Warning => "Heads up",
+        ToastTypeModel.Danger => "Something went wrong",
+        _ => "Notice"
+    };
 
     private string CssClass => Toast?.ToastType switch
     {

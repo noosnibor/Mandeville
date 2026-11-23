@@ -1,0 +1,97 @@
+@implements IDisposable
+@inject IVisitorNoteRepository NoteRepo
+
+<ToastBar Toast="__toast" />
+
+@* Member care notes for a visitor, shown for every visitor.
+   The notes live in the same table the Connections screens use, so they carry over automatically. *@
+<div class="drawer-card">
+    <h4><Icon Name="note" Size="20" Stroke="1.6" />Member care notes <span class="chip g" style="margin-left:auto">@__notes.Count</span></h4>
+    <div class="vnote-add">
+        <input type="text" maxlength="500" placeholder="Add a note about this visitor" @bind="__newNote" @bind:event="oninput" @onkeydown="OnNoteKey" />
+        <button class="btn btn-primary btn-sm" @onclick="AddNoteAsync"><Icon Name="plus" Size="16" />Add</button>
+    </div>
+    @foreach (var n in __notes)
+    {
+        <div class="ir vnote"><span>@n.fdtmNoteDate.ToString("d MMM")</span><b>@n.fstrNote</b></div>
+    }
+    @if (__notes.Count == 0) { <p class="hint">No notes yet.</p> }
+    <p class="hint" style="margin:.6rem 0 0">Notes stay with @Visitor.fstrFirstname and show in Connections too.</p>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly CancellationTokenSource __cts = new();
+    private List<VisitorNoteModel> __notes = [];
+    private string? __newNote;
+    private Guid __loadedFor;
+    private ToastMessageModel? __toast;
+
+    #endregion
+
+    #region Parameters
+
+    /// <summary>The visitor the notes belong to.</summary>
+    [Parameter, EditorRequired] public VisitorModel Visitor { get; set; } = default!;
+
+    /// <summary>Raised after a note is saved so the parent can refresh its list.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    #endregion
+
+    public void Dispose()
+    {
+        __cts.Cancel();
+        __cts.Dispose();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Reload only when a different visitor is shown
+        if (__loadedFor == Visitor.flngKey) return;
+        __loadedFor = Visitor.flngKey;
+        __newNote = null;
+        await LoadNotesAsync();
+    }
+
+    #region Notes
+
+    private async Task LoadNotesAsync()
+    {
+        // Newest first
+        __notes = (await NoteRepo.SelectVisitorNote(visitorKey: Visitor.flngKey, cancellationToken: __cts.Token))
+            .OrderByDescending(n => n.fdtmNoteDate)
+            .ThenByDescending(n => n.fdtmWhen)
+            .ToList();
+    }
+
+    private async Task OnNoteKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddNoteAsync();
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (string.IsNullOrWhiteSpace(__newNote))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Write a note first" };
+            return;
+        }
+
+        __toast = await NoteRepo.AddVisitorNote(new VisitorNoteModel
+        {
+            flngVisitorKey = Visitor.flngKey,
+            fdtmNoteDate = AppClock.Today,
+            fstrNote = __newNote.Trim(),
+            fstrWho = AppConstants.Who
+        }, __cts.Token);
+        if (!__toast.IsSuccess) return;
+
+        __newNote = null;
+        await LoadNotesAsync();
+        await OnChanged.InvokeAsync();
+    }
+
+    #endregion
+}

@@ -6,10 +6,11 @@
 @inject IMemberRepository MemberRepo
 @inject NavigationManager Navigation
 @inject IConfiguration Configuration
+@inject IJSRuntime JS
 
 <ToastBar Toast="__toast" />
 
-<div class="att-layout">
+<div class="att-layout @(__service is null ? "att-list" : "att-detail")">
     @* ---------- Services as cards ---------- *@
     <div class="card att-services">
         <h2><span class="h2-ico"><Icon Name="calendar" Size="20" Stroke="1.6" /></span>Services <span class="pill-ok">@FilteredServices().Count @(FilteredServices().Count == 1 ? "service" : "services")</span></h2>
@@ -56,7 +57,7 @@
         }
     </div>
 
-    <div>
+    <div class="att-main">
         @if (__service is null)
         {
             <div class="card att-empty">
@@ -67,6 +68,9 @@
         }
         else
         {
+            @* Phone only: a way back to the list of services (the list and the service are separate screens on a phone) *@
+            <button class="att-back" @onclick="BackToList"><Icon Name="chevronleft" Size="18" Stroke="2" />Services</button>
+
             @* ---------- Selected service summary ---------- *@
             <div class="card att-head">
                 <span class="att-head-ico"><Icon Name="calendar" Size="24" Stroke="1.6" /></span>
@@ -90,8 +94,14 @@
 
             @if (__service.fblnCheckInOpen)
             {
+                @* Phone only: switch between the check-in list and the QR code *@
+                <div class="att-seg" role="tablist">
+                    <button role="tab" class="@(ShowQrTab ? "" : "on")" @onclick='() => __attTab = "checked"'>Checked in &middot; @__attendance.Count</button>
+                    <button role="tab" class="@(ShowQrTab ? "on" : "")" @onclick='() => __attTab = "qr"'>QR code</button>
+                </div>
+
                 @* ---------- QR check-in ---------- *@
-                <div class="card">
+                <div class="card att-qrcard @(ShowQrTab ? "" : "att-hide")">
                     <h2><span class="h2-ico"><Icon Name="scan" Size="20" Stroke="1.6" /></span>Check-in <span class="pill-ok">Open</span></h2>
                     <div class="qr-box">
                         @if (!string.IsNullOrEmpty(__qrImage))
@@ -101,6 +111,7 @@
                         <div>
                             <p class="hint" style="margin-top:0">Window: @__service.fdtmCheckInOpens?.ToString("HH:mm") to @__service.fdtmCheckInCloses?.ToString("HH:mm"). The code stays the same for this service, so it can be printed or put on a screen.</p>
                             <p class="qr-link"><a href="@__checkInUrl" target="_blank" rel="noopener">@__checkInUrl</a></p>
+                            <button class="btn btn-sm att-copy" @onclick="CopyLinkAsync"><Icon Name="link" Size="16" Stroke="1.8" />@(__copied ? "Link copied" : "Copy check-in link")</button>
                             @if (__localOnly)
                             {
                                 <div class="qr-warn">
@@ -110,8 +121,8 @@
                                 </div>
                             }
                             <div class="actions">
-                                <button class="btn btn-sm" @onclick="RotateAsync"><Icon Name="refresh" Size="16" Stroke="1.8" />Refresh code now</button>
-                                <button class="btn btn-sm btn-danger" @onclick="CloseAsync"><Icon Name="x" Size="16" Stroke="1.8" />Close check-in</button>
+                                <button class="btn btn-sm" title="Refresh the code now" @onclick="RotateAsync"><Icon Name="refresh" Size="16" Stroke="1.8" />Refresh</button>
+                                <button class="btn btn-sm btn-danger" title="Close check-in" @onclick="CloseAsync"><Icon Name="x" Size="16" Stroke="1.8" />Close</button>
                             </div>
                         </div>
                     </div>
@@ -119,7 +130,7 @@
             }
 
             @* ---------- Checked in people as cards ---------- *@
-            <div class="card">
+            <div class="card att-checkedcard @(ShowQrTab ? "att-hide" : "")">
                 <h2><span class="h2-ico"><Icon Name="users" Size="20" Stroke="1.6" /></span>Checked in @if (__service.fblnCheckInOpen) { <span class="live-badge">Live</span> } else { <span class="pill-ok">@__attendance.Count present</span> }</h2>
 
                 <div class="live-count">
@@ -175,6 +186,11 @@
     private bool __refreshing;
     private readonly HashSet<Guid> __fresh = [];
     private Dictionary<Guid, int> __counts = [];
+    private string __attTab = "checked";      // phone: "checked" (people) or "qr" (the code)
+    private bool __copied;
+
+    /// <summary>True when the QR tab is chosen on a phone and check-in is open (otherwise the people list is shown).</summary>
+    private bool ShowQrTab => __attTab == "qr" && __service is { fblnCheckInOpen: true };
 
     // Service list paging, search and "load all"
     private const int ServicePageSize = 6;
@@ -296,8 +312,30 @@
 
     private int PresentCount(Guid serviceKey) => __counts.TryGetValue(serviceKey, out var n) ? n : 0;
 
+    /// <summary>Phone: returns from a service to the list of services.</summary>
+    private void BackToList()
+    {
+        __service = null;
+        __attTab = "checked";
+    }
+
+    /// <summary>Copies the check-in link so it can be pasted into a message.</summary>
+    private async Task CopyLinkAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", __checkInUrl);
+            __copied = true;
+            StateHasChanged();
+            await Task.Delay(2000, __cts.Token);
+            __copied = false;
+        }
+        catch (Exception) { /* clipboard not available; the link is still shown above */ }
+    }
+
     private async Task SelectServiceAsync(ServiceModel s)
     {
+        __attTab = "checked";
         __service = s;
         BuildQr();
         await RefreshAttendanceAsync();

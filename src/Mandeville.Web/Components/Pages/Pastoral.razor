@@ -580,7 +580,7 @@ else
         var careable = __members.Count(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember);
         return
         [
-            new("Assigned", __care.Count, "#2dd4bf", "#0d9488"),
+            new("Assigned", __care.Count, "#4ea1ff", "#1670d6"),
             new("Unassigned", Math.Max(0, careable - __care.Count), "#b9c4d9", "#8b99b3"),
             new("Contacted", __care.Count(c => c.Last is not null && (today - c.Last.fdtmContactDate.Date).TotalDays <= DefaultGapDays), "#7cc0ff", "#3b82f6"),
             new("Overdue", __care.Count(c => c.State == "o"), "#fb7185", "#e11d48"),
