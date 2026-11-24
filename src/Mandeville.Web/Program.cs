@@ -42,13 +42,13 @@ builder.Services.AddScoped<ServiceReportBuilder>();
 builder.Services.AddScoped<ReportMailer>();
 builder.Services.AddSingleton<Mandeville.Web.Celebrations.CelebrationMailer>();
 builder.Services.AddSingleton<Mandeville.Web.Celebrations.CelebrationEmailStatus>();
-builder.Services.AddHostedService<Mandeville.Web.Celebrations.CelebrationEmailService>();
 
 // Data access (Dapper + SQL Server) and one repository per table.
 builder.Services.AddScoped<IDataAccess, DataAccess>();
 builder.Services.AddScoped<IMemberTypeRepository, MemberTypeRepository>();
 builder.Services.AddScoped<IServiceAssignmentRepository, ServiceAssignmentRepository>();
 builder.Services.AddScoped<IDepartmentRepository, DepartmentRepository>();
+builder.Services.AddScoped<IBranchRepository, BranchRepository>();
 builder.Services.AddScoped<IPaymentTypeRepository, PaymentTypeRepository>();
 builder.Services.AddScoped<IMessageTemplateRepository, MessageTemplateRepository>();
 builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository>();
@@ -74,6 +74,7 @@ builder.Services.AddScoped<ILookupValueRepository, LookupValueRepository>();
 builder.Services.AddScoped<Mandeville.Web.Dashboards.RoleStatsService>();
 builder.Services.AddScoped<Mandeville.Web.Dashboards.FollowUpBadge>();
 builder.Services.AddScoped<IMemberAttendanceRepository, MemberAttendanceRepository>();
+builder.Services.AddScoped<IVisitingAttendanceRepository, VisitingAttendanceRepository>();
 builder.Services.AddScoped<IAppUserRepository, AppUserRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 builder.Services.AddScoped<IPastoralAssignmentRepository, PastoralAssignmentRepository>();

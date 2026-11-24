@@ -1,4 +1,4 @@
-@* People met on the street who asked for a call. Tele members log their calls here; names stay in the app and never reach the report. *@
+﻿@* People met on the street who asked for a call. Tele members log their calls here; names stay in the app and never reach the report. *@
 @using global::Mandeville.Web.Outreach
 @implements IDisposable
 @inject IEvangelismContactRepository ContactRepo
@@ -8,11 +8,11 @@
 
 <ToastBar Toast="__toast" />
 
-<div class="kstrip card">
-    <div><b>@__all.Count(c => c.fstrStatus != EvangelismRules.ContactUnreachable)</b><span>Active contacts</span></div>
-    <div><b class="@(Waiting > 0 ? "warn" : "")">@Waiting</b><span>Waiting for a call</span></div>
-    <div class="on"><b>@__all.Count(c => c.fstrStatus == EvangelismRules.ContactConnected)</b><span>Connected</span></div>
-    <div><b>@__all.Count(c => c.fstrStatus == EvangelismRules.ContactUnreachable)</b><span>Unreachable</span></div>
+<div class="vk four fn-vk">
+    <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Active</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__all.Count(c => c.fstrStatus != EvangelismRules.ContactUnreachable)</b><small>Contacts</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Waiting</span><span class="vk-i"><Icon Name="phone" Size="17" Stroke="1.8" /></span></div><b>@Waiting</b><small>For a call</small></div>
+    <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Connected</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@__all.Count(c => c.fstrStatus == EvangelismRules.ContactConnected)</b><small>Reached</small></div>
+    <div class="vkc" style="--c:#e11d48"><div class="vk-h"><span>Unreachable</span><span class="vk-i"><Icon Name="user" Size="17" Stroke="1.8" /></span></div><b>@__all.Count(c => c.fstrStatus == EvangelismRules.ContactUnreachable)</b><small>Dropped off</small></div>
 </div>
 
 <div class="fin-bar">

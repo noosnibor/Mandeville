@@ -9,18 +9,17 @@
 
 <ToastBar Toast="__toast" />
 
-<div class="kstrip card">
-    <div><b>@__sessions.Count</b><span>Sessions</span></div>
-    <div><b>@Spots</b><span>People needed</span></div>
-    <div class="on"><b>@Filled</b><span>Scheduled</span></div>
-    <div><b class="@(StillOpen > 0 ? "warn" : "")">@StillOpen</b><span>Spots still open</span></div>
-    <div><b class="@(Declined > 0 ? "warn" : "")">@Declined</b><span>Can't make it</span></div>
+<div class="vk four fn-vk">
+    <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Sessions</span><span class="vk-i"><Icon Name="calendar" Size="17" Stroke="1.8" /></span></div><b>@__sessions.Count</b><small>This month</small></div>
+    <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Scheduled</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@Filled</b><small>Of @Spots needed</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Spots open</span><span class="vk-i"><Icon Name="clock" Size="17" Stroke="1.8" /></span></div><b>@StillOpen</b><small>Still to fill</small></div>
+    <div class="vkc" style="--c:#e11d48"><div class="vk-h"><span>Can't make it</span><span class="vk-i"><Icon Name="user" Size="17" Stroke="1.8" /></span></div><b>@Declined</b><small>Declined</small></div>
 </div>
 
-<div class="fin-bar">
-    <button class="btn btn-primary" @onclick="OpenQuick">Plan the month</button>
-    <button class="btn" @onclick="NewSession">+ Add a session</button>
-    <button class="btn" disabled="@__busy" @onclick="AutoScheduleAsync">Auto-schedule from availability</button>
+<div class="ev-acts2">
+    <button class="ev-go" @onclick="OpenQuick">Plan the month</button>
+    <button class="ev-ghost" @onclick="NewSession">+ Add a session</button>
+    <button class="ev-ghost" disabled="@__busy" @onclick="AutoScheduleAsync">Auto-schedule</button>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(__autoNote))
@@ -40,7 +39,7 @@
             var session = s;
             var people = PeopleOf(session);
             var counted = people.Count(a => a.fstrStatus != EvangelismRules.Declined);
-            <div class="ev-sess card">
+            <div class="ev-sess card @AreaCss(session.fstrArea)">
                 <div class="ev-sess-top">
                     <span class="chip @AreaChip(session.fstrArea)">@EvangelismRules.ShortArea(session.fstrArea)</span>
                     <b>@(string.IsNullOrWhiteSpace(session.fstrLocation) ? "No location yet" : session.fstrLocation)</b>
@@ -73,7 +72,11 @@
 }
 @if (__sessions.Count == 0)
 {
-    <div class="card"><p class="empty" style="margin:0">Nothing is planned for @Month.ToString("MMMM yyyy") yet. Choose "Plan the month" to add every Saturday at once.</p></div>
+    <div class="empty-state">
+        <div class="empty-ico"><Icon Name="calendar" Size="30" Stroke="1.6" /></div>
+        <h3>Nothing planned yet</h3>
+        <p>Nothing is planned for @Month.ToString("MMMM yyyy") yet. Choose "Plan the month" to add every Saturday at once.</p>
+    </div>
 }
 
 @* ---------- Plan the month ---------- *@
@@ -221,6 +224,8 @@
     private List<EvangelismAssignmentModel> PeopleOf(EvangelismServiceModel s) =>
         __assignments.Where(a => a.flngServiceKey == s.flngKey)
             .OrderBy(a => a.fstrRole == "Team lead" ? 0 : 1).ThenBy(a => a.fstrFirstname).ThenBy(a => a.fstrLastname).ToList();
+
+    private static string AreaCss(string area) => area switch { EvangelismRules.Street => "street", EvangelismRules.Tele => "tele", _ => "" };
 
     private static string AreaChip(string area) => area switch { EvangelismRules.Street => "g", EvangelismRules.Tele => "v", _ => "w" };
 

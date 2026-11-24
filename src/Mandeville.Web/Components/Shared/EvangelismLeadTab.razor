@@ -1,15 +1,15 @@
-@* The team lead's workspace: pick the month, then Schedule, Availability, Contacts or Statistics. *@
+﻿@* The team lead's workspace: pick the month, then Schedule, Availability, Contacts or Statistics. *@
 <div class="ev-month">
     <button class="btn btn-sm" aria-label="Previous month" @onclick="() => Shift(-1)">&lsaquo;</button>
     <b>@__month.ToString("MMMM yyyy")</b>
     <button class="btn btn-sm" aria-label="Next month" @onclick="() => Shift(1)">&rsaquo;</button>
 </div>
 
-<div class="fin-bar ev-subtabs">
+<div class="ev-seg">
     @foreach (var name in __tabs)
     {
         var t = name;
-        <button class="svc-pill @(__tab == t ? "on" : "")" @onclick="() => __tab = t">@t</button>
+        <button class="@(__tab == t ? "on" : "")" @onclick="() => __tab = t">@t</button>
     }
 </div>
 

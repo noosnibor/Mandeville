@@ -5,8 +5,8 @@
 
 <PageTitle>Financial Ledger</PageTitle>
 
-<div class="mod">
-    <div class="mhead">
+<div class="mod wide vpage">
+    <div class="mhead lg-mhead">
         <span class="mhead-ico"><Icon Name="receipt" Size="22" Stroke="1.5" /></span>
         <div>
             <h1>Financial Ledger</h1>
@@ -24,18 +24,18 @@
 
     <ToastBar Toast="__toast" />
 
-    <div class="kstrip card">
-        <div><b>@FirstBroughtForward.ToString("N2")</b><span>Brought forward into @__year</span></div>
-        <div class="on"><b>@YearEndBalance.ToString("N2")</b><span>Balance at end of @__year (so far)</span></div>
-        <div><b>@__months.Count(m => m.IsClosed)</b><span>Periods closed</span></div>
-        <div><b>@__months.Count(m => !m.IsClosed && !m.NotStarted)</b><span>Periods open</span></div>
+    <div class="vk four fn-vk">
+        <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Brought forward</span><span class="vk-i"><Icon Name="wallet" Size="17" Stroke="1.8" /></span></div><b>@FirstBroughtForward.ToString("N2")</b><small>Into @__year</small></div>
+        <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Year balance</span><span class="vk-i"><Icon Name="chart" Size="17" Stroke="1.8" /></span></div><b>@YearEndBalance.ToString("N2")</b><small>End of @__year so far</small></div>
+        <div class="vkc" style="--c:#34d399"><div class="vk-h"><span>Periods closed</span><span class="vk-i"><Icon Name="lock" Size="17" Stroke="1.8" /></span></div><b>@__months.Count(m => m.IsClosed)</b><small>Locked</small></div>
+        <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Periods open</span><span class="vk-i"><Icon Name="clock" Size="17" Stroke="1.8" /></span></div><b>@__months.Count(m => !m.IsClosed && !m.NotStarted)</b><small>Needs closing</small></div>
     </div>
 
     <div class="lg-grid">
-        @foreach (var m in __months)
+        @foreach (var m in __months.Where(x => !x.NotStarted))
         {
             var month = m;
-            <div class="lg-card @(month.IsCurrent ? "cur" : "") @(month.NotStarted ? "off" : "")" @onclick="() => OpenMonth(month)">
+            <div class="lg-card @(month.IsCurrent ? "cur" : "") @(month.IsClosed ? "closed" : "")" @onclick="() => OpenMonth(month)">
                 <div class="lg-top">
                     <div>
                         <h3>@FixedLists.Months[month.Month - 1] @month.Year</h3>
@@ -71,6 +71,16 @@
             </div>
         }
     </div>
+
+    @if (__months.Any(x => x.NotStarted))
+    {
+        <div class="lg-later">
+            <h4>Not started yet</h4>
+            <div>
+                @foreach (var m in __months.Where(x => x.NotStarted)) { <span>@FixedLists.Months[m.Month - 1]</span> }
+            </div>
+        </div>
+    }
 </div>
 
 @if (__selected is not null)

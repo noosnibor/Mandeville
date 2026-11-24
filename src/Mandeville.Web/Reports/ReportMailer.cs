@@ -59,6 +59,7 @@ public class ReportMailer(IConfiguration configuration, ILogger<ReportMailer> lo
                 $"Good day,\n\nPlease find attached the service report for {report.ServiceName} on {report.ServiceDate:dddd d MMMM yyyy}.\n\n" +
                 $"Visitors: {report.VisitorsAttended} ({report.WentToAltar} went to the altar)\n" +
                 $"Members present: {report.MembersPresent} of {report.ActiveMembers} active ({report.PresentPercent}%)\n" +
+                $"Visiting members: {report.VisitingMembers} (total in the service: {report.TotalInService})\n" +
                 $"Collected this month so far: ${report.TotalCollected:N2}\n\n{report.GroupName}";
 
             message.Attachments.Add(new Attachment(new MemoryStream(pdf), report.FileName, "application/pdf"));

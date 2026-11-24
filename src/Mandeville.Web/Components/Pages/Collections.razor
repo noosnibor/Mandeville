@@ -1,4 +1,4 @@
-@page "/collections"
+﻿@page "/collections"
 @attribute [PageAccess(PageKeys.Collections, "Collections", "Finance", "wallet", Tint = "c5", Short = "Money", Bar = true, Order = 110)]
 @implements IDisposable
 @inject IFinanceRepository FinanceRepo
@@ -7,17 +7,19 @@
 
 <PageTitle>Collections</PageTitle>
 
-<div class="page-head">
-    <div class="ph-title"><span class="mhead-ico"><Icon Name="wallet" Size="22" Stroke="1.5" /></span><div><h1>Collections</h1><p>Record and review what was received at each service</p></div></div>
-    <button class="btn btn-primary" @onclick="NewCollection">+ Add collection</button>
+<div class="mod wide vpage">
+
+<div class="fn-head">
+    <div class="mhead"><span class="mhead-ico"><Icon Name="wallet" Size="26" Stroke="1.5" /></span><div><h1>Collections</h1><p>Record and review what was received at each service</p></div></div>
+    <button class="fn-add" aria-label="Add collection" @onclick="NewCollection"><Icon Name="plus" Size="16" Stroke="2.4" />Add collection</button>
 </div>
 
 <ToastBar Toast="__toast" />
 
-<div class="kstrip card">
-    <div class="on"><b>@(__rows.Sum(r => r.fcurAmount).ToString("N2"))</b><span>Total for @FixedLists.Months[__month - 1] @__year</span></div>
-    <div><b>@DuesTotal.ToString("N2")</b><span>Member dues</span></div>
-    <div><b>@__rows.Count</b><span>Entries</span></div>
+<div class="vk fn-vk">
+    <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Total</span><span class="vk-i"><Icon Name="wallet" Size="17" Stroke="1.8" /></span></div><b>@(__rows.Sum(r => r.fcurAmount).ToString("N2"))</b><small>@FixedLists.Months[__month - 1] @__year</small></div>
+    <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Member dues</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@DuesTotal.ToString("N2")</b><small>This month</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Entries</span><span class="vk-i"><Icon Name="note" Size="17" Stroke="1.8" /></span></div><b>@__rows.Count</b><small>Recorded</small></div>
 </div>
 
 @if (__edit is not null)
@@ -61,31 +63,43 @@
     </Modal>
 }
 
-<div class="fin-bar">
-    <select @bind="__month">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
-    <input type="number" class="fin-year" @bind="__year" />
-    <input type="text" class="fin-search" placeholder="Search name or notes" @bind="__search" @bind:event="oninput" />
-    <button class="btn" @onclick="LoadAsync">Show</button>
+<div class="fn-bar">
+    <select @bind="__month" aria-label="Month">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
+    <input type="number" class="fn-year" aria-label="Year" @bind="__year" />
+    <label class="fn-search"><Icon Name="search" Size="18" Stroke="1.6" /><input type="text" placeholder="Search name or notes" aria-label="Search" @bind="__search" @bind:event="oninput" /></label>
+    <button class="fn-show" @onclick="LoadAsync">Show</button>
 </div>
 
-<div class="fin-list card">
-    @foreach (var r in __rows)
-    {
-        <div class="fin-row">
-            <div class="care-av sm" style="background:@AvatarStyle.Colour(r.flngMemberKey ?? r.flngKey)">@Initials(r.fstrMemberName)</div>
-            <div class="fin-nm">
-                <b>@(string.IsNullOrWhiteSpace(r.fstrMemberName) ? "-" : r.fstrMemberName) @if (r.fblnLocked) { <span class="chip w" title="Reconciled">Locked</span> }</b>
-                <small>@r.fstrPaymentMethod &middot; received by @(string.IsNullOrWhiteSpace(r.fstrReceivedBy) ? "-" : r.fstrReceivedBy)</small>
+@if (__rows.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-ico"><Icon Name="wallet" Size="30" Stroke="1.6" /></div>
+        <h3>No collections for this month</h3>
+        <p>Collections you record will appear here.</p>
+    </div>
+}
+else
+{
+    <div class="fn-list">
+        @foreach (var r in __rows)
+        {
+            <div class="fn-row">
+                <div class="fn-av" style="background:@AvatarStyle.Colour(r.flngMemberKey ?? r.flngKey)">@Initials(r.fstrMemberName)</div>
+                <div class="fn-nm">
+                    <b><span class="t">@(string.IsNullOrWhiteSpace(r.fstrMemberName) ? "-" : r.fstrMemberName)</span>@if (r.fblnLocked) { <span class="fn-lock" title="Reconciled"><Icon Name="lock" Size="11" Stroke="2" />Locked</span> }</b>
+                    <small>@r.fstrPaymentMethod &middot; received by @(string.IsNullOrWhiteSpace(r.fstrReceivedBy) ? "-" : r.fstrReceivedBy)</small>
+                </div>
+                <span class="fn-type @(IsDues(r) ? "dues" : "")">@r.fstrPaymentTypeName</span>
+                <div class="fn-amt">@r.fcurAmount.ToString("N2")</div>
+                <div class="fn-act">
+                    <button type="button" title="Edit" aria-label="Edit" disabled="@r.fblnLocked" @onclick="() => Edit(r)"><Icon Name="edit" Size="15" Stroke="1.8" /></button>
+                    <button type="button" class="d" title="Delete" aria-label="Delete" disabled="@r.fblnLocked" @onclick="() => DeleteAsync(r)"><Icon Name="trash" Size="15" Stroke="1.8" /></button>
+                </div>
             </div>
-            <span class="chip g fin-type">@r.fstrPaymentTypeName</span>
-            <div class="fin-amt">@r.fcurAmount.ToString("N2")</div>
-            <div class="fin-act">
-                <button class="btn btn-sm" disabled="@r.fblnLocked" @onclick="() => Edit(r)">Edit</button>
-                <button class="btn btn-sm btn-danger" disabled="@r.fblnLocked" @onclick="() => DeleteAsync(r)">Delete</button>
-            </div>
-        </div>
-    }
-    @if (__rows.Count == 0) { <p class="empty" style="margin:0">No collections for this month.</p> }
+        }
+    </div>
+}
+
 </div>
 
 @code {
@@ -105,6 +119,8 @@
     #endregion
 
     private decimal DuesTotal => __rows.Where(r => __paymentTypes.Any(t => t.flngKey == r.flngPaymentTypeKey && t.fblnIsDues)).Sum(r => r.fcurAmount);
+
+    private bool IsDues(FinanceModel r) => __paymentTypes.Any(t => t.flngKey == r.flngPaymentTypeKey && t.fblnIsDues);
 
     private static string Initials(string? name)
     {

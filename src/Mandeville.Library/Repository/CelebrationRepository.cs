@@ -20,7 +20,7 @@ public partial interface ICelebrationRepository
     Task<ToastMessageModel> MarkSent(CelebrationModel celebration, string? caption, string channel, string? sentTo, string? who, CancellationToken cancellationToken = default);
     Task<ToastMessageModel> UndoSent(Guid logKey, string? who, CancellationToken cancellationToken = default);
 
-    /// <summary>Emails waiting for the daily job; pass a status (for example "Queued") to filter, and <paramref name="includeImage"/> when the uploaded image is needed.</summary>
+    /// <summary>Cards prepared in the Queue tab, waiting to be sent; pass a status (for example "Queued") to filter, and <paramref name="includeImage"/> when the uploaded image is needed.</summary>
     Task<List<CelebrationQueueModel>> SelectQueue(string? status = null, bool includeImage = false, CancellationToken cancellationToken = default);
 
     /// <summary>Saves the card, the extra message and the uploaded image to be emailed by the daily job on the celebration day.</summary>

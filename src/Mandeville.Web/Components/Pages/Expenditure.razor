@@ -1,4 +1,4 @@
-@page "/expenditure"
+﻿@page "/expenditure"
 @attribute [PageAccess(PageKeys.Expenditure, "Expenditure", "Finance", "receipt", Tint = "c6", Short = "Spending", Order = 120)]
 @implements IDisposable
 @inject IExpenditureRepository ExpenditureRepo
@@ -6,31 +6,39 @@
 
 <PageTitle>Expenditure</PageTitle>
 
-<div class="page-head">
-    <div class="ph-title"><span class="mhead-ico"><Icon Name="receipt" Size="22" Stroke="1.5" /></span><div><h1>Expenditure</h1><p>Track what was spent and who approved it</p></div></div>
-    <button class="btn btn-primary" @onclick="NewExpense">+ Add expense</button>
+<div class="mod wide vpage">
+
+<div class="fn-head">
+    <div class="mhead"><span class="mhead-ico"><Icon Name="receipt" Size="26" Stroke="1.5" /></span><div><h1>Expenditure</h1><p>Track what was spent and who approved it</p></div></div>
+    <button class="fn-add" aria-label="Add expense" @onclick="NewExpense"><Icon Name="plus" Size="16" Stroke="2.4" />Add expense</button>
 </div>
 
 <ToastBar Toast="__toast" />
 
-<div class="kstrip card">
-    <div class="on"><b>@(__rows.Sum(r => r.fcurAmount).ToString("N2"))</b><span>Total for @FixedLists.Months[__month - 1] @__year</span></div>
-    <div><b>@__rows.Count</b><span>Expenses</span></div>
+@{
+    var groups = __rows.GroupBy(r => r.fstrExpenseCategoryName ?? "-").Select(g => (Name: g.Key, Total: g.Sum(r => r.fcurAmount))).OrderByDescending(g => g.Total).ToList();
+    var top = groups.Count == 0 ? 0 : groups.Max(g => g.Total);
+    var palette = new[] { "#14b8a6", "#6366f1", "#f5a524", "#ec4899", "#38a8f8", "#8b5cf6" };
+}
+
+<div class="vk fn-vk fn-vk3">
+    <div class="vkc" style="--c:#e11d48"><div class="vk-h"><span>Total spent</span><span class="vk-i"><Icon Name="receipt" Size="17" Stroke="1.8" /></span></div><b>@(__rows.Sum(r => r.fcurAmount).ToString("N2"))</b><small>@FixedLists.Months[__month - 1] @__year</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Expenses</span><span class="vk-i"><Icon Name="note" Size="17" Stroke="1.8" /></span></div><b>@__rows.Count</b><small>Recorded</small></div>
+    <div class="vkc" style="--c:#6366f1"><div class="vk-h"><span>Top category</span><span class="vk-i"><Icon Name="chart" Size="17" Stroke="1.8" /></span></div><b class="sm">@(groups.Count == 0 ? "-" : groups[0].Name)</b><small>@(groups.Count == 0 ? "None yet" : groups[0].Total.ToString("N2"))</small></div>
 </div>
 
-@if (__rows.Count > 0)
+@if (groups.Count > 0)
 {
-    var groups = __rows.GroupBy(r => r.fstrExpenseCategoryName ?? "-").Select(g => (Name: g.Key, Total: g.Sum(r => r.fcurAmount))).OrderByDescending(g => g.Total).ToList();
-    var top = groups.Max(g => g.Total);
-    var palette = new[] { "#14b8a6", "#6366f1", "#f5a524", "#ec4899", "#38a8f8", "#8b5cf6" };
-    <div class="fin-cats">
+    <div class="fn-cats">
+        <h3>By category</h3>
         @for (var n = 0; n < groups.Count; n++)
         {
             var g = groups[n];
-            <div class="fin-cat">
-                <span>@g.Name</span>
+            var colour = palette[n % palette.Length];
+            <div class="fn-cat">
+                <span><i style="background:@colour"></i>@g.Name</span>
+                <u><i style="width:@(top <= 0 ? 0 : (int)Math.Round(g.Total * 100 / top))%; background:@colour"></i></u>
                 <b>@g.Total.ToString("N2")</b>
-                <u><i style="width:@(top <= 0 ? 0 : (int)Math.Round(g.Total * 100 / top))%; background:@(palette[n % palette.Length])"></i></u>
             </div>
         }
     </div>
@@ -68,35 +76,47 @@
     </Modal>
 }
 
-<div class="fin-bar">
-    <select @bind="__month">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
-    <input type="number" class="fin-year" @bind="__year" />
-    <select @bind="__category">
+<div class="fn-bar">
+    <select @bind="__month" aria-label="Month">@for (var i = 1; i <= 12; i++) { <option value="@i">@FixedLists.Months[i - 1]</option> }</select>
+    <input type="number" class="fn-year" aria-label="Year" @bind="__year" />
+    <select class="cat" @bind="__category" aria-label="Category">
         <option value="">All categories</option>
         @foreach (var c in __categories) { <option value="@c.flngKey">@c.fstrName</option> }
     </select>
-    <input type="text" class="fin-search" placeholder="Search payee or description" @bind="__search" @bind:event="oninput" />
-    <button class="btn" @onclick="LoadAsync">Show</button>
+    <label class="fn-search"><Icon Name="search" Size="18" Stroke="1.6" /><input type="text" placeholder="Search payee or description" aria-label="Search" @bind="__search" @bind:event="oninput" /></label>
+    <button class="fn-show" @onclick="LoadAsync">Show</button>
 </div>
 
-<div class="fin-list card">
-    @foreach (var r in __rows)
-    {
-        <div class="fin-row">
-            <div class="care-av sm" style="background:@AvatarStyle.Colour(r.flngKey)">@Initials(r.fstrPayee)</div>
-            <div class="fin-nm">
-                <b>@r.fstrPayee @if (r.fblnLocked) { <span class="chip w" title="Reconciled">Locked</span> }</b>
-                <small>@r.fdtmExpenseDate.ToString("d MMM")@(string.IsNullOrWhiteSpace(r.fstrDescription) ? "" : " · " + r.fstrDescription) &middot; @r.fstrPaymentMethod@(string.IsNullOrWhiteSpace(r.fstrReferenceNumber) ? "" : " · Ref " + r.fstrReferenceNumber)@(string.IsNullOrWhiteSpace(r.fstrPaidBy) ? "" : " · paid by " + r.fstrPaidBy)</small>
+@if (__rows.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-ico"><Icon Name="receipt" Size="30" Stroke="1.6" /></div>
+        <h3>No expenses for this month</h3>
+        <p>Expenses you record will appear here.</p>
+    </div>
+}
+else
+{
+    <div class="fn-list">
+        @foreach (var r in __rows)
+        {
+            <div class="fn-row">
+                <div class="fn-av" style="background:@AvatarStyle.Colour(r.flngKey)">@Initials(r.fstrPayee)</div>
+                <div class="fn-nm">
+                    <b><span class="t">@r.fstrPayee</span>@if (r.fblnLocked) { <span class="fn-lock" title="Reconciled"><Icon Name="lock" Size="11" Stroke="2" />Locked</span> }</b>
+                    <small>@r.fdtmExpenseDate.ToString("d MMM")@(string.IsNullOrWhiteSpace(r.fstrDescription) ? "" : " · " + r.fstrDescription) &middot; @r.fstrPaymentMethod@(string.IsNullOrWhiteSpace(r.fstrReferenceNumber) ? "" : " · Ref " + r.fstrReferenceNumber)@(string.IsNullOrWhiteSpace(r.fstrPaidBy) ? "" : " · paid by " + r.fstrPaidBy)</small>
+                </div>
+                <span class="fn-type">@r.fstrExpenseCategoryName</span>
+                <div class="fn-amt out">&#8722; @r.fcurAmount.ToString("N2")</div>
+                <div class="fn-act">
+                    <button type="button" title="Edit" aria-label="Edit" disabled="@r.fblnLocked" @onclick="() => Edit(r)"><Icon Name="edit" Size="15" Stroke="1.8" /></button>
+                    <button type="button" class="d" title="Delete" aria-label="Delete" disabled="@r.fblnLocked" @onclick="() => DeleteAsync(r)"><Icon Name="trash" Size="15" Stroke="1.8" /></button>
+                </div>
             </div>
-            <span class="chip g fin-type">@r.fstrExpenseCategoryName</span>
-            <div class="fin-amt out">&#8722; @r.fcurAmount.ToString("N2")</div>
-            <div class="fin-act">
-                <button class="btn btn-sm" disabled="@r.fblnLocked" @onclick="() => Edit(r)">Edit</button>
-                <button class="btn btn-sm btn-danger" disabled="@r.fblnLocked" @onclick="() => DeleteAsync(r)">Delete</button>
-            </div>
-        </div>
-    }
-    @if (__rows.Count == 0) { <p class="empty" style="margin:0">No expenses for this month.</p> }
+        }
+    </div>
+}
+
 </div>
 
 @code {

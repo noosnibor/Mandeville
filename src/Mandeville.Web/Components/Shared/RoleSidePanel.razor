@@ -1,17 +1,26 @@
-@implements IDisposable
+﻿@implements IDisposable
 @using System.Security.Claims
 @using global::Mandeville.Web.Dashboards
 @inject RoleStatsService Stats
 
 @* Summary panel for the page's role,  *@
 <div class="side-stack">
+    @if (!__loading && __data is not null && SectionCount > 1)
+    {
+        @* Phone only: one summary card at a time *@
+        <div class="sp-tabs" role="tablist">
+            <button type="button" role="tab" class="@(__sec == 0 ? "on" : "")" @onclick="() => __sec = 0">Summary</button>
+            @if (__data.PerService.Count > 0) { <button type="button" role="tab" class="@(__sec == 1 ? "on" : "")" @onclick="() => __sec = 1">Per service</button> }
+            @if (ShowAttention) { <button type="button" role="tab" class="@(__sec == 2 ? "on" : "")" @onclick="() => __sec = 2">Attention</button> }
+        </div>
+    }
     @if (__loading)
     {
         <div class="side-card"><p class="hint">Loading...</p></div>
     }
     else if (__data is not null)
     {
-        <div class="side-card @(Data is not null || Kind.StartsWith("visit") || Kind.StartsWith("connect") || Kind == "incoming" ? "plain" : "")">
+        <div class="side-card @(Data is not null || Kind.StartsWith("visit") || Kind.StartsWith("connect") || Kind == "incoming" ? "plain" : "") @(ActiveSection != 0 ? "sp-hide" : "")">
             <h3><span class="h2-ico"><Icon Name="@(Kind == "care" || Data is not null ? "heart" : Kind.StartsWith("visit") || Kind.StartsWith("connect") || Kind == "incoming" ? "users" : "layers")" Size="22" Stroke="1.6" /></span>@__data.Title summary</h3>
             <div class="side-tiles">
                 @{
@@ -26,7 +35,7 @@
                 }
                 @foreach (var t in __data.Tiles)
                 {
-                    <div class="side-tile t@(i % 4) @(t.Warn ? "warn" : "")"><span class="st-ico"><Icon Name="@tileIcons[i % 4]" Size="20" Stroke="1.5" /></span><span class="st-text"><b>@t.Value</b><small>@t.Label</small></span></div>
+                    <div class="side-tile t@(i % 4) @(t.Warn ? "warn" : "") @((t.Value?.Length ?? 0) > 6 ? "long" : "")"><span class="st-ico"><Icon Name="@tileIcons[i % 4]" Size="20" Stroke="1.5" /></span><span class="st-text"><b>@t.Value</b><small>@t.Label</small></span></div>
                     i++;
                 }
             </div>
@@ -45,7 +54,7 @@
 
         @if (__data.PerService.Count > 0)
         {
-        <div class="side-card">
+        <div class="side-card @(ActiveSection != 1 ? "sp-hide" : "")">
             <h3><span class="h2-ico"><Icon Name="church" Size="22" Stroke="1.6" /></span>@__data.PerServiceTitle</h3>
             @foreach (var s in __data.PerService)
             {
@@ -60,7 +69,7 @@
 
         @if (Data is null || __data.Attention.Count > 0)
         {
-        <div class="side-card">
+        <div class="side-card @(ActiveSection != 2 ? "sp-hide" : "")">
             <h3><span class="h2-ico"><Icon Name="bell" Size="22" Stroke="1.6" /></span>Needs Attention</h3>
             @if (__data.Attention.Count == 0)
             {
@@ -81,6 +90,7 @@
     private readonly CancellationTokenSource __cts = new();
     private RolePanelData? __data;
     private bool __loading = true;
+    private int __sec;   // phone tab: 0 summary, 1 per service, 2 attention
     private string? __loadedKind;
 
     #endregion
@@ -100,6 +110,17 @@
     [Parameter] public RolePanelData? Data { get; set; }
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    #endregion
+
+    #region Section tabs
+
+    private bool ShowAttention => __data is not null && (Data is null || __data.Attention.Count > 0);
+
+    private int SectionCount => 1 + (__data is not null && __data.PerService.Count > 0 ? 1 : 0) + (ShowAttention ? 1 : 0);
+
+    /// <summary>The card shown on phone; falls back to the summary when the chosen card is not on this page.</summary>
+    private int ActiveSection => __sec == 1 && __data?.PerService.Count > 0 ? 1 : __sec == 2 && ShowAttention ? 2 : 0;
 
     #endregion
 

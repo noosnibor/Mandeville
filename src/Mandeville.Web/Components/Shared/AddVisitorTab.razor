@@ -2,29 +2,29 @@
 @inject IVisitorRepository VisitorRepo
 @inject IVisitorAttendanceRepository AttendanceRepo
 @inject IServiceRepository ServiceRepo
+@inject IVisitorNoteRepository NoteRepo
 
 <ToastBar Toast="__toast" />
 
 @* ---------- Summary ---------- *@
-<div class="vkpi card">
-    <div><b>@__visitors.Count</b><span>@(!string.IsNullOrWhiteSpace(__search) ? "Visitors found" : __viewDate == "all" ? "All visitors" : "Visitors this service")</span></div>
-    <div><b>@__hereToday</b><span>Here today</span></div>
-    <div><b>@__todayReasons.Count</b><span>Altar calls</span></div>
+<div class="vk">
+    <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Visitors</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__visitors.Count</b><small>@(!string.IsNullOrWhiteSpace(__search) ? "Found" : __viewDate == "all" ? "All time" : "This service")</small></div>
+    <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Here today</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@__hereToday</b><small>Checked in</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Altar calls</span><span class="vk-i"><Icon Name="bell" Size="17" Stroke="1.8" /></span></div><b>@__todayReasons.Count</b><small>Today</small></div>
 </div>
 
 @* ---------- Service picker ---------- *@
-<div class="svc-line" role="tablist" aria-label="Choose a service">
+<div class="svc-line" aria-label="Choose a service">
     <span class="svc-line-label">Service</span>
-    @foreach (var s in PillServices())
-    {
-        var d = s.fdtmServiceDate.ToString("yyyy-MM-dd");
-        <button type="button" role="tab" aria-selected="@(d == __viewDate)" class="svc-pill @(d == __viewDate ? "on" : "")" title="@s.fstrServiceName - @s.fdtmServiceDate.ToString("dd MMM yyyy")" @onclick="() => PickServiceAsync(d)">@PillText(s)</button>
-    }
-    @if (__services.Count > PillCount)
-    {
-        <button type="button" class="svc-pill more @(__moreOpen ? "open" : "")" aria-expanded="@(__moreOpen ? "true" : "false")" @onclick="() => __moreOpen = !__moreOpen">More <Icon Name="chevron" Size="14" Stroke="1.8" /></button>
-    }
-    <button type="button" role="tab" aria-selected="@(__viewDate == "all")" class="svc-pill @(__viewDate == "all" ? "on" : "")" @onclick='() => PickServiceAsync("all")'>All</button>
+    <button type="button" class="svc-pick @(__moreOpen ? "open" : "")" aria-expanded="@(__moreOpen ? "true" : "false")" aria-haspopup="dialog" @onclick="() => __moreOpen = !__moreOpen">
+        <span class="sp-ic"><Icon Name="calendar" Size="17" Stroke="1.9" /></span>
+        <span class="sp-tx"><small>Service</small><b>@PickText()</b></span>
+        <span class="sp-ch"><Icon Name="chevron" Size="16" Stroke="2" /></span>
+    </button>
+    <div class="svc-all" role="group" aria-label="Latest or all services">
+        <button type="button" class="@(__viewDate != "all" ? "on" : "")" @onclick="PickLatestAsync">Latest</button>
+        <button type="button" class="@(__viewDate == "all" ? "on" : "")" @onclick='() => PickServiceAsync("all")'>All</button>
+    </div>
 
     @if (__moreOpen)
     {
@@ -81,6 +81,7 @@
                                     <b>@v.FullName
                                         @if (__todayReasons.ContainsKey(v.flngKey)) { <span class="inc-path ret">Altar call</span> }
                                         else if (v.fstrStatus != "Visitor") { <span class="inc-path new">@v.fstrStatus</span> }
+                                        @if (__noteCounts.TryGetValue(v.flngKey, out var noteCount)) { <span class="note-count" title="Notes"><Icon Name="note" Size="13" Stroke="1.6" />@noteCount</span> }
                                     </b>
                                     <small><Icon Name="phone" Size="13" Stroke="1.6" /> @(string.IsNullOrWhiteSpace(v.fstrPhoneNumber) ? "No phone" : v.fstrPhoneNumber)</small>
                                 </span>
@@ -100,7 +101,20 @@
     }
     else
     {
-        <p class="empty" style="margin:0;padding:1.4rem 1.2rem">@(string.IsNullOrWhiteSpace(__search) ? "No visitors have been recorded for this service yet." : "No visitors found.")</p>
+        <div class="empty-state">
+            <div class="empty-ico"><Icon Name="userplus" Size="30" Stroke="1.6" /></div>
+            @if (string.IsNullOrWhiteSpace(__search))
+            {
+                <h3>No visitors yet</h3>
+                <p>No visitors have been recorded for this service yet.</p>
+                <div class="empty-actions"><button type="button" class="empty-btn" @onclick="NewVisitor">Add Visitor</button></div>
+            }
+            else
+            {
+                <h3>No visitors found</h3>
+                <p>We could not find anyone matching your search. Try a different name, phone number or email.</p>
+            }
+        </div>
     }
 </div>
 
@@ -145,6 +159,9 @@
                     <div class="ir"><span>Connected to</span><b>@d.fstrFollowUpName</b></div>
                 }
             </div>
+
+            <VisitorContactNotes Visitor="d" OnChanged="NotesChangedAsync" />
+            <VisitorReferral Visitor="d" OnChanged="() => OnChanged.InvokeAsync()" />
 
             <div class="drawer-card">
                 <h4>Recent visits</h4>
@@ -251,6 +268,7 @@
     // Details panel
     private VisitorModel? __detail;
     private List<VisitorAttendanceModel> __detailVisits = [];
+    private Dictionary<Guid, int> __noteCounts = [];
 
     #endregion
 
@@ -299,6 +317,20 @@
         __detail = v;
         var visits = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
         __detailVisits = visits.OrderByDescending(a => a.fdtmServiceDate).Take(5).ToList();
+    }
+
+    /// <summary>Refreshes the note counts after Member care adds a note.</summary>
+    private async Task NotesChangedAsync()
+    {
+        await LoadNoteCountsAsync();
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task LoadNoteCountsAsync()
+    {
+        __noteCounts = (await NoteRepo.SelectVisitorNote(cancellationToken: __cts.Token))
+            .GroupBy(n => n.flngVisitorKey)
+            .ToDictionary(g => g.Key, g => g.Count());
     }
 
     private void CloseDetail() => __detail = null;
@@ -353,6 +385,7 @@
         __todayReasons = atService.Where(a => !string.IsNullOrEmpty(a.fstrAltarReason)).GroupBy(a => a.flngVisitorKey).ToDictionary(g => g.Key, g => g.First().fstrAltarReason!);
         var todays = serviceDate == today ? atService : await AttendanceRepo.SelectVisitorAttendance(serviceDate: today, cancellationToken: __cts.Token);
         __hereToday = todays.Select(a => a.flngVisitorKey).Distinct().Count();
+        await LoadNoteCountsAsync();
     }
 
     /// <summary>The latest few services, plus the chosen one when it is an older service picked from "More".</summary>
@@ -377,6 +410,21 @@
         return __services
             .Where(s => q.Length == 0 || s.fstrServiceName.Contains(q, StringComparison.OrdinalIgnoreCase) || s.fdtmServiceDate.ToString("dd MMM yyyy").Contains(q, StringComparison.OrdinalIgnoreCase))
             .GroupBy(s => s.fdtmServiceDate.ToString("MMMM yyyy"));
+    }
+
+    /// <summary>The text on the service picker: the chosen service, or "All services".</summary>
+    private string PickText()
+    {
+        if (__viewDate == "all") return "All services";
+        var chosen = __services.FirstOrDefault(s => s.fdtmServiceDate.ToString("yyyy-MM-dd") == __viewDate);
+        return chosen is null ? "Choose a service" : PillText(chosen);
+    }
+
+    /// <summary>Jumps to the most recent service.</summary>
+    private async Task PickLatestAsync()
+    {
+        var latest = __services.FirstOrDefault();
+        if (latest is not null) await PickServiceAsync(latest.fdtmServiceDate.ToString("yyyy-MM-dd"));
     }
 
     private async Task PickServiceAsync(string viewDate)

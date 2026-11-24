@@ -7,7 +7,7 @@ namespace Mandeville.Web.Reports;
 /// <summary>Draws a <see cref="ServiceReport"/> as a one-page A4 PDF.</summary>
 public static class ServiceReportPdf
 {
-    private const string Teal = "#0f766e";
+    private const string Teal = "#1670d6";
     private const string Ink = "#12151c";
     private const string Muted = "#667085";
     private const string Line = "#e4e7ec";
@@ -114,6 +114,15 @@ public static class ServiceReportPdf
                         Tile(row, r.InactiveMembers.ToString(), "Inactive");
                         Tile(row, $"{r.MembersPresent} ({r.PresentPercent}%)", "Present at this service");
                     });
+                    col.Item().Row(row =>
+                    {
+                        Tile(row, r.VisitingMembers.ToString(), "Visiting members");
+                        Tile(row, r.TotalInService.ToString(), "Total in the service");
+                        row.RelativeItem();
+                        row.RelativeItem();
+                    });
+                    foreach (var b in r.VisitingByBranch)
+                        col.Item().Element(x => Line_(x, $"Visiting from {b.Key}", b.Value.ToString()));
                     col.Item().Row(row =>
                     {
                         row.RelativeItem().PaddingRight(12).Column(c =>

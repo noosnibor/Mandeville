@@ -3,22 +3,26 @@
 @inject IMemberTypeRepository MemberTypeRepo
 @inject IServiceAssignmentRepository AssignmentRepo
 @inject IDepartmentRepository DepartmentRepo
+@inject IBranchRepository BranchRepo
 @inject IPaymentTypeRepository PaymentTypeRepo
 @inject IExpenseCategoryRepository ExpenseCategoryRepo
 
 <PageTitle>Setup</PageTitle>
 
-<div class="page-head"><div class="ph-title"><span class="mhead-ico"><Icon Name="gear" Size="22" Stroke="1.5" /></span><div><h1>Setup</h1><p>Church details, services and lists</p></div></div></div>
+<div class="mod wide vpage vmod">
 
-<div class="stp">
-<div class="tabs">
+<div class="fn-head">
+    <div class="mhead"><span class="mhead-ico"><Icon Name="gear" Size="26" Stroke="1.5" /></span><div><h1>Setup</h1><p>Church details, services and lists</p></div></div>
+</div>
+
+<div class="st-tabs">
     @foreach (var t in __tabs)
     {
-        <button class="tab @(__tab == t ? "active" : "")" @onclick="() => __tab = t">@t</button>
+        <button class="@(__tab == t ? "on" : "")" @onclick="() => __tab = t">@t</button>
     }
-    <button class="tab @(__tab == "Services" ? "active" : "")" @onclick='() => __tab = "Services"'>Services</button>
-    <button class="tab @(__tab == "Fixed lists" ? "active" : "")" @onclick='() => __tab = "Fixed lists"'>Fixed lists</button>
-    <button class="tab @(__tab == "Users" ? "active" : "")" @onclick='() => __tab = "Users"'>Users &amp; access</button>
+    <button class="@(__tab == "Services" ? "on" : "")" @onclick='() => __tab = "Services"'>Services</button>
+    <button class="@(__tab == "Fixed lists" ? "on" : "")" @onclick='() => __tab = "Fixed lists"'>Fixed lists</button>
+    <button class="@(__tab == "Users" ? "on" : "")" @onclick='() => __tab = "Users"'>Users &amp; access</button>
 </div>
 
 @switch (__tab)
@@ -32,6 +36,9 @@
     case "Departments":
         <LookupEditor @key="__tab" Title="Departments" Load="LoadDepartments" Save="SaveDepartment" Delete="DeleteDepartment" />
         break;
+    case "Branches":
+        <LookupEditor @key="__tab" Title="Branches" Load="LoadBranches" Save="SaveBranch" Delete="DeleteBranch" />
+        break;
     case "Payment types":
         <LookupEditor @key="__tab" Title="Payment types" ShowDues="true" Load="LoadPaymentTypes" Save="SavePaymentType" Delete="DeletePaymentType" />
         break;
@@ -42,9 +49,11 @@
         <ServicesSetupTab />
         break;
     case "Users":
-        <div class="card">
-            <p class="hint">Sign-in accounts, roles (Administrator, Minister, Pastoral Care) and temporary passwords are managed on their own page.</p>
-            <a class="btn btn-primary btn-sm" href="users">Open Users &amp; access</a>
+        <div class="empty-state">
+            <div class="empty-ico"><Icon Name="lock" Size="30" Stroke="1.6" /></div>
+            <h3>Users &amp; access</h3>
+            <p>Sign-in accounts, roles (Administrator, Minister, Pastoral Care) and temporary passwords are managed on their own page.</p>
+            <a class="ev-go" href="users" style="display:inline-flex;align-items:center;text-decoration:none">Open Users &amp; access</a>
         </div>
         break;
     default:
@@ -54,7 +63,7 @@
 </div>
 
 @code {
-    private readonly string[] __tabs = ["Member types", "Service assignments", "Departments", "Payment types", "Expense categories"];
+    private readonly string[] __tabs = ["Member types", "Service assignments", "Departments", "Branches", "Payment types", "Expense categories"];
     private string __tab = "Member types";
 
     #region Member types
@@ -90,6 +99,18 @@
         DepartmentRepo.AddOrUpdateDepartment(new DepartmentModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fstrWho = AppConstants.Who }, isNew);
 
     private Task<ToastMessageModel> DeleteDepartment(Guid key) => DepartmentRepo.DeleteDepartment(key, AppConstants.Who);
+
+    #endregion
+
+    #region Branches
+
+    private async Task<List<LookupItem>> LoadBranches() =>
+        (await BranchRepo.SelectBranch()).Select(x => new LookupItem { Key = x.flngKey, Name = x.fstrName, Description = x.fstrDescription, Active = x.fblnActive }).ToList();
+
+    private Task<ToastMessageModel> SaveBranch(LookupItem i, bool isNew) =>
+        BranchRepo.AddOrUpdateBranch(new BranchModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fstrWho = AppConstants.Who }, isNew);
+
+    private Task<ToastMessageModel> DeleteBranch(Guid key) => BranchRepo.DeleteBranch(key, AppConstants.Who);
 
     #endregion
 

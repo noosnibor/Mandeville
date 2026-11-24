@@ -4,38 +4,54 @@
 @inject IVisitorAttendanceRepository AttendanceRepo
 @inject IMemberRepository MemberRepo
 @inject IDepartmentRepository DepartmentRepo
+@inject IConfiguration Configuration
 
 <ToastBar Toast="__toast" />
 
+<div class="tm-line">
 @if (CanPick)
 {
-    <div class="cl-line">
-        <span class="svc-line-label">Viewing the list of</span>
-        <select class="cl-pick" @bind="__viewKey" @bind:after="LoadAsync">
-            <option value="">-- choose a team member --</option>
-            @foreach (var m in __team) { <option value="@m.flngKey">@m.FullName</option> }
-        </select>
-        <span class="cl-note"><Icon Name="info" Size="16" Stroke="1.6" />A team member only sees their own list when they sign in.</span>
+    <div class="cl-pickwrap">
+        <div class="svc-pick tm">
+            <span class="sp-ic"><Icon Name="user" Size="17" Stroke="1.9" /></span>
+            <span class="sp-tx"><small>Viewing the list of</small><b>@(__team.FirstOrDefault(m => m.flngKey == __viewKey)?.FullName ?? "Choose a team member")</b></span>
+            <span class="sp-ch"><Icon Name="chevron" Size="16" Stroke="2" /></span>
+            <select class="cl-pick" aria-label="Team member" @bind="__viewKey" @bind:after="LoadAsync">
+                <option value="">-- choose a team member --</option>
+                @foreach (var m in __team) { <option value="@m.flngKey">@m.FullName</option> }
+            </select>
+        </div>
     </div>
+    <span class="cl-note"><Icon Name="info" Size="16" Stroke="1.6" />A team member only sees their own list when they sign in.</span>
 }
+@if (__formUrl is not null)
+{
+    @* The WAFIF Connection HQ Log button. It opens the Google Form in a new tab. *@
+    <a class="cl-formbtn" href="@__formUrl" target="_blank" rel="noopener noreferrer"><Icon Name="note" Size="16" Stroke="1.8" />WAFIF Connection HQ Log<span aria-hidden="true">&nearr;</span></a>
+}
+</div>
 
 @if (__viewKey is null)
 {
-    <div class="card"><p class="empty" style="margin:0">@(CanPick ? "Choose a team member to see who is assigned to them." : "Your account is not linked to a member yet. Ask the administrator.")</p></div>
+    <div class="empty-state">
+        <div class="empty-ico"><Icon Name="users" Size="30" Stroke="1.6" /></div>
+        <h3>@(CanPick ? "Choose a team member" : "Account not linked")</h3>
+        <p>@(CanPick ? "Pick someone above to see who is assigned to them." : "Your account is not linked to a member yet. Ask the administrator.")</p>
+    </div>
 }
 else
 {
-    <div class="vkpi card">
-        <div><b>@__mine.Count</b><span>Assigned</span></div>
-        <div><b class="@(DueCount() > 0 ? "warn" : "")">@DueCount()</b><span>Follow-ups due</span></div>
-        <div><b>@(__mine.Count(v => v.fdtmLastContactDate is { } c && c.Date >= AppClock.Today.AddDays(-6)))</b><span>Called this week</span></div>
+    <div class="vk">
+        <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Assigned</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__mine.Count</b><small>To them</small></div>
+        <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Follow-ups due</span><span class="vk-i"><Icon Name="bell" Size="17" Stroke="1.8" /></span></div><b>@DueCount()</b><small>Call today</small></div>
+        <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Called</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@(__mine.Count(v => v.fdtmLastContactDate is { } c && c.Date >= AppClock.Today.AddDays(-6)))</b><small>This week</small></div>
     </div>
     <div class="mgrid">
         @foreach (var p in __mine)
         {
             var person = p;
             var due = person.fdtmNextContactDate is { } d && d.Date <= AppClock.Today;
-            <div class="vcard">
+            <div class="vcard @(due ? "due" : "")">
                 <div class="vcard-body">
                     <div class="vcard-head">
                         <div class="ucard-avatar" style="background:@AvatarStyle.Colour(person.flngKey)">@AvatarStyle.Initials(person.fstrFirstname, person.fstrLastname)</div>
@@ -46,8 +62,8 @@ else
                         <span class="inc-path @(IsMembership(person) ? "join" : "new")">@(__reasons.GetValueOrDefault(person.flngKey) ?? "Visitor")</span>
                     </div>
                     <div class="vcard-line">
-                        <span><Icon Name="calendar" Size="16" Stroke="1.5" />Last contact: @(person.fdtmLastContactDate?.ToString("d MMM") ?? "not yet")</span>
-                        <span class="@(due ? "vdue" : "")"><Icon Name="calendar" Size="16" Stroke="1.5" />Next: @(person.fdtmNextContactDate?.ToString("d MMM") ?? "not set")@(due ? " (due)" : "")</span>
+                        <span>Last contact<b>@(person.fdtmLastContactDate?.ToString("d MMM") ?? "Not yet")</b></span>
+                        <span class="@(due ? "vdue" : "")">Next@(due ? " · due" : "")<b>@(person.fdtmNextContactDate?.ToString("d MMM") ?? "Not set")</b></span>
                     </div>
                 </div>
                 <div class="vcard-foot">
@@ -63,7 +79,11 @@ else
     </div>
     @if (__mine.Count == 0)
     {
-        <div class="card"><p class="empty" style="margin:0">Nobody is assigned to this team member yet.</p></div>
+        <div class="empty-state">
+            <div class="empty-ico"><Icon Name="users" Size="30" Stroke="1.6" /></div>
+            <h3>Nobody assigned yet</h3>
+            <p>Nobody is assigned to this team member yet.</p>
+        </div>
     }
 }
 
@@ -143,10 +163,16 @@ else
     private string? __newNote;
     private ToastMessageModel? __toast;
 
+    /// <summary>The Google Form address from the app settings (Church:ConnectionFormUrl); null when it is not set or not a web address.</summary>
+    private string? __formUrl;
+
     #endregion
 
     protected override async Task OnInitializedAsync()
     {
+        var url = Configuration["Church:ConnectionFormUrl"];
+        __formUrl = Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var formUri) && formUri.Scheme == Uri.UriSchemeHttps ? formUri.AbsoluteUri : null;
+
         if (CanPick)
         {
             var departments = await DepartmentRepo.SelectDepartment(active: true, cancellationToken: __cts.Token);
@@ -207,6 +233,7 @@ else
             var reason = visits.Where(a => !string.IsNullOrWhiteSpace(a.fstrAltarReason))
                                .OrderByDescending(a => a.fdtmServiceDate).Select(a => a.fstrAltarReason).FirstOrDefault();
             if (reason is not null) __reasons[v.flngKey] = FixedLists.IsMembershipReason(reason) ? "Membership" : reason;
+            else if (!string.IsNullOrWhiteSpace(v.fstrReferralReason)) __reasons[v.flngKey] = FixedLists.IsMembershipReason(v.fstrReferralReason) ? "Membership" : v.fstrReferralReason; // referred by Member care
         }
     }
 

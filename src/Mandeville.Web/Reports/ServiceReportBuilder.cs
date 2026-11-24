@@ -12,6 +12,7 @@ public class ServiceReportBuilder(
     IVisitorAttendanceRepository visitorAttendanceRepo,
     IMemberRepository memberRepo,
     IMemberAttendanceRepository memberAttendanceRepo,
+    IVisitingAttendanceRepository visitingAttendanceRepo,
     IPastoralAssignmentRepository assignmentRepo,
     IPastoralContactRepository contactRepo,
     IFinanceRepository financeRepo,
@@ -30,6 +31,7 @@ public class ServiceReportBuilder(
     private readonly IVisitorAttendanceRepository __visitorAttendanceRepo = visitorAttendanceRepo;
     private readonly IMemberRepository __memberRepo = memberRepo;
     private readonly IMemberAttendanceRepository __memberAttendanceRepo = memberAttendanceRepo;
+    private readonly IVisitingAttendanceRepository __visitingAttendanceRepo = visitingAttendanceRepo;
     private readonly IPastoralAssignmentRepository __assignmentRepo = assignmentRepo;
     private readonly IPastoralContactRepository __contactRepo = contactRepo;
     private readonly IFinanceRepository __financeRepo = financeRepo;
@@ -146,6 +148,15 @@ public class ServiceReportBuilder(
         var attendance = await __memberAttendanceRepo.SelectMemberAttendance(active: true, cancellationToken: ct);
         r.MembersPresent = attendance.Where(a => a.flngServiceKey == service.flngKey).Select(a => a.flngMemberKey).Distinct().Count();
         r.PresentPercent = r.ActiveMembers == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * r.MembersPresent / r.ActiveMembers));
+
+        // Visiting members (other branches) are counted separately so member percentages stay member-only
+        var visiting = await __visitingAttendanceRepo.SelectVisitingAttendance(service.flngKey, true, ct);
+        r.VisitingMembers = visiting.Select(v => v.flngVisitingMemberKey).Distinct().Count();
+        r.VisitingByBranch = visiting
+            .GroupBy(v => v.fstrBranch)
+            .Select(g => new KeyValuePair<string, int>(g.Key, g.Select(x => x.flngVisitingMemberKey).Distinct().Count()))
+            .OrderByDescending(k => k.Value).ThenBy(k => k.Key)
+            .ToList();
 
         // Not seen for 3+ weeks, counted as at the service date (skipped until check-ins exist)
         var cutoff = date.AddDays(-21);

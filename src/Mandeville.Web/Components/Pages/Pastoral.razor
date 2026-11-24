@@ -10,7 +10,7 @@
 
 <PageTitle>Pastoral Care</PageTitle>
 
-<div class="mod wide pst">
+<div class="mod wide vpage pst">
 <div class="mhead"><span class="mhead-ico"><Icon Name="heart" Size="26" Stroke="1.5" /></span><div><h1>Pastoral Care</h1><p>@(__staff ? "Core members caring for members, supporting the minister" : "The members you care for and your private care log")</p></div></div>
 
 <div class="with-side"><div class="side-main">
@@ -29,16 +29,16 @@ else
 {
     @if (__staff)
     {
-        <div class="tabs">
+        <div class="tabs tabs-seg">
             <button class="tab @(__tab == "caseloads" ? "active" : "")" @onclick='() => __tab = "caseloads"'>Caseloads</button>
-            <button class="tab @(__tab == "assign" ? "active" : "")" @onclick='() => __tab = "assign"'>Assign members</button>
-            <button class="tab @(__tab == "log" ? "active" : "")" @onclick='() => __tab = "log"'>Care log</button>
-            <button class="tab @(__tab == "minister" ? "active" : "")" @onclick='() => SwitchTabAsync("minister")'>Minister's list</button>
+            <button class="tab @(__tab == "assign" ? "active" : "")" @onclick='() => __tab = "assign"'><span class="tl-d">Assign members</span><span class="tl-m">Assign</span></button>
+            <button class="tab @(__tab == "log" ? "active" : "")" @onclick='() => __tab = "log"'><span class="tl-d">Care log</span><span class="tl-m">Log</span></button>
+            <button class="tab @(__tab == "minister" ? "active" : "")" @onclick='() => SwitchTabAsync("minister")'><span class="tl-d">Minister's list</span><span class="tl-m">Minister</span></button>
         </div>
     }
     else
     {
-        <div class="tabs">
+        <div class="tabs tabs-seg">
             <button class="tab @(__tab == "mine" ? "active" : "")" @onclick='() => __tab = "mine"'>My caseload</button>
             <button class="tab @(__tab == "log" ? "active" : "")" @onclick='() => __tab = "log"'>My log</button>
         </div>
@@ -47,16 +47,17 @@ else
     @* ======================= Caseloads (administrator / minister) ======================= *@
     @if (__staff && __tab == "caseloads")
     {
-        <div class="kstrip card">
-            @foreach (var bar in Bars())
+        <div class="vk four">
+            @foreach (var bar in Bars().Where(b => b.Label != "Contacted"))
             {
-                <div class="@(bar.Label == "Assigned" ? "on" : "")"><b>@bar.Value</b><span>@bar.Label</span></div>
+                var meta = BarMeta(bar.Label);
+                <div class="vkc" style="--c:@meta.Colour"><div class="vk-h"><span>@bar.Label</span><span class="vk-i"><Icon Name="@meta.Icon" Size="17" Stroke="1.8" /></span></div><b>@bar.Value</b><small>@meta.Sub</small></div>
             }
         </div>
 
         @if (CoreMembers.Count == 0)
         {
-            <div class="card"><p class="empty" style="margin:0">No Core Members yet. Tick "Core member" on a member's record (Members page) and they will appear here.</p></div>
+            <div class="empty-state"><div class="empty-ico"><Icon Name="heart" Size="30" Stroke="1.6" /></div><h3>No core members yet</h3><p>Tick "Core member" on a member's record (Members page) and they will appear here.</p></div>
         }
         <div class="care-grid">
             @foreach (var core in CoreMembers)
@@ -64,7 +65,7 @@ else
                 var mine = CareOf(core.flngKey);
                 var state = WorstState(mine);
                 var lastLog = LastLogOf(core.flngKey);
-                <div class="care-card" @onclick="() => __openCarer = core.flngKey">
+                <div class="care-card @state.Css" @onclick="() => __openCarer = core.flngKey">
                     <div class="care-top">
                         <div class="care-av" style="background:@AvatarStyle.Colour(core.flngKey)">@AvatarStyle.Initials(core.fstrFirstname, core.fstrLastname)</div>
                         <div class="care-nm"><b>@core.FullName</b><small>Core member</small></div>
@@ -91,74 +92,101 @@ else
     @* ======================= Assign members (administrator / minister) ======================= *@
     @if (__staff && __tab == "assign")
     {
+        var careable = __members.Where(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember).ToList();
+        var noCarer = careable.Count(m => m.flngCarerKey is null);
+        <div class="as-seg" role="group" aria-label="Filter members">
+            <button class="@(__assignFilter == "none" ? "on" : "")" @onclick='() => __assignFilter = "none"'>Unassigned<b>@noCarer</b></button>
+            <button class="@(__assignFilter == "has" ? "on" : "")" @onclick='() => __assignFilter = "has"'>Assigned<b>@(careable.Count - noCarer)</b></button>
+            <button class="@(__assignFilter == "all" ? "on" : "")" @onclick='() => __assignFilter = "all"'>All<b>@careable.Count</b></button>
+        </div>
         <div class="mfilter">
-            <input type="text" placeholder="Search name" @bind="__assignSearch" @bind:event="oninput" />
-            <select @bind="__assignFilter">
-                <option value="none">Without a carer</option>
-                <option value="has">With a carer</option>
-                <option value="all">Everyone</option>
-            </select>
+            <input type="text" placeholder="Search name" aria-label="Search members" @bind="__assignSearch" @bind:event="oninput" />
         </div>
-        <div class="card care-assign">
-            @{ var assignList = AssignList(); }
-            @if (CoreMembers.Count == 0)
-            {
-                <p class="empty" style="margin:0">Mark at least one member as a Core Member first (Members page).</p>
-            }
-            else if (assignList.Count == 0)
-            {
-                <p class="empty" style="margin:0">No members match.</p>
-            }
-            @foreach (var m in assignList.Take(60))
-            {
-                <div class="care-u">
-                    <div class="care-av sm" style="background:@AvatarStyle.Colour(m.flngKey)">@AvatarStyle.Initials(m.fstrFirstname, m.fstrLastname)</div>
-                    <div class="care-ut">
-                        <b>@m.FullName</b>
-                        <small>@(string.IsNullOrWhiteSpace(m.fstrCarerName) ? "No carer yet" : "Cared for by " + m.fstrCarerName)</small>
-                    </div>
-                    <select class="care-sel" @onchange="e => AssignAsync(m.flngKey, e.Value?.ToString())" aria-label="Carer for @m.FullName">
-                        <option value="" selected="@(m.flngCarerKey is null)">Assign to&hellip;</option>
-                        @foreach (var core in CoreMembers.Where(c => c.flngKey != m.flngKey))
+        var assignList = AssignList();
+        @if (CoreMembers.Count == 0)
+        {
+            <div class="empty-state"><div class="empty-ico"><Icon Name="users" Size="30" Stroke="1.6" /></div><h3>No core members yet</h3><p>Mark at least one member as a Core Member first (Members page).</p></div>
+        }
+        else if (assignList.Count == 0)
+        {
+            <div class="empty-state"><div class="empty-ico"><Icon Name="check" Size="30" Stroke="1.8" /></div><h3>No members match</h3><p>Try another filter or clear the search.</p></div>
+        }
+        else
+        {
+            <div class="ao-list">
+                @foreach (var m in assignList.Take(60))
+                {
+                    <div class="ao-row">
+                        <div class="ao-av" style="background:@AvatarStyle.Colour(m.flngKey)">@AvatarStyle.Initials(m.fstrFirstname, m.fstrLastname)</div>
+                        <div class="ao-nm">
+                            <b>@m.FullName</b>
+                            <small>@(m.flngCarerKey is null ? "No carer yet" : "Cared for")</small>
+                        </div>
+                        @if (m.flngCarerKey is Guid ck)
                         {
-                            <option value="@core.flngKey" selected="@(m.flngCarerKey == core.flngKey)">@core.FullName (@CareOf(core.flngKey).Count)</option>
+                            <span class="ao-chip"><i style="background:@AvatarStyle.Colour(ck)">@Initials(m.fstrCarerName)</i>@FirstWord(m.fstrCarerName)<Icon Name="chevron" Size="14" Stroke="2" />
+                                <select @onchange="e => AssignAsync(m.flngKey, e.Value?.ToString())" aria-label="Carer for @m.FullName">
+                                    <option value="" selected="@(m.flngCarerKey is null)">Assign to&hellip;</option>
+                                    @foreach (var core in CoreMembers.Where(c => c.flngKey != m.flngKey))
+                                    {
+                                        <option value="@core.flngKey" selected="@(m.flngCarerKey == core.flngKey)">@core.FullName (@CareOf(core.flngKey).Count)</option>
+                                    }
+                                    <option value="remove">Remove carer</option>
+                                </select>
+                            </span>
                         }
-                        @if (m.flngCarerKey is not null) { <option value="remove">Remove carer</option> }
-                    </select>
-                </div>
-            }
+                        else
+                        {
+                            <span class="ao-chip none"><Icon Name="plus" Size="14" Stroke="2.2" />Assign<Icon Name="chevron" Size="14" Stroke="2" />
+                                <select @onchange="e => AssignAsync(m.flngKey, e.Value?.ToString())" aria-label="Carer for @m.FullName">
+                                    <option value="">Assign to&hellip;</option>
+                                    @foreach (var core in CoreMembers.Where(c => c.flngKey != m.flngKey))
+                                    {
+                                        <option value="@core.flngKey">@core.FullName (@CareOf(core.flngKey).Count)</option>
+                                    }
+                                </select>
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
             @if (assignList.Count > 60) { <p class="hint">Showing the first 60. Use the search to narrow the list.</p> }
-        </div>
+        }
     }
 
     @* ======================= My caseload (Pastoral Care account) ======================= *@
     @if (!__staff && __tab == "mine")
     {
         var mine = CareOf(__myKey!.Value);
-        <div class="care-hero">
-            <div><b>@mine.Count</b><span>Members in your care</span></div>
-            <div><b>@mine.Count(c => c.State is "w" or "o")</b><span>Due for a contact</span></div>
-            <div><b>@(LastLogOf(__myKey.Value)?.ToString("d MMM") ?? "-")</b><span>Your last log</span></div>
+        <div class="vk">
+            <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>In your care</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@mine.Count</b><small>Members</small></div>
+            <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Due</span><span class="vk-i"><Icon Name="clock" Size="17" Stroke="1.8" /></span></div><b>@mine.Count(c => c.State is "w" or "o")</b><small>For a contact</small></div>
+            <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Last log</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@(LastLogOf(__myKey.Value)?.ToString("d MMM") ?? "-")</b><small>Yours</small></div>
         </div>
-        <div class="card care-assign">
-            @if (mine.Count == 0)
-            {
-                <p class="empty" style="margin:0">No members have been given to you yet.</p>
-            }
-            @foreach (var c in mine)
-            {
-                <div class="care-u">
-                    <div class="care-av sm" style="background:@AvatarStyle.Colour(c.MemberKey)">@Initials(c.Name)</div>
-                    <div class="care-ut">
-                        <b>@c.Name</b>
-                        <small>@c.Detail</small>
+        @if (mine.Count == 0)
+        {
+            <div class="empty-state"><div class="empty-ico"><Icon Name="heart" Size="30" Stroke="1.6" /></div><h3>No members yet</h3><p>No members have been given to you yet.</p></div>
+        }
+        else
+        {
+            <div class="ao-list">
+                @foreach (var c in mine)
+                {
+                    <div class="ao-row mine">
+                        <div class="ao-av" style="background:@AvatarStyle.Colour(c.MemberKey)">@Initials(c.Name)</div>
+                        <div class="ao-nm">
+                            <b>@c.Name</b>
+                            <small>@c.Detail</small>
+                        </div>
+                        <span class="care-tag @c.State">@c.StateText</span>
+                        <div class="ao-btns">
+                            <button class="btn btn-sm p" @onclick="() => StartLog(__myKey, c.MemberKey, null)">Log</button>
+                            <button class="btn btn-sm" @onclick="() => __history = c">History</button>
+                        </div>
                     </div>
-                    <span class="care-tag @c.State">@c.StateText</span>
-                    <button class="btn btn-sm" @onclick="() => StartLog(__myKey, c.MemberKey, null)">Log</button>
-                    <button class="btn btn-sm" @onclick="() => __history = c">History</button>
-                </div>
-            }
-        </div>
+                }
+            </div>
+        }
     }
 
     @* ======================= Care log ======================= *@
@@ -173,80 +201,96 @@ else
                 </select>
             </div>
         }
-        <div class="card">
-            @{ var entries = LogEntries(); }
-            @if (entries.Count == 0)
+        var entries = LogEntries(); string? __grp = null;
+        @if (entries.Count == 0)
+        {
+            <div class="empty-state"><div class="empty-ico"><Icon Name="note" Size="30" Stroke="1.6" /></div><h3>No contacts logged yet</h3><p>Care contacts you log will appear here.</p></div>
+        }
+        @foreach (var c in entries.Take(80))
+        {
+            var grp = LogGroup(c.fdtmContactDate);
+            if (grp != __grp)
             {
-                <p class="empty" style="margin:0">No care contacts have been logged yet.</p>
+                __grp = grp;
+                <div class="plg-day">@grp</div>
             }
-            @foreach (var c in entries.Take(80))
-            {
-                <div class="care-tl">
-                    <i></i>
-                    <div class="care-tl-head">
-                        <b>@(__staff ? c.fstrCoreMemberName + " → " + c.fstrMemberName : c.fstrMemberName)</b>
-                        <small>@c.fstrMethod &middot; @c.fdtmContactDate.ToString("d MMM yyyy")</small>
+            <div class="plg-card @(c.fblnFlagForMinister && !c.fblnFlagResolved ? "flag" : "")">
+                <div class="plg-top">
+                    <div class="plg-pair">
+                        @if (__staff) { <div class="ao-av" style="background:@AvatarStyle.Colour(c.flngCoreMemberKey)">@Initials(c.fstrCoreMemberName)</div> }
+                        <div class="ao-av" style="background:@AvatarStyle.Colour(c.flngMemberKey)">@Initials(c.fstrMemberName)</div>
+                    </div>
+                    <div class="plg-who"><b>@c.fstrMemberName</b><small>@(__staff ? "by " + c.fstrCoreMemberName + " · " : "")@c.fdtmContactDate.ToString("d MMM yyyy")</small></div>
+                    <span class="plg-meth"><Icon Name="@MethodIcon(c.fstrMethod)" Size="14" Stroke="2" /><span>@c.fstrMethod</span></span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(c.fstrNotes)) { <div class="plg-note">@c.fstrNotes</div> }
+                @if (c.fdtmNextContactDate is { } nx) { <small class="care-next">Next contact: @nx.ToString("d MMM yyyy")</small> }
+                @if (c.fblnFlagForMinister || CanEdit(c) || __isAdmin)
+                {
+                    <div class="plg-foot">
                         @if (c.fblnFlagForMinister)
                         {
-                            <span class="care-flag-chip">@(c.fblnFlagResolved ? "Flag resolved" : "Flagged for the minister")</span>
+                            <span class="plg-flag @(c.fblnFlagResolved ? "done" : "")">@(c.fblnFlagResolved ? "Flag resolved" : "Flagged for the minister")</span>
                         }
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(c.fstrNotes)) { <p>@c.fstrNotes</p> }
-                    @if (c.fdtmNextContactDate is { } nx) { <small class="care-next">Next contact: @nx.ToString("d MMM yyyy")</small> }
-                    @if (CanEdit(c) || __isAdmin)
-                    {
-                        <div class="care-tl-act">
-                            @if (CanEdit(c)) { <button class="btn btn-sm" @onclick="() => StartLog(c.flngCoreMemberKey, c.flngMemberKey, c)">Edit</button> }
-                            @if (CanEdit(c) || __isAdmin) { <button class="btn btn-sm care-del" @onclick="() => DeleteContactAsync(c)">Delete</button> }
+                        <div class="plg-act">
+                            @if (CanEdit(c)) { <button type="button" title="Edit" aria-label="Edit" @onclick="() => StartLog(c.flngCoreMemberKey, c.flngMemberKey, c)"><Icon Name="edit" Size="15" Stroke="1.8" /></button> }
+                            @if (CanEdit(c) || __isAdmin) { <button type="button" class="d" title="Delete" aria-label="Delete" @onclick="() => DeleteContactAsync(c)"><Icon Name="trash" Size="15" Stroke="1.8" /></button> }
                         </div>
-                    }
-                </div>
-            }
-        </div>
+                    </div>
+                }
+            </div>
+        }
     }
 
     @* ======================= Minister's list ======================= *@
     @if (__staff && __tab == "minister")
     {
-        <div class="card">
-            <h2>Flagged by carers <span>@FlaggedContacts().Count open</span></h2>
-            @if (FlaggedContacts().Count == 0)
-            {
-                <p class="empty" style="margin:0">Nothing is flagged right now.</p>
-            }
-            @foreach (var c in FlaggedContacts())
-            {
-                <div class="care-u">
-                    <div class="care-av sm" style="background:@AvatarStyle.Colour(c.flngMemberKey)">@Initials(c.fstrMemberName)</div>
-                    <div class="care-ut">
-                        <b>@c.fstrMemberName</b>
-                        <small>Flagged by @c.fstrCoreMemberName &middot; @c.fdtmContactDate.ToString("d MMM")</small>
-                        @if (!string.IsNullOrWhiteSpace(c.fstrNotes)) { <p class="care-note">@c.fstrNotes</p> }
+        var flagged = FlaggedContacts();
+        <div class="plg-day first">Flagged by carers<span>@flagged.Count open</span></div>
+        @if (flagged.Count == 0)
+        {
+            <div class="empty-state"><div class="empty-ico"><Icon Name="check" Size="30" Stroke="1.8" /></div><h3>Nothing flagged</h3><p>Nothing is flagged right now.</p></div>
+        }
+        else
+        {
+            <div class="ao-list">
+                @foreach (var c in flagged)
+                {
+                    <div class="ao-row flagrow">
+                        <div class="ao-av" style="background:@AvatarStyle.Colour(c.flngMemberKey)">@Initials(c.fstrMemberName)</div>
+                        <div class="ao-nm">
+                            <b>@c.fstrMemberName</b>
+                            <small>Flagged by @c.fstrCoreMemberName &middot; @c.fdtmContactDate.ToString("d MMM")</small>
+                            @if (!string.IsNullOrWhiteSpace(c.fstrNotes)) { <p class="care-note">@c.fstrNotes</p> }
+                        </div>
+                        <button class="btn btn-sm p" @onclick="() => ResolveAsync(c)">Resolved</button>
                     </div>
-                    <button class="btn btn-sm" @onclick="() => ResolveAsync(c)">Mark resolved</button>
-                </div>
-            }
-        </div>
+                }
+            </div>
+        }
 
-        <div class="card">
-            <h2>Needs attention <span>Not seen in 3+ weeks and no recent care contact</span></h2>
-            @{ var attention = NeedsAttention(); }
-            @if (attention.Count == 0)
-            {
-                <p class="empty" style="margin:0">Everyone who has been away is being looked after.</p>
-            }
-            @foreach (var a in attention.Take(30))
-            {
-                <div class="care-u">
-                    <div class="care-av sm" style="background:@AvatarStyle.Colour(a.Member.flngKey)">@AvatarStyle.Initials(a.Member.fstrFirstname, a.Member.fstrLastname)</div>
-                    <div class="care-ut">
-                        <b>@a.Member.FullName</b>
-                        <small>@(a.LastSeen is { } ls ? "Last seen " + ls.ToString("d MMM") : "Never checked in") &middot; @(string.IsNullOrWhiteSpace(a.Member.fstrCarerName) ? "No carer assigned" : "Carer: " + a.Member.fstrCarerName)</small>
+        var attention = NeedsAttention();
+        <div class="plg-day">Needs attention<span>Not seen in 3+ weeks, no recent care contact</span></div>
+        @if (attention.Count == 0)
+        {
+            <div class="empty-state"><div class="empty-ico"><Icon Name="heart" Size="30" Stroke="1.6" /></div><h3>All looked after</h3><p>Everyone who has been away is being looked after.</p></div>
+        }
+        else
+        {
+            <div class="ao-list">
+                @foreach (var a in attention.Take(30))
+                {
+                    <div class="ao-row">
+                        <div class="ao-av" style="background:@AvatarStyle.Colour(a.Member.flngKey)">@AvatarStyle.Initials(a.Member.fstrFirstname, a.Member.fstrLastname)</div>
+                        <div class="ao-nm">
+                            <b>@a.Member.FullName</b>
+                            <small>@(a.LastSeen is { } ls ? "Last seen " + ls.ToString("d MMM") : "Never checked in") &middot; @(string.IsNullOrWhiteSpace(a.Member.fstrCarerName) ? "No carer assigned" : "Carer: " + a.Member.fstrCarerName)</small>
+                        </div>
+                        <span class="care-tag @(a.Member.flngCarerKey is null ? "o" : "w")">@(a.Member.flngCarerKey is null ? "No carer" : "No contact")</span>
                     </div>
-                    <span class="care-tag @(a.Member.flngCarerKey is null ? "o" : "w")">@(a.Member.flngCarerKey is null ? "No carer" : "No contact")</span>
-                </div>
-            }
-        </div>
+                }
+            </div>
+        }
     }
 
     @if ((__tab is "caseloads" or "mine" or "log") && (__staff ? CoreMembers.Count > 0 : CareOf(__myKey!.Value).Count > 0))
@@ -528,6 +572,31 @@ else
         return ("ok", "On track");
     }
 
+    /// <summary>Colour, hint and icon for one summary card on the Caseloads tab.</summary>
+    private static (string Colour, string Sub, string Icon) BarMeta(string label) => label switch
+    {
+        "Assigned" => ("#1c86f2", "In care", "users"),
+        "Unassigned" => ("#94a3b8", "No carer", "user"),
+        "Overdue" => ("#e11d48", "Call now", "clock"),
+        "Flagged" => ("#f59e0b", "For minister", "heart"),
+        _ => ("#1c86f2", "", "users")
+    };
+
+    /// <summary>Heading a care-log entry is grouped under.</summary>
+    private static string LogGroup(DateTime date) => (AppClock.Today - date.Date).TotalDays <= 7 ? "This week" : "Earlier";
+
+    /// <summary>Icon for the way a contact was made.</summary>
+    private static string MethodIcon(string? method)
+    {
+        var m = (method ?? "").ToLowerInvariant();
+        if (m.Contains("call") || m.Contains("phone")) return "phone";
+        if (m.Contains("visit")) return "house";
+        if (m.Contains("text") || m.Contains("whatsapp") || m.Contains("message")) return "message";
+        return "note";
+    }
+
+    private static string FirstWord(string? name) => string.IsNullOrWhiteSpace(name) ? "" : name.Trim().Split(' ')[0];
+
     private static string Initials(string? name)
     {
         var parts = (name ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -580,7 +649,7 @@ else
         var careable = __members.Count(m => m.fstrMembershipStatus == "Active" && !m.fblnCoreMember);
         return
         [
-            new("Assigned", __care.Count, "#2dd4bf", "#0d9488"),
+            new("Assigned", __care.Count, "#4ea1ff", "#1670d6"),
             new("Unassigned", Math.Max(0, careable - __care.Count), "#b9c4d9", "#8b99b3"),
             new("Contacted", __care.Count(c => c.Last is not null && (today - c.Last.fdtmContactDate.Date).TotalDays <= DefaultGapDays), "#7cc0ff", "#3b82f6"),
             new("Overdue", __care.Count(c => c.State == "o"), "#fb7185", "#e11d48"),

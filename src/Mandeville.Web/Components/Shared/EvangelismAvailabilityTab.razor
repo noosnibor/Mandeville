@@ -10,11 +10,11 @@
 
 <ToastBar Toast="__toast" />
 
-<div class="kstrip card">
-    <div><b>@__invites.Count</b><span>On the team</span></div>
-    <div class="on"><b>@__invites.Count(i => i.Responded && !i.fblnNotAvailable)</b><span>Said when they can serve</span></div>
-    <div><b>@__invites.Count(i => i.fblnNotAvailable)</b><span>Not available</span></div>
-    <div><b class="@(Waiting > 0 ? "warn" : "")">@Waiting</b><span>Not answered yet</span></div>
+<div class="vk four fn-vk">
+    <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>On the team</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__invites.Count</b><small>Members</small></div>
+    <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Answered</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@__invites.Count(i => i.Responded && !i.fblnNotAvailable)</b><small>Said when they can serve</small></div>
+    <div class="vkc" style="--c:#94a3b8"><div class="vk-h"><span>Not available</span><span class="vk-i"><Icon Name="user" Size="17" Stroke="1.8" /></span></div><b>@__invites.Count(i => i.fblnNotAvailable)</b><small>This month</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Waiting</span><span class="vk-i"><Icon Name="clock" Size="17" Stroke="1.8" /></span></div><b>@Waiting</b><small>Not answered yet</small></div>
 </div>
 
 @if (__sessions.Count > 0)

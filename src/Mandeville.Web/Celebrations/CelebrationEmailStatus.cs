@@ -4,7 +4,7 @@ namespace Mandeville.Web.Celebrations;
 
 /// <summary>
 /// Remembers (in memory) which cards could not be emailed, so the Celebrations tab can show "Email failed"
-/// and the daily job does not keep retrying the same card all day. It is cleared when the app restarts.
+/// until you try again. It is cleared when the app restarts.
 /// </summary>
 public class CelebrationEmailStatus
 {

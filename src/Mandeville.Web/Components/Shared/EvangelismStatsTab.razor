@@ -1,13 +1,13 @@
-@* Numbers for the month: turn-up, flyers, people ministered, new contacts and calls. No names. *@
+﻿@* Numbers for the month: turn-up, flyers, people ministered, new contacts and calls. No names. *@
 @implements IDisposable
 @inject IEvangelismServiceRepository ServiceRepo
 @inject IEvangelismContactRepository ContactRepo
 
-<div class="kstrip card">
-    <div><b>@__rows.Count</b><span>Sessions</span></div>
-    <div><b>@__rows.Sum(r => r.flngPresent)</b><span>Served (present)</span></div>
-    <div class="on"><b>@(TurnUp)%</b><span>Turn-up</span></div>
-    <div><b>@__rows.Sum(r => r.flngMinistered)</b><span>Ministered to</span></div>
+<div class="vk four fn-vk">
+    <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Sessions</span><span class="vk-i"><Icon Name="calendar" Size="17" Stroke="1.8" /></span></div><b>@__rows.Count</b><small>This month</small></div>
+    <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Served</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__rows.Sum(r => r.flngPresent)</b><small>Present</small></div>
+    <div class="vkc" style="--c:#6366f1"><div class="vk-h"><span>Turn-up</span><span class="vk-i"><Icon Name="chart" Size="17" Stroke="1.8" /></span></div><b>@(TurnUp)%</b><small>Of scheduled</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Ministered to</span><span class="vk-i"><Icon Name="heart" Size="17" Stroke="1.8" /></span></div><b>@__rows.Sum(r => r.flngMinistered)</b><small>People</small></div>
 </div>
 
 <div class="ev-stat-grid">

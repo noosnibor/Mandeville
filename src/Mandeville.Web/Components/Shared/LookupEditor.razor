@@ -1,9 +1,9 @@
-<div>
+﻿<div>
     <ToastBar Toast="__toast" />
 
-    <div class="fin-bar">
-        <input type="text" class="fin-search" placeholder="Search @Title.ToLower()" @bind="__search" @bind:event="oninput" />
-        <button class="btn btn-primary" style="margin-left:auto" @onclick="NewItem">+ Add</button>
+    <div class="fn-bar">
+        <label class="fn-search"><Icon Name="search" Size="18" Stroke="1.6" /><input type="text" placeholder="Search @Title.ToLower()" aria-label="Search" @bind="__search" @bind:event="oninput" /></label>
+        <button class="fn-addbtn" @onclick="NewItem"><Icon Name="plus" Size="16" Stroke="2.4" />Add</button>
     </div>
 
     @if (__edit is not null)
@@ -37,26 +37,34 @@
         </Modal>
     }
 
-    <div class="fin-list card">
-        @foreach (var item in Filtered)
-        {
-            <div class="fin-row @(item.Active ? "" : "off")">
-                <div class="care-av sm" style="background:@(item.Active ? AvatarStyle.Colour(item.Key) : "var(--inactive)")">@(string.IsNullOrWhiteSpace(item.Name) ? "?" : item.Name.Trim()[..1].ToUpper())</div>
-                <div class="fin-nm">
-                    <b>@item.Name</b>
-                    <small>@(string.IsNullOrWhiteSpace(item.Description) ? "-" : item.Description)</small>
+    @if (!Filtered.Any())
+    {
+        <div class="empty-state"><div class="empty-ico"><Icon Name="gear" Size="30" Stroke="1.6" /></div><h3>Nothing here yet</h3><p>Use Add to create the first one.</p></div>
+    }
+    else
+    {
+        <div class="fn-list">
+            @foreach (var item in Filtered)
+            {
+                <div class="fn-row @(item.Active ? "" : "off")">
+                    <div class="fn-av" style="background:@(item.Active ? AvatarStyle.Colour(item.Key) : "var(--inactive)")">@(string.IsNullOrWhiteSpace(item.Name) ? "?" : item.Name.Trim()[..1].ToUpper())</div>
+                    <div class="fn-nm">
+                        <b><span class="t">@item.Name</span></b>
+                        <small>@(string.IsNullOrWhiteSpace(item.Description) ? "-" : item.Description)</small>
+                    </div>
+                    <div class="fn-chips">
+                        @if (ShowDues && item.IsDues) { <span class="fn-type v">Member dues</span> }
+                        <span class="fn-type @(item.Active ? "" : "off")">@(item.Active ? "Active" : "Inactive")</span>
+                    </div>
+                    <div class="fn-act">
+                        <button type="button" title="Edit" aria-label="Edit" @onclick="() => EditItem(item)"><Icon Name="edit" Size="15" Stroke="1.8" /></button>
+                        <button type="button" class="d" title="Delete" aria-label="Delete" @onclick="() => DeleteAsync(item)"><Icon Name="trash" Size="15" Stroke="1.8" /></button>
+                    </div>
                 </div>
-                @if (ShowDues && item.IsDues) { <span class="chip v fin-type">Member dues</span> }
-                <span class="chip fin-type @(item.Active ? "g" : "")">@(item.Active ? "Active" : "Inactive")</span>
-                <div class="fin-act">
-                    <button class="btn btn-sm" @onclick="() => EditItem(item)">Edit</button>
-                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteAsync(item)">Delete</button>
-                </div>
-            </div>
-        }
-        @if (!Filtered.Any()) { <p class="empty" style="margin:0">Nothing here yet.</p> }
-    </div>
-    <p class="hint">Items that are in use cannot be deleted. Make them inactive instead.</p>
+            }
+        </div>
+    }
+    <p class="fn-hint">Items that are in use cannot be deleted. Make them inactive instead.</p>
 </div>
 
 @code {

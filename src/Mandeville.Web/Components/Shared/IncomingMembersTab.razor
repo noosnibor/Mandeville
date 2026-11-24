@@ -6,13 +6,35 @@
 
 <ToastBar Toast="__toast" />
 
-@* ---------- Stage tiles (click to filter) ---------- *@
-<div class="inc-strip card" role="group" aria-label="Filter by stage">
-    <button class="@(__filter is null ? "on" : "")" @onclick="() => __filter = null"><b>@__list.Count</b><span>All incoming</span></button>
+@* ---------- Summary cards ---------- *@
+<div class="vk">
+    <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Incoming</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__list.Count</b><small>All stages</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>In progress</span><span class="vk-i"><Icon Name="clock" Size="17" Stroke="1.8" /></span></div><b>@__list.Count(v => StageOf(v) is >= 1 and <= 3)</b><small>Underway</small></div>
+    <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Ready to add</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@__list.Count(v => StageOf(v) == 4)</b><small>Inaugurated</small></div>
+</div>
+
+@* ---------- Stage filter (tap to filter) ---------- *@
+<div class="svc-pick tm in-pick">
+    <span class="sp-ic"><Icon Name="layers" Size="17" Stroke="1.9" /></span>
+    <span class="sp-tx"><small>Stage</small><b>@(__filter is int fs ? Stages[fs] : "All stages")</b></span>
+    <span class="sp-cnt">@(__filter is int fc ? __list.Count(v => StageOf(v) == fc) : __list.Count)</span>
+    <span class="sp-ch"><Icon Name="chevron" Size="16" Stroke="2" /></span>
+    <select class="cl-pick" aria-label="Filter by stage" @onchange="e => __filter = int.TryParse(e.Value?.ToString(), out var v) ? v : null">
+        <option value="" selected="@(__filter is null)">All stages (@__list.Count)</option>
+        @for (var stage = 0; stage < Stages.Length; stage++)
+        {
+            var s2 = stage;
+            <option value="@s2" selected="@(__filter == s2)">@Stages[s2] (@__list.Count(v => StageOf(v) == s2))</option>
+        }
+    </select>
+</div>
+
+<div class="in-seg" role="group" aria-label="Filter by stage">
+    <button class="@(__filter is null ? "on" : "")" @onclick="() => __filter = null">All<i>@__list.Count</i></button>
     @for (var stage = 0; stage < Stages.Length; stage++)
     {
         var s = stage;
-        <button class="@(__filter == s ? "on" : "")" @onclick="() => __filter = s"><b>@__list.Count(v => StageOf(v) == s)</b><span>@Stages[s]</span></button>
+        <button class="@(__filter == s ? "on" : "")" @onclick="() => __filter = s">@Stages[s]<i>@__list.Count(v => StageOf(v) == s)</i></button>
     }
 </div>
 
@@ -28,7 +50,7 @@
     @foreach (var v in Shown())
     {
         var stage = StageOf(v);
-        <div class="icard" @onclick="() => Open(v)">
+        <div class="icard @(stage == 4 ? "ready" : "")" @onclick="() => Open(v)">
             <div class="vcard-head">
                 <div class="ucard-avatar" style="background:@AvatarStyle.Colour(v.flngKey)">@AvatarStyle.Initials(v.fstrFirstname, v.fstrLastname)</div>
                 <div class="ucard-text">
@@ -37,11 +59,11 @@
                 </div>
                 <span class="inc-path @(stage == 4 ? "join" : "new")">@Stages[stage]</span>
             </div>
-            <div class="mtrack">
-                @for (var n = 1; n < Stages.Length; n++) { <i class="@(n <= stage ? "f" : "")"></i> }
-            </div>
-            <div class="mtrack-l">
-                @for (var n = 1; n < Stages.Length; n++) { <span>@Stages[n]</span> }
+            <div class="in-steps">
+                @for (var n = 1; n < Stages.Length; n++)
+                {
+                    <div class="in-step @(n <= stage ? "done" : "") @(n == stage ? "cur" : "")"><i></i>@Stages[n]</div>
+                }
             </div>
             <div class="vcard-foot soft">
                 <button @onclick="() => Open(v)" @onclick:stopPropagation="true">Update dates</button>
@@ -55,7 +77,11 @@
 </div>
 @if (Shown().Count == 0)
 {
-    <div class="card"><p class="empty" style="margin:0">No incoming members here. People appear when their team member adds them after confirming by phone.</p></div>
+    <div class="empty-state">
+        <div class="empty-ico"><Icon Name="userplus" Size="30" Stroke="1.6" /></div>
+        <h3>No incoming members here</h3>
+        <p>People appear when their team member adds them after confirming by phone.</p>
+    </div>
 }
 
 <button class="fab" @onclick="OpenAdd"><Icon Name="plus" Size="16" />Add incoming</button>

@@ -4,7 +4,7 @@
 
 <PageTitle>Evangelism</PageTitle>
 
-<div class="mod wide">
+<div class="mod wide vpage vmod">
 <div class="mhead"><span class="mhead-ico"><Icon Name="mega" Size="26" Stroke="1.5" /></span><div><h1>Evangelism</h1><p>Plan the Saturdays, ask who can serve, and record what happened.</p></div></div>
 
 @if (__ready)
@@ -17,7 +17,7 @@
     {
         @if (__isLead && __showLeadTab && __showTeamTab)
         {
-            <div class="tabs">
+            <div class="tabs tabs-seg">
                 <button class="tab @(__tab == 0 ? "active" : "")" @onclick="() => __tab = 0"><Icon Name="users" Size="18" />Team Lead</button>
                 <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1"><Icon Name="user" Size="18" />My Assignments</button>
             </div>

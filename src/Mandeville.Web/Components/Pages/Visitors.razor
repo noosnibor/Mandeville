@@ -3,15 +3,15 @@
 
 <PageTitle>Visitors</PageTitle>
 
-<div class="mod wide">
+<div class="mod wide vpage">
 <div class="mhead"><span class="mhead-ico"><Icon Name="userplus" Size="26" Stroke="1.5" /></span><div><h1>Visitors</h1><p>Welcome guests and record their visits. The Connections team takes it from the altar.</p></div></div>
 
 @if ((__canAdd ? 1 : 0) + (__canReturning ? 1 : 0) + (__canThank ? 1 : 0) > 1)
 {
-    <div class="tabs">
+    <div class="tabs tabs-seg">
         @if (__canAdd) { <button class="tab @(__tab == 0 ? "active" : "")" @onclick="() => __tab = 0"><Icon Name="userplus" Size="18" />Add Visitor</button> }
-        @if (__canReturning) { <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1"><Icon Name="refresh" Size="18" />Returning Visitor</button> }
-        @if (__canThank) { <button class="tab @(__tab == 2 ? "active" : "")" @onclick="() => __tab = 2"><Icon Name="mail" Size="18" />Thank You Messages</button> }
+        @if (__canReturning) { <button class="tab @(__tab == 1 ? "active" : "")" @onclick="() => __tab = 1"><Icon Name="refresh" Size="18" /><span class="tl-d">Returning Visitor</span><span class="tl-m">Return</span></button> }
+        @if (__canThank) { <button class="tab @(__tab == 2 ? "active" : "")" @onclick="() => __tab = 2"><Icon Name="mail" Size="18" /><span class="tl-d">Thank You Messages</span><span class="tl-m">Message</span></button> }
     </div>
 }
 

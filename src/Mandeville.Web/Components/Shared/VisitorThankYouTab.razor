@@ -7,7 +7,15 @@
 
 <ToastBar Toast="__toast" />
 
-<div class="card">
+@* Phone only: one section at a time *@
+<div class="ty-tabs" role="tablist">
+    <button type="button" role="tab" class="@(__pane == 0 ? "on" : "")" @onclick="() => __pane = 0">Visitors</button>
+    <button type="button" role="tab" class="@(__pane == 1 ? "on" : "")" @onclick="() => __pane = 1">Setup</button>
+    <button type="button" role="tab" class="@(__pane == 2 ? "on" : "")" @onclick="() => __pane = 2">Messages</button>
+    <button type="button" role="tab" class="@(__pane == 3 ? "on" : "")" @onclick="() => __pane = 3">Preview</button>
+</div>
+
+<div class="card ty-card @(__pane != 1 ? "off" : "")">
     <h2><span class="h2-ico"><Icon Name="mail" Size="22" Stroke="1.6" /></span>Thank You Messages</h2>
     <p class="hint ty-sub">Pick the service, check the messages, then tap WhatsApp beside each visitor. WhatsApp opens with the message ready to send.</p>
 
@@ -34,7 +42,7 @@
     }
 </div>
 
-<div class="card">
+<div class="card ty-card @(__pane != 2 ? "off" : "")">
     <h2><span class="h2-ico"><Icon Name="edit" Size="20" Stroke="1.6" /></span>Messages</h2>
     <p class="hint" style="margin-top:0">Use {name}, {date}, {next} and {sender}; they are filled in for each visitor.</p>
     <div class="field"><label>First visit</label><textarea rows="5" maxlength="@MessageTemplateCodes.MaxLength" @bind="__firstTemplate" @bind:event="oninput"></textarea></div>
@@ -51,7 +59,7 @@
     }
 </div>
 
-<div class="card">
+<div class="card ty-card @(__pane != 3 ? "off" : "")">
     <h2><span class="h2-ico"><Icon Name="eye" Size="20" Stroke="1.6" /></span>Message Preview</h2>
     <p class="hint ty-sub">This is how the message looks on WhatsApp for the first visitor in the list.</p>
     @if (__rows.Count == 0)
@@ -60,11 +68,11 @@
     }
     else
     {
-        <div class="wa-bubble">@BuildMessage(__rows[0])<span class="wa-time">@AppClock.Today.ToString("h:mm tt")</span></div>
+        <div class="wa-stage"><div class="wa-bubble">@BuildMessage(__rows[0])<span class="wa-time">@AppClock.Today.ToString("h:mm tt")</span></div></div>
     }
 </div>
 
-<div class="card">
+<div class="card ty-card @(__pane != 0 ? "off" : "")">
     <h2><span class="h2-ico"><Icon Name="users" Size="20" Stroke="1.6" /></span>Visitors <span>@__rows.Count at this service</span></h2>
     @if (__loading)
     {
@@ -76,7 +84,38 @@
     }
     else
     {
-        <div class="mtable-wrap flat"><table class="mtable ty-table">
+        @* Phone: a slim list. Tablet and desktop: the table below. *@
+        <div class="ty-list">
+            @foreach (var r in __rows)
+            {
+                <div class="ty-li">
+                    <span class="av" style="background:@AvatarStyle.Colour(r.Visitor.flngKey)">@AvatarStyle.Initials(r.Visitor.fstrFirstname, r.Visitor.fstrLastname)</span>
+                    <div class="ty-li-t">
+                        <b>@r.Visitor.FullName</b>
+                        <small>@(string.IsNullOrWhiteSpace(r.Visitor.fstrPhoneNumber) ? "No phone" : r.Visitor.fstrPhoneNumber) &middot; @VisitLabel(r.Visits)</small>
+                        @if (r.Pending)
+                        {
+                            <span class="ty-li-ask">Did it send?
+                                <button type="button" class="ty-yes" @onclick="() => ConfirmSentAsync(r)">Yes</button>
+                                <button type="button" class="ty-no" @onclick="() => MarkFailedAsync(r)">No</button>
+                            </span>
+                        }
+                        else if (r.FailedOn.HasValue) { <small class="ty-li-bad">Not sent - call instead</small> }
+                        else if (r.ThankedOn.HasValue) { <small class="ty-li-ok">&#10003; Thanked by @r.ThankedBy</small> }
+                    </div>
+                    @if (r.Link is null)
+                    {
+                        <span class="o-wa off" title="Can't send - no phone number"><Icon Name="x" Size="18" Stroke="1.8" /></span>
+                    }
+                    else
+                    {
+                        <a class="o-wa @(r.ThankedOn.HasValue && !r.Pending ? "done" : "")" href="@r.Link" target="_blank" rel="noopener" title="@(r.Pending ? "Open again" : r.FailedOn.HasValue ? "Try again" : r.ThankedOn.HasValue ? "Send again" : "WhatsApp")" @onclick="() => r.Pending = true"><Icon Name="@(r.ThankedOn.HasValue && !r.Pending ? "check" : "message")" Size="19" Stroke="1.8" /></a>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="mtable-wrap flat ty-desk"><table class="mtable ty-table">
             <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Thank-you</th><th></th></tr></thead>
             <tbody>
                 @foreach (var r in __rows)
@@ -133,6 +172,7 @@
     private ServiceModel? __next;
     private Guid __serviceKey;
     private bool __loading;
+    private int __pane;   // phone tab: 0 visitors, 1 setup, 2 messages, 3 preview
     private List<Row> __rows = [];
     private string __yourName = AppConstants.Who;
 

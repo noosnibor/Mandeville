@@ -6,52 +6,108 @@
 
 <ToastBar Toast="__toast" />
 
-<div class="vkpi card">
-    <div><b>@__rows.Count</b><span>Visitors</span></div>
-    <div><b>@__rows.Count(r => r.Altar)</b><span>Went to the altar</span></div>
-    <div><b class="@(__rows.Count(r => r.Altar && r.AssignTo is null) > 0 ? "warn" : "")">@__rows.Count(r => r.Altar && r.AssignTo is null)</b><span>Altar, not assigned</span></div>
+@* Phone only: one section at a time *@
+<div class="cn-tabs" role="tablist">
+    <button type="button" role="tab" class="@(__pane == 0 ? "on" : "")" @onclick="() => __pane = 0">Visitors</button>
+    <button type="button" role="tab" class="@(__pane == 1 ? "on" : "")" @onclick="() => __pane = 1">Workload</button>
 </div>
 
+<div class="cn-pane @(__pane != 1 ? "off" : "")">
+    <div class="vk">
+        <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Visitors</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__rows.Count</b><small>This service</small></div>
+        <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Went to altar</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@__rows.Count(r => r.Altar)</b><small>Today</small></div>
+        <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Not assigned</span><span class="vk-i"><Icon Name="bell" Size="17" Stroke="1.8" /></span></div><b>@__rows.Count(r => r.Altar && r.AssignTo is null)</b><small>Waiting</small></div>
+    </div>
+</div>
+
+<div class="cn-pane @(__pane != 0 ? "off" : "")">
+@* ---------- Referred by Member care: waiting for the team lead to choose a connecter ---------- *@
+@if (__referrals.Count > 0)
+{
+    <div class="ref-lead card">
+        <h2><span class="ref-ico"><Icon Name="userplus" Size="18" Stroke="1.7" /></span>Referred by Member care <span class="chip g ref-count">@__referrals.Count waiting</span></h2>
+        <p class="ref-sub">Choose who follows each person up.</p>
+        @foreach (var v in __referrals)
+        {
+            var visitor = v;
+            <div class="ref-row">
+                <div class="ucard-avatar" style="background:@AvatarStyle.Colour(visitor.flngKey)">@AvatarStyle.Initials(visitor.fstrFirstname, visitor.fstrLastname)</div>
+                <div class="ref-who"><b>@visitor.FullName</b><small>@(string.IsNullOrWhiteSpace(visitor.fstrPhoneNumber) ? "No phone" : visitor.fstrPhoneNumber) &middot; referred @(visitor.fdtmReferralDate?.ToString("d MMM") ?? "")</small></div>
+                <span class="ref-tag">@visitor.fstrReferralReason</span>
+                <select class="ref-pick" aria-label="Assign @visitor.FullName to" @bind="__refAssign[visitor.flngKey]">
+                    <option value="">Assign to...</option>
+                    @foreach (var m in __connectors) { <option value="@m.flngKey">@m.FullName</option> }
+                </select>
+            </div>
+        }
+        <div class="ref-actions"><button class="ref-go ref-save" @onclick="SaveReferralsAsync">Save</button></div>
+    </div>
+}
+
 <div class="cl-line">
-    <span class="svc-line-label">Service date</span>
-    <input class="mdate" type="date" max="@AppClock.Today.ToString("yyyy-MM-dd")" @bind="__date" />
+    <div class="svc-pick cl-date">
+        <span class="sp-ic"><Icon Name="calendar" Size="17" Stroke="1.9" /></span>
+        <span class="sp-tx"><small>Service date</small><b>@(__date?.ToString("ddd dd MMM yyyy") ?? "Choose a date")</b></span>
+        <span class="sp-ch"><Icon Name="calendar" Size="16" Stroke="1.8" /></span>
+        <input class="mdate" type="date" aria-label="Service date" max="@AppClock.Today.ToString("yyyy-MM-dd")" @bind="__date" />
+    </div>
     <button class="svc-pill on" @onclick="LoadClickAsync">Load</button>
+</div>
 </div>
 
 @* ---------- Team workload ---------- *@
+<div class="cn-pane @(__pane != 1 ? "off" : "")">
 <div class="wl card">
     <div class="wl-head">
         <span class="svc-ico"><Icon Name="users" Size="18" Stroke="1.5" /></span>
         <b>Team workload</b>
         <span class="wl-total">@__workload.Sum(w => w.flngAssigned) assigned@(NotAssigned() > 0 ? $" · {NotAssigned()} waiting" : "")</span>
     </div>
+    @if (__workload.Any(w => w.flngAssigned > 0) || NotAssigned() > 0)
+    {
+        @* How the altar calls are shared out *@
+        <div class="wl-dist" aria-hidden="true">
+            @foreach (var w in __workload.Where(w => w.flngAssigned > 0))
+            {
+                <i style="--c:@AvatarStyle.Colour(w.flngMemberKey);flex:@w.flngAssigned"></i>
+            }
+            @if (NotAssigned() > 0) { <i class="un" style="flex:@NotAssigned()"></i> }
+        </div>
+    }
     <div class="wl-row">
         @foreach (var w in __workload)
         {
             var mine = __rows.Where(r => r.Altar && r.AssignTo == w.flngMemberKey).ToList();
             var prayer = mine.Count(r => r.Reason == "Prayer");
             var membership = mine.Count(r => r.Reason == "Membership");
-            <div class="wl-card">
-                <div class="wl-top">
-                    <i style="background:@AvatarStyle.Colour(w.flngMemberKey)">@InitialsOf(w.FullName)</i>
-                    <div><b>@w.FullName</b><small>@(mine.Count == 0 ? "None this service" : $"{prayer} prayer · {membership} membership")</small></div>
+            <div class="wl-card" style="--c:@AvatarStyle.Colour(w.flngMemberKey)">
+                <div class="wl-ring" style="--p:@(MaxAssigned() == 0 ? 0 : w.flngAssigned * 100 / MaxAssigned())"><b>@w.flngAssigned</b></div>
+                <div class="wl-info">
+                    <b>@w.FullName</b>
+                    <div class="wl-chips">
+                        @if (mine.Count == 0) { <span class="none">None this service</span> }
+                        else
+                        {
+                            if (prayer > 0) { <span>@prayer prayer</span> }
+                            if (membership > 0) { <span>@membership membership</span> }
+                        }
+                    </div>
                 </div>
-                <div class="wl-n"><span>Assigned</span><strong>@w.flngAssigned</strong></div>
-                <div class="wl-bar"><i style="width:@(MaxAssigned() == 0 ? 0 : w.flngAssigned * 100 / MaxAssigned())%"></i></div>
             </div>
         }
         @if (NotAssigned() > 0)
         {
             <div class="wl-card un">
-                <div class="wl-top"><i>?</i><div><b>Not assigned</b><small>Altar calls waiting</small></div></div>
-                <div class="wl-n"><span>Waiting</span><strong>@NotAssigned()</strong></div>
-                <div class="wl-bar"><i style="width:@(Math.Min(100, NotAssigned() * 100 / Math.Max(1, __rows.Count(r => r.Altar))))%"></i></div>
+                <div class="wl-ring" style="--p:100"><b>@NotAssigned()</b></div>
+                <div class="wl-info"><b>Not assigned</b><div class="wl-chips"><span>Altar calls waiting</span></div></div>
             </div>
         }
         @if (__workload.Count == 0) { <span class="mwl-empty plain"><Icon Name="info" Size="18" Stroke="1.6" />No one has been assigned yet.</span> }
     </div>
 </div>
+</div>
 
+<div class="cn-pane @(__pane != 0 ? "off" : "")">
 <div class="cl-card card">
     <p class="cl-hint">Tick the box for anyone who went to the altar, choose the reason, then choose who follows them up. For the reason Membership, the team member calls them and adds them to Incoming members once they confirm.</p>
 
@@ -89,6 +145,7 @@
         <div class="lbar"><span><Icon Name="userplus" Size="22" Stroke="1.5" />Membership people are called first, then added to Incoming members.</span><button class="btn btn-primary" @onclick="SaveAsync"><Icon Name="check" Size="18" />Save Changes</button></div>
     }
 </div>
+</div>
 
 @code {
     #region Private Fields
@@ -98,6 +155,9 @@
     /// <summary>Raised with the service date ("yyyy-MM-dd") after loading or saving, so the summary refreshes.</summary>
     [Parameter] public EventCallback<string> OnChanged { get; set; }
     private DateTime? __date = AppClock.Today;
+    private int __pane;   // phone tab: 0 visitors, 1 workload
+    private List<VisitorModel> __referrals = [];
+    private Dictionary<Guid, Guid?> __refAssign = [];
     private List<LeadRow> __rows = [];
     private List<MemberModel> __connectors = [];
     private List<ConnectWorkloadModel> __workload = [];
@@ -192,6 +252,42 @@
         }).ToList();
 
         __workload = await VisitorRepo.SelectConnectWorkload(__teamDepartmentKey, __cts.Token);
+        await LoadReferralsAsync();
+    }
+
+    /// <summary>Visitors Member care has referred who still have no connecter, oldest first.</summary>
+    private async Task LoadReferralsAsync()
+    {
+        var all = await VisitorRepo.SelectVisitor(cancellationToken: __cts.Token);
+        __referrals = all.Where(v => v.fstrReferralReason is not null && v.flngFollowUpMemberKey is null && v.fstrStatus is "Visitor" or "Regular Visitor")
+                         .OrderBy(v => v.fdtmReferralDate).ThenBy(v => v.fstrLastname).ToList();
+        __refAssign = __referrals.ToDictionary(v => v.flngKey, _ => (Guid?)null);
+    }
+
+    /// <summary>Assigns every referred visitor the lead has chosen a connecter for.</summary>
+    private async Task SaveReferralsAsync()
+    {
+        var chosen = __referrals.Where(v => __refAssign.GetValueOrDefault(v.flngKey) is not null).ToList();
+        if (chosen.Count == 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Choose a team member for at least one referral" };
+            return;
+        }
+
+        foreach (var v in chosen)
+        {
+            var assign = await VisitorRepo.AssignVisitorConnect(v.flngKey, __refAssign[v.flngKey], AppConstants.Who, __cts.Token);
+            if (!assign.IsSuccess)
+            {
+                __toast = assign;
+                await LoadAsync();
+                return;
+            }
+        }
+
+        await LoadAsync();
+        await NotifyAsync();
+        __toast = new() { ToastType = ToastTypeModel.Success, Message = $"Assigned. {chosen.Count} referral(s) now with the team" };
     }
 
     #endregion

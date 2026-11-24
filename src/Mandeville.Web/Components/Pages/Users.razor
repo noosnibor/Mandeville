@@ -1,4 +1,4 @@
-@page "/users"
+﻿@page "/users"
 @attribute [PageAccess(PageKeys.Users, "Users & access", "Admin", "lock", Tint = "c6", AdminOnly = true, Order = 330)]
 @implements IDisposable
 @using System.Security.Claims
@@ -9,15 +9,15 @@
 
 <PageTitle>Users &amp; access</PageTitle>
 
-<div class="stp">
-<div class="page-head">
-    <div class="ph-title"><span class="mhead-ico"><Icon Name="lock" Size="22" Stroke="1.5" /></span><div><h1>Users &amp; access</h1><p>Who can sign in, and what each person can open</p></div></div>
-    @if (__tab == "users") { <button class="btn btn-primary" @onclick="StartAdd">+ Add account</button> }
+<div class="mod wide vpage vmod">
+<div class="fn-head">
+    <div class="mhead"><span class="mhead-ico"><Icon Name="lock" Size="26" Stroke="1.5" /></span><div><h1>Users &amp; access</h1><p>Who can sign in, and what each person can open</p></div></div>
+    @if (__tab == "users") { <button class="fn-add" aria-label="Add account" @onclick="StartAdd"><Icon Name="plus" Size="16" Stroke="2.4" />Add account</button> }
 </div>
 
 <ToastBar Toast="__toast" />
 
-<div class="tabs">
+<div class="tabs tabs-seg">
     <button class="tab @(__tab == "users" ? "active" : "")" @onclick='() => __tab = "users"'>Users</button>
     <button class="tab @(__tab == "roles" ? "active" : "")" @onclick='() => __tab = "roles"'>Roles &amp; access</button>
 </div>
@@ -28,51 +28,56 @@
 }
 else
 {
-<div class="kstrip card">
-    <div class="on"><b>@__users.Count(u => u.fblnActive)</b><span>Active accounts</span></div>
-    <div><b>@__users.Count(u => !u.fblnActive)</b><span>Inactive</span></div>
-    <div><b>@__users.Count(u => u.IsLocked)</b><span>Locked</span></div>
-    <div><b>@__users.Count(u => u.fdtmLastSignIn is null)</b><span>Never signed in</span></div>
+<div class="vk four fn-vk">
+    <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Active</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__users.Count(u => u.fblnActive)</b><small>Accounts</small></div>
+    <div class="vkc" style="--c:#94a3b8"><div class="vk-h"><span>Inactive</span><span class="vk-i"><Icon Name="user" Size="17" Stroke="1.8" /></span></div><b>@__users.Count(u => !u.fblnActive)</b><small>Accounts</small></div>
+    <div class="vkc" style="--c:#e11d48"><div class="vk-h"><span>Locked</span><span class="vk-i"><Icon Name="lock" Size="17" Stroke="1.8" /></span></div><b>@__users.Count(u => u.IsLocked)</b><small>Too many tries</small></div>
+    <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Never signed in</span><span class="vk-i"><Icon Name="clock" Size="17" Stroke="1.8" /></span></div><b>@__users.Count(u => u.fdtmLastSignIn is null)</b><small>Not yet</small></div>
 </div>
 
-<div class="fin-bar">
-    <input type="text" class="fin-search" placeholder="Search name or email" @bind="__search" @bind:event="oninput" />
-    <select @bind="__roleFilter">
+<div class="fn-bar">
+    <label class="fn-search"><Icon Name="search" Size="18" Stroke="1.6" /><input type="text" placeholder="Search name or email" aria-label="Search" @bind="__search" @bind:event="oninput" /></label>
+    <select @bind="__roleFilter" aria-label="Role">
         <option value="">All roles</option>
         @foreach (var r in __roles) { <option value="@r.fstrName">@r.fstrLabel</option> }
     </select>
 </div>
 
-<div class="fin-list card">
-    @if (Shown.Count == 0)
-    {
-        <p class="empty" style="margin:0">@(__users.Count == 0 ? "No accounts yet." : "No accounts match.")</p>
-    }
-    @foreach (var u in Shown)
-    {
-        var isMe = u.flngKey == __myKey;
-        <div class="fin-row @(u.fblnActive ? "" : "off")">
-            <div class="care-av sm" style="background:@(u.fblnActive ? AvatarStyle.Colour(u.flngKey) : "var(--inactive)")">@Initials(u.fstrDisplayName)</div>
-            <div class="fin-nm usr-nm">
-                <b>@u.fstrDisplayName @if (isMe) { <span class="chip">You</span> }@if (!u.fblnActive) { <span class="chip">Inactive</span> }</b>
-                <small>@u.fstrEmail
-                    @if (!string.IsNullOrWhiteSpace(u.fstrMemberName)) { <text> &middot; Member: @u.fstrMemberName</text> }
-                    &middot; @(u.fdtmLastSignIn is { } ls ? "Last sign-in " + ls.ToString("d MMM HH:mm") : "Never signed in")
-                    @if (u.IsLocked) { <text> &middot; <span class="care-lock">Locked</span></text> }
-                </small>
+@if (Shown.Count == 0)
+{
+    <div class="empty-state"><div class="empty-ico"><Icon Name="lock" Size="30" Stroke="1.6" /></div><h3>@(__users.Count == 0 ? "No accounts yet" : "No accounts match")</h3><p>@(__users.Count == 0 ? "Use Add account to create the first one." : "Try another search or role.")</p></div>
+}
+else
+{
+    <div class="fn-list">
+        @foreach (var u in Shown)
+        {
+            var isMe = u.flngKey == __myKey;
+            <div class="fn-row @(u.fblnActive ? "" : "off")">
+                <div class="fn-av" style="background:@(u.fblnActive ? AvatarStyle.Colour(u.flngKey) : "var(--inactive)")">@Initials(u.fstrDisplayName)</div>
+                <div class="fn-nm">
+                    <b><span class="t">@u.fstrDisplayName</span>@if (isMe) { <span class="fn-you">You</span> }@if (!u.fblnActive) { <span class="fn-you">Inactive</span> }</b>
+                    <small>@u.fstrEmail
+                        @if (!string.IsNullOrWhiteSpace(u.fstrMemberName)) { <text> &middot; Member: @u.fstrMemberName</text> }
+                        &middot; @(u.fdtmLastSignIn is { } ls ? "Last sign-in " + ls.ToString("d MMM HH:mm") : "Never signed in")
+                        @if (u.IsLocked) { <text> &middot; <span class="lk">Locked</span></text> }
+                    </small>
+                </div>
+                <div class="fn-chips">
+                    @foreach (var code in u.GetAllRoles())
+                    {
+                        <span class="fn-type @(code == AppRoles.Administrator ? "v" : "")">@LabelOf(code)</span>
+                    }
+                </div>
+                <div class="fn-act">
+                    <button type="button" title="Edit" aria-label="Edit" @onclick="() => StartEdit(u)"><Icon Name="edit" Size="15" Stroke="1.8" /></button>
+                    <button type="button" title="Reset password" aria-label="Reset password" @onclick="() => ResetPasswordAsync(u)"><Icon Name="refresh" Size="15" Stroke="1.8" /></button>
+                    <button type="button" class="@(u.fblnActive ? "d" : "")" title="@(u.fblnActive ? "Deactivate" : "Activate")" aria-label="@(u.fblnActive ? "Deactivate" : "Activate")" @onclick="() => ToggleActiveAsync(u)"><Icon Name="@(u.fblnActive ? "pause" : "check")" Size="15" Stroke="1.8" /></button>
+                </div>
             </div>
-            @foreach (var code in u.GetAllRoles())
-            {
-                <span class="chip fin-type @(code == AppRoles.Administrator ? "v" : "g")">@LabelOf(code)</span>
-            }
-            <div class="fin-act">
-                <button class="btn btn-sm" @onclick="() => StartEdit(u)">Edit</button>
-                <button class="btn btn-sm" @onclick="() => ResetPasswordAsync(u)">Reset password</button>
-                <button class="btn btn-sm @(u.fblnActive ? "care-del" : "")" @onclick="() => ToggleActiveAsync(u)">@(u.fblnActive ? "Deactivate" : "Activate")</button>
-            </div>
-        </div>
-    }
-</div>
+        }
+    </div>
+}
 }
 
 @* ---------- Add / edit ---------- *@
