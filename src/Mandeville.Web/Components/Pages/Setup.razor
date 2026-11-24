@@ -3,6 +3,7 @@
 @inject IMemberTypeRepository MemberTypeRepo
 @inject IServiceAssignmentRepository AssignmentRepo
 @inject IDepartmentRepository DepartmentRepo
+@inject IBranchRepository BranchRepo
 @inject IPaymentTypeRepository PaymentTypeRepo
 @inject IExpenseCategoryRepository ExpenseCategoryRepo
 
@@ -32,6 +33,9 @@
     case "Departments":
         <LookupEditor @key="__tab" Title="Departments" Load="LoadDepartments" Save="SaveDepartment" Delete="DeleteDepartment" />
         break;
+    case "Branches":
+        <LookupEditor @key="__tab" Title="Branches" Load="LoadBranches" Save="SaveBranch" Delete="DeleteBranch" />
+        break;
     case "Payment types":
         <LookupEditor @key="__tab" Title="Payment types" ShowDues="true" Load="LoadPaymentTypes" Save="SavePaymentType" Delete="DeletePaymentType" />
         break;
@@ -54,7 +58,7 @@
 </div>
 
 @code {
-    private readonly string[] __tabs = ["Member types", "Service assignments", "Departments", "Payment types", "Expense categories"];
+    private readonly string[] __tabs = ["Member types", "Service assignments", "Departments", "Branches", "Payment types", "Expense categories"];
     private string __tab = "Member types";
 
     #region Member types
@@ -90,6 +94,18 @@
         DepartmentRepo.AddOrUpdateDepartment(new DepartmentModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fstrWho = AppConstants.Who }, isNew);
 
     private Task<ToastMessageModel> DeleteDepartment(Guid key) => DepartmentRepo.DeleteDepartment(key, AppConstants.Who);
+
+    #endregion
+
+    #region Branches
+
+    private async Task<List<LookupItem>> LoadBranches() =>
+        (await BranchRepo.SelectBranch()).Select(x => new LookupItem { Key = x.flngKey, Name = x.fstrName, Description = x.fstrDescription, Active = x.fblnActive }).ToList();
+
+    private Task<ToastMessageModel> SaveBranch(LookupItem i, bool isNew) =>
+        BranchRepo.AddOrUpdateBranch(new BranchModel { flngKey = i.Key, fstrName = i.Name, fstrDescription = i.Description, fblnActive = i.Active, fstrWho = AppConstants.Who }, isNew);
+
+    private Task<ToastMessageModel> DeleteBranch(Guid key) => BranchRepo.DeleteBranch(key, AppConstants.Who);
 
     #endregion
 

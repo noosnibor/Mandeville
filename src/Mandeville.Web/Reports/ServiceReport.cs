@@ -65,6 +65,11 @@ public class ServiceReport
     public int ActiveMembers { get; set; }
     public int InactiveMembers { get; set; }
     public int MembersPresent { get; set; }
+
+    /// <summary>Members from other branches who attended (not part of the member list or the percentage).</summary>
+    public int VisitingMembers { get; set; }
+    public int TotalInService => MembersPresent + VisitingMembers;
+    public List<KeyValuePair<string, int>> VisitingByBranch { get; set; } = [];
     public int PresentPercent { get; set; }
     public int Connected { get; set; }
     public int Careable { get; set; }

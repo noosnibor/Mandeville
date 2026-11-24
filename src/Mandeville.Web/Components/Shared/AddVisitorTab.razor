@@ -2,6 +2,7 @@
 @inject IVisitorRepository VisitorRepo
 @inject IVisitorAttendanceRepository AttendanceRepo
 @inject IServiceRepository ServiceRepo
+@inject IVisitorNoteRepository NoteRepo
 
 <ToastBar Toast="__toast" />
 
@@ -81,6 +82,7 @@
                                     <b>@v.FullName
                                         @if (__todayReasons.ContainsKey(v.flngKey)) { <span class="inc-path ret">Altar call</span> }
                                         else if (v.fstrStatus != "Visitor") { <span class="inc-path new">@v.fstrStatus</span> }
+                                        @if (__noteCounts.TryGetValue(v.flngKey, out var noteCount)) { <span class="note-count" title="Notes"><Icon Name="note" Size="13" Stroke="1.6" />@noteCount</span> }
                                     </b>
                                     <small><Icon Name="phone" Size="13" Stroke="1.6" /> @(string.IsNullOrWhiteSpace(v.fstrPhoneNumber) ? "No phone" : v.fstrPhoneNumber)</small>
                                 </span>
@@ -145,6 +147,9 @@
                     <div class="ir"><span>Connected to</span><b>@d.fstrFollowUpName</b></div>
                 }
             </div>
+
+            <VisitorContactNotes Visitor="d" OnChanged="NotesChangedAsync" />
+            <VisitorReferral Visitor="d" OnChanged="() => OnChanged.InvokeAsync()" />
 
             <div class="drawer-card">
                 <h4>Recent visits</h4>
@@ -251,6 +256,7 @@
     // Details panel
     private VisitorModel? __detail;
     private List<VisitorAttendanceModel> __detailVisits = [];
+    private Dictionary<Guid, int> __noteCounts = [];
 
     #endregion
 
@@ -299,6 +305,20 @@
         __detail = v;
         var visits = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
         __detailVisits = visits.OrderByDescending(a => a.fdtmServiceDate).Take(5).ToList();
+    }
+
+    /// <summary>Refreshes the note counts after Member care adds a note.</summary>
+    private async Task NotesChangedAsync()
+    {
+        await LoadNoteCountsAsync();
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task LoadNoteCountsAsync()
+    {
+        __noteCounts = (await NoteRepo.SelectVisitorNote(cancellationToken: __cts.Token))
+            .GroupBy(n => n.flngVisitorKey)
+            .ToDictionary(g => g.Key, g => g.Count());
     }
 
     private void CloseDetail() => __detail = null;
@@ -353,6 +373,7 @@
         __todayReasons = atService.Where(a => !string.IsNullOrEmpty(a.fstrAltarReason)).GroupBy(a => a.flngVisitorKey).ToDictionary(g => g.Key, g => g.First().fstrAltarReason!);
         var todays = serviceDate == today ? atService : await AttendanceRepo.SelectVisitorAttendance(serviceDate: today, cancellationToken: __cts.Token);
         __hereToday = todays.Select(a => a.flngVisitorKey).Distinct().Count();
+        await LoadNoteCountsAsync();
     }
 
     /// <summary>The latest few services, plus the chosen one when it is an older service picked from "More".</summary>

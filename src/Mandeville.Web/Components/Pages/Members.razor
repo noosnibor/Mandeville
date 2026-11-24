@@ -18,18 +18,18 @@
 
 <PageBanner Title="Member Management" Subtitle="A complete overview of your members and their attendance" Icon="users" />
 
-<div class="tabs">
+<div class="tabs tabs-seg">
     @if (__tabList)
     {
-        <button class="tab @(__tab == "list" ? "active" : "")" @onclick='() => __tab = "list"'><Icon Name="users" Size="18" />Member list</button>
+        <button class="tab @(__tab == "list" ? "active" : "")" @onclick='() => ShowTab("list")'><Icon Name="users" Size="18" />Member list</button>
     }
     @if (__tabAttendance)
     {
-        <button class="tab @(__tab == "attendance" ? "active" : "")" @onclick='() => __tab = "attendance"'><Icon Name="calendar" Size="18" />Attendance</button>
+        <button class="tab @(__tab == "attendance" ? "active" : "")" @onclick='() => ShowTab("attendance")'><Icon Name="calendar" Size="18" />Attendance</button>
     }
     @if (__tabCelebrations)
     {
-        <button class="tab @(__tab == "celebrations" ? "active" : "")" @onclick='OpenCelebrationsAsync'><Icon Name="gift" Size="18" />Celebrations@(__celebrationCount > 0 ? $" ({__celebrationCount})" : "")</button>
+        <button class="tab @(__tab == "celebrations" ? "active" : "")" @onclick='() => ShowTab("celebrations")'><Icon Name="gift" Size="18" />Celebrations @if (__celebrationCount > 0) { <span class="tab-count">@__celebrationCount</span> }</button>
     }
 </div>
 
@@ -46,7 +46,7 @@ else
     <ToastBar Toast="__toast" />
 
     @* ---------- Summary strip ---------- *@
-    <div class="mstrip">
+    <div class="mstrip mstrip-members">
         <div class="mstrip-total"><Icon Name="users" Size="18" Stroke="1.6" /><b>@__members.Count</b><span>Members shown</span></div>
         @foreach (var bar in Bars())
         {
@@ -54,21 +54,46 @@ else
         }
     </div>
 
+    @* Tablet and desktop: stat cards (the strip above is for the phone) *@
+    <div class="mstats">
+        @{
+            var male = __members.Count(m => m.fstrGender == "Male");
+            var female = __members.Count(m => m.fstrGender == "Female");
+            var genderTotal = Math.Max(1, male + female);
+            var activeCount = __members.Count(m => m.fstrMembershipStatus == "Active");
+            var inactiveCount = __members.Count(m => m.fstrMembershipStatus == "Inactive");
+            var allCount = Math.Max(1, __members.Count);
+        }
+        <div class="kcard" style="--c:#1c86f2"><div class="kc-h"><span>Members</span><span class="kc-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__members.Count</b><small>On the roll</small></div>
+        <div class="kcard" style="--c:#10b981"><div class="kc-h"><span>Active</span><span class="kc-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@activeCount</b><small><em>@(100 * activeCount / allCount)%</em> of members</small></div>
+        <div class="kcard" style="--c:#94a3b8"><div class="kc-h"><span>Inactive</span><span class="kc-i"><Icon Name="clock" Size="17" Stroke="1.8" /></span></div><b>@inactiveCount</b><small><em>@(100 * inactiveCount / allCount)%</em> of members</small></div>
+        <div class="kcard" style="--c:#ec4899"><div class="kc-h"><span>Gender</span><span class="kc-i"><Icon Name="user" Size="17" Stroke="1.8" /></span></div>
+            <div class="mbar"><i style="width:@(100 * male / genderTotal)%;background:#3b82f6"></i><i style="width:@(100 - 100 * male / genderTotal)%;background:#ec4899"></i></div>
+            <div class="mlegend"><span><em style="background:#3b82f6"></em><b>@male</b> Male</span><span><em style="background:#ec4899"></em><b>@female</b> Female</span></div>
+        </div>
+    </div>
+
     @* ---------- Filters ---------- *@
-    <div class="mfilter">
+    <div class="mfilter mfilter-members">
         <label class="mfilter-search">
             <Icon Name="search" Size="18" Stroke="1.5" />
-            <input type="text" placeholder="Search name or email..." aria-label="Search name or email" @bind="__search" @bind:event="oninput" @onkeydown="OnSearchKey" />
+            <input type="text" placeholder="Search members" aria-label="Search by name, email, type, assignment or status" value="@__search" @oninput="OnSearchInput" @onkeydown="OnSearchKey" />
         </label>
-        <select @bind="__filterType" aria-label="Member type">
+        <small class="mfilter-hint">Name, email, type, assignment or status</small>
+        <div class="mseg" role="group" aria-label="Status">
+            <button type="button" class="@(string.IsNullOrEmpty(__filterStatus) ? "on" : "")" @onclick='() => SetStatusAsync("")'>All</button>
+            <button type="button" class="@(__filterStatus == "Active" ? "on" : "")" @onclick='() => SetStatusAsync("Active")'>Active</button>
+            <button type="button" class="@(__filterStatus == "Inactive" ? "on" : "")" @onclick='() => SetStatusAsync("Inactive")'>Inactive</button>
+        </div>
+        <select @bind="__filterType" @bind:after="SearchAsync" aria-label="Member type">
             <option value="">All types</option>
             @foreach (var t in __types) { <option value="@t.flngKey">@t.fstrName</option> }
         </select>
-        <select @bind="__filterAssignment" aria-label="Assignment">
+        <select @bind="__filterAssignment" @bind:after="SearchAsync" aria-label="Assignment">
             <option value="">All assignments</option>
             @foreach (var a in __assignments) { <option value="@a.flngKey">@a.fstrName</option> }
         </select>
-        <select @bind="__filterStatus" aria-label="Status">
+        <select class="mstatus-select" @bind="__filterStatus" @bind:after="SearchAsync" aria-label="Status">
             <option value="">All statuses</option>
             @foreach (var s in FixedLists.MembershipStatuses) { <option value="@s">@s</option> }
         </select>
@@ -82,7 +107,7 @@ else
         var items = PageItems();
         var first = __members.IndexOf(items[0]);
         <div class="mtable-wrap">
-            <table class="mtable">
+            <table class="mtable mtable-members">
                 <thead>
                     <tr><th class="n">#</th><th>Member</th><th>Email</th><th>Assignment</th><th>Carer</th><th>Status</th><th class="r">Actions</th></tr>
                 </thead>
@@ -95,7 +120,7 @@ else
                             <td class="n" data-label="#">@(first + i + 1)</td>
                             <td class="who">
                                 <span class="av" style="background:@AvatarStyle.Colour(m.flngKey)">@AvatarStyle.Initials(m.fstrFirstname, m.fstrLastname)</span>
-                                <span class="who-text"><b>@m.DisplayName</b>@if (!string.IsNullOrWhiteSpace(m.fstrMemberTypeName)) { <small>@m.fstrMemberTypeName</small> }</span>
+                                <span class="who-text"><b>@m.DisplayName</b><small><span class="who-type">@m.fstrMemberTypeName</span><span class="who-mail">@(string.IsNullOrWhiteSpace(m.fstrEmailAddress) ? "No email" : m.fstrEmailAddress)</span></small></span>
                             </td>
                             <td class="mail" data-label="Email">@(string.IsNullOrWhiteSpace(m.fstrEmailAddress) ? "-" : m.fstrEmailAddress)</td>
                             <td data-label="Assignment">
@@ -103,16 +128,19 @@ else
                                 else { <span class="chip n">No assignment</span> }
                             </td>
                             <td data-label="Carer">
-                                @if (m.fblnCoreMember) { <span class="chip core">Core member</span> }
-                                @if (!string.IsNullOrWhiteSpace(m.fstrCarerName)) { <span class="chip g">@m.fstrCarerName</span> }
+                                @if (m.fblnCoreMember) { <span class="chip core"><span class="cav" style="background:#ec4899"><Icon Name="check" Size="11" Stroke="2.6" /></span>Core member</span> }
+                                @if (!string.IsNullOrWhiteSpace(m.fstrCarerName)) { <span class="chip g"><span class="cav" style="background:@(m.flngCarerKey.HasValue ? AvatarStyle.Colour(m.flngCarerKey.Value) : "#0f9a82")">@CarerInitials(m.fstrCarerName)</span>@m.fstrCarerName</span> }
                                 else if (isActive && !m.fblnCoreMember) { <span class="chip warn">No carer</span> }
                                 else if (!m.fblnCoreMember) { <span class="mute">-</span> }
                             </td>
                             <td data-label="Status"><span class="bd @(isActive ? "ok" : "off")">@m.fstrMembershipStatus</span></td>
                             <td class="act">
+                                <span class="acts">
                                 <button title="Edit" aria-label="Edit @m.FullName" @onclick="() => EditMemberAsync(m)" @onclick:stopPropagation="true"><Icon Name="edit" Size="17" Stroke="1.5" /></button>
                                 <button title="Profile" aria-label="Open profile of @m.FullName" @onclick="() => OpenDetailAsync(m)" @onclick:stopPropagation="true"><Icon Name="user" Size="17" Stroke="1.5" /></button>
                                 <button class="d" title="Delete" aria-label="Delete @m.FullName" @onclick="() => DeleteAsync(m)" @onclick:stopPropagation="true"><Icon Name="trash" Size="17" Stroke="1.5" /></button>
+                                </span>
+                                <span class="go" aria-hidden="true"><Icon Name="chevronright" Size="16" Stroke="2" /></span>
                             </td>
                         </tr>
                     }
@@ -224,7 +252,7 @@ else
     @* ---------- Add / edit popup ---------- *@
     @if (__edit is not null)
     {
-        <Modal Title="@(__isNew ? "Add member" : "Edit member")" Subtitle="@(__isNew ? "Fill in their details to add them to the group" : "Update their details")" Icon="userplus" OnClose="() => __edit = null">
+        <Modal Title="@(__isNew ? "Add member" : "Edit member")" Subtitle="@(__isNew ? "Fill in their details to add them to the group" : "Update their details")" Icon="userplus" CssClass="mem-edit" OnClose="() => __edit = null">
             <ChildContent>
                 <div class="modal-sec">Personal</div>
                 <div class="form-grid">
@@ -333,15 +361,12 @@ else
                     {
                         var key = d.flngKey;
                         <label><input type="checkbox" checked="@__selectedDepartments.Contains(key)" @onchange="e => ToggleDepartment(key, e.Value is true)" /> @d.fstrName</label>
-                        @if (__selectedDepartments.Contains(key))
-                        {
-                        }
                     }
                 </div>
 
                 <div class="modal-sec">Pastoral care</div>
                 <div class="check-list">
-                    <label><input type="checkbox" @bind="__edit.fblnCoreMember" /> Core member (can be given members to care for)</label>
+                    <label><input type="checkbox" @bind="__edit.fblnCoreMember" /> Core member</label>
                 </div>
 
                 <div class="modal-sec">Notes</div>
@@ -350,6 +375,20 @@ else
             <Footer>
                 <button class="btn btn-primary btn-sm" @onclick="SaveAsync">Save member</button>
                 <button class="btn btn-sm" @onclick="() => __edit = null">Cancel</button>
+            </Footer>
+        </Modal>
+    }
+
+    @* ---------- Delete confirmation ---------- *@
+    @if (__confirmDelete is not null)
+    {
+        <Modal Title="Delete member" Subtitle="@__confirmDelete.DisplayName" Icon="trash" OnClose="() => __confirmDelete = null">
+            <ChildContent>
+                <p style="margin:0">Delete <b>@__confirmDelete.DisplayName</b>? They are taken off the member list, and any carer or spouse link is released. Their history is kept.</p>
+            </ChildContent>
+            <Footer>
+                <button class="btn btn-primary btn-sm" disabled="@__deleting" @onclick="ConfirmDeleteAsync">Delete</button>
+                <button class="btn btn-sm" @onclick="() => __confirmDelete = null">Cancel</button>
             </Footer>
         </Modal>
     }
@@ -369,12 +408,16 @@ else
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     private bool __tabList = true, __tabAttendance = true, __tabCelebrations = true;
     private List<MemberModel> __members = [];
+    /// <summary>Members loaded for the chosen type, assignment and status, before the search text is applied.</summary>
+    private List<MemberModel> __source = [];
     private List<MemberTypeModel> __types = [];
     private List<ServiceAssignmentModel> __assignments = [];
     private List<DepartmentModel> __departments = [];
     private HashSet<Guid> __selectedDepartments = [];
     private HashSet<Guid> __leadDepartments = [];
     private MemberModel? __edit;
+    private MemberModel? __confirmDelete;
+    private bool __deleting;
 
     /// <summary>The titles set up in Setup, plus this member's own title if it was since removed from the list.</summary>
     private IEnumerable<string> TitleChoices =>
@@ -434,15 +477,42 @@ else
 
     private async Task LoadAsync()
     {
-        __members = await MemberRepo.SelectMember(
+        __source = await MemberRepo.SelectMember(
             memberTypeKey: __filterType,
             serviceAssignmentKey: __filterAssignment,
             membershipStatus: string.IsNullOrEmpty(__filterStatus) ? null : __filterStatus,
-            search: string.IsNullOrWhiteSpace(__search) ? null : __search.Trim(),
             cancellationToken: __cts.Token);
 
+        ApplySearch();
+    }
+
+    /// <summary>
+    /// Filters the loaded members by the search text. The text is matched against the name, email,
+    /// member type, assignment and status, so one box can find a member any of those ways.
+    /// </summary>
+    private void ApplySearch()
+    {
+        var text = __search?.Trim();
+        IEnumerable<MemberModel> list = __source;
+
+        if (!string.IsNullOrEmpty(text))
+        {
+            bool Has(string? value) => value?.Contains(text, StringComparison.OrdinalIgnoreCase) == true;
+            list = list.Where(m => Has(m.DisplayName) || Has(m.FullName) || Has(m.fstrEmailAddress)
+                                   || Has(m.fstrMemberTypeName) || Has(m.fstrServiceAssignmentName)
+                                   || Has(m.fstrMembershipStatus));
+        }
+
         // Names are shown as "First Last", so the list is ordered A to Z the same way
-        __members = ByName(__members);
+        __members = ByName(list);
+    }
+
+    /// <summary>Filters the list as the person types, so no button press is needed.</summary>
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        __search = e.Value?.ToString();
+        __page = 1;
+        ApplySearch();
     }
 
     /// <summary>Orders members A to Z by the name that is shown (first name, then last name).</summary>
@@ -462,10 +532,14 @@ else
         StateHasChanged();
     }
 
-    private async Task OpenCelebrationsAsync()
+    /// <summary>
+    /// Switches tab. The last alert is cleared first, so a message that was already shown is not shown again
+    /// (the alert popup would replay) when the person comes back to the Member list.
+    /// </summary>
+    private void ShowTab(string tab)
     {
-        __tab = "celebrations";
-        await Task.CompletedTask;
+        __toast = null;
+        __tab = tab;
     }
 
     private async Task OnSearchKey(KeyboardEventArgs e)
@@ -495,9 +569,23 @@ else
     #region Summary bar graph
 
     /// <summary>The four bars: active, inactive, male, female (for the members currently shown).</summary>
+    private async Task SetStatusAsync(string status)
+    {
+        __filterStatus = status;
+        await SearchAsync();
+    }
+
+    /// <summary>Two letters for a carer's small avatar, skipping a leading title such as "Mrs." or "Pastor".</summary>
+    private static string CarerInitials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (parts.Count > 2 && (parts[0].EndsWith('.') || FixedLists.Titles.Contains(parts[0]))) parts.RemoveAt(0);
+        return parts.Count == 0 ? "?" : AvatarStyle.Initials(parts[0], parts.Count > 1 ? parts[^1] : null);
+    }
+
     private List<BarItem> Bars() =>
     [
-        new("Active", __members.Count(m => m.fstrMembershipStatus == "Active"), "#2dd4bf", "#0d9488"),
+        new("Active", __members.Count(m => m.fstrMembershipStatus == "Active"), "#4ea1ff", "#1670d6"),
         new("Inactive", __members.Count(m => m.fstrMembershipStatus == "Inactive"), "#b9c4d9", "#8b99b3"),
         new("Male", __members.Count(m => m.fstrGender == "Male"), "#7cc0ff", "#3b82f6"),
         new("Female", __members.Count(m => m.fstrGender == "Female"), "#f9a8d4", "#ec4899")
@@ -607,8 +695,9 @@ else
 
         // The picture arrives as "data:image/jpeg;base64,...."
         var comma = __photoData.IndexOf(',');
-        if (comma < 0) return;
-        var type = __photoData[5..__photoData.IndexOf(';')];
+        var semicolon = __photoData.IndexOf(';');
+        if (comma < 0 || semicolon < 5 || semicolon > comma) return;
+        var type = __photoData[5..semicolon];
         var bytes = Convert.FromBase64String(__photoData[(comma + 1)..]);
 
         var result = await PhotoRepo.SaveMemberPhoto(memberKey, bytes, type, AppConstants.Who, __cts.Token);
@@ -626,6 +715,17 @@ else
         if (string.IsNullOrWhiteSpace(__edit.fstrFirstname) || string.IsNullOrWhiteSpace(__edit.fstrLastname))
         {
             __toast = new() { ToastType = ToastTypeModel.Warning, Message = "First name and last name are required" };
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(__edit.fstrEmailAddress) && !IsValidEmail(__edit.fstrEmailAddress))
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "That email address does not look right" };
+            return;
+        }
+        if (__edit.fdtmJoinDate.HasValue && __edit.fdtmLeaveGroupOn.HasValue && __edit.fdtmLeaveGroupOn.Value.Date < __edit.fdtmJoinDate.Value.Date)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "The date they left cannot be before the date they joined" };
             return;
         }
 
@@ -667,6 +767,8 @@ else
         await RefreshCelebrationCountAsync();
     }
 
+    private static bool IsValidEmail(string value) => System.Net.Mail.MailAddress.TryCreate(value.Trim(), out var address) && address.Address == value.Trim();
+
     /// <summary>Adds the newly ticked departments and removes the unticked ones.</summary>
     private async Task SyncDepartmentsAsync(Guid memberKey)
     {
@@ -687,6 +789,7 @@ else
             await MemberDepartmentRepo.SetMemberDepartmentLead(link.flngKey, __leadDepartments.Contains(link.flngDepartmentKey), AppConstants.Who, __cts.Token);
     }
 
+    /// <summary>Checks the member can be removed, then asks for confirmation.</summary>
     private async Task DeleteAsync(MemberModel m)
     {
         if (m.fblnCoreMember)
@@ -699,12 +802,28 @@ else
             }
         }
 
-        __toast = await MemberRepo.DeleteMember(m.flngKey, AppConstants.Who, __cts.Token);
-        if (__toast.IsSuccess)
+        __confirmDelete = m;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (__confirmDelete is null || __deleting) return;
+
+        __deleting = true;
+        try
         {
-            await LoadAsync();
-            await LoadSpouseChoicesAsync();
-            await RefreshCelebrationCountAsync();
+            __toast = await MemberRepo.DeleteMember(__confirmDelete.flngKey, AppConstants.Who, __cts.Token);
+            __confirmDelete = null;
+            if (__toast.IsSuccess)
+            {
+                await LoadAsync();
+                await LoadSpouseChoicesAsync();
+                await RefreshCelebrationCountAsync();
+            }
+        }
+        finally
+        {
+            __deleting = false;
         }
     }
 

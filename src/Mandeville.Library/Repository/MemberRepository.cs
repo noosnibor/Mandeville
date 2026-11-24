@@ -71,38 +71,19 @@ public partial class MemberRepository(IDataAccess dataAccess) : IMemberRepositor
             var parameters = new DynamicParameters();
             parameters.Add("@flngKey", obj.flngKey);
             parameters.Add("@fstrTitle", string.IsNullOrWhiteSpace(obj.fstrTitle) ? null : obj.fstrTitle.Trim());
-            if (insert)
-            {
-                parameters.Add("@fstrFirstname", obj.fstrFirstname?.Trim());
-                parameters.Add("@fstrLastname", obj.fstrLastname?.Trim());
-                parameters.Add("@fstrGender", obj.fstrGender?.Trim());
-                parameters.Add("@fstrEmailAddress", obj.fstrEmailAddress?.Trim());
-                parameters.Add("@fstrPhoneNumber", obj.fstrPhoneNumber?.Trim());
-                parameters.Add("@fstrHomeAddress", obj.fstrHomeAddress?.Trim());
-                parameters.Add("@fdtmDateOfBirth", obj.fdtmDateOfBirth);
-                parameters.Add("@fdtmJoinDate", obj.fdtmJoinDate);
-                parameters.Add("@fdtmLeaveGroupOn", obj.fdtmLeaveGroupOn);
-                parameters.Add("@flngMemberTypeKey", obj.flngMemberTypeKey);
-                parameters.Add("@flngServiceAssignmentKey", obj.flngServiceAssignmentKey);
-                parameters.Add("@fstrMembershipStatus", obj.fstrMembershipStatus?.Trim());
-                parameters.Add("@fstrNotes", obj.fstrNotes?.Trim());
-            }
-            else
-            {
-                parameters.Add("@fstrFirstname", obj.fstrFirstname?.Trim());
-                parameters.Add("@fstrLastname", obj.fstrLastname?.Trim());
-                parameters.Add("@fstrGender", obj.fstrGender?.Trim());
-                parameters.Add("@fstrEmailAddress", obj.fstrEmailAddress?.Trim());
-                parameters.Add("@fstrPhoneNumber", obj.fstrPhoneNumber?.Trim());
-                parameters.Add("@fstrHomeAddress", obj.fstrHomeAddress?.Trim());
-                parameters.Add("@fdtmDateOfBirth", obj.fdtmDateOfBirth);
-                parameters.Add("@fdtmJoinDate", obj.fdtmJoinDate);
-                parameters.Add("@fdtmLeaveGroupOn", obj.fdtmLeaveGroupOn);
-                parameters.Add("@flngMemberTypeKey", obj.flngMemberTypeKey);
-                parameters.Add("@flngServiceAssignmentKey", obj.flngServiceAssignmentKey);
-                parameters.Add("@fstrMembershipStatus", obj.fstrMembershipStatus?.Trim());
-                parameters.Add("@fstrNotes", obj.fstrNotes?.Trim());
-            }
+            parameters.Add("@fstrFirstname", obj.fstrFirstname?.Trim());
+            parameters.Add("@fstrLastname", obj.fstrLastname?.Trim());
+            parameters.Add("@fstrGender", obj.fstrGender?.Trim());
+            parameters.Add("@fstrEmailAddress", obj.fstrEmailAddress?.Trim());
+            parameters.Add("@fstrPhoneNumber", obj.fstrPhoneNumber?.Trim());
+            parameters.Add("@fstrHomeAddress", obj.fstrHomeAddress?.Trim());
+            parameters.Add("@fdtmDateOfBirth", obj.fdtmDateOfBirth);
+            parameters.Add("@fdtmJoinDate", obj.fdtmJoinDate);
+            parameters.Add("@fdtmLeaveGroupOn", obj.fdtmLeaveGroupOn);
+            parameters.Add("@flngMemberTypeKey", obj.flngMemberTypeKey);
+            parameters.Add("@flngServiceAssignmentKey", obj.flngServiceAssignmentKey);
+            parameters.Add("@fstrMembershipStatus", obj.fstrMembershipStatus?.Trim());
+            parameters.Add("@fstrNotes", obj.fstrNotes?.Trim());
             parameters.Add("@fblnCoreMember", obj.fblnCoreMember);
             parameters.Add("@fstrMaritalStatus", string.IsNullOrWhiteSpace(obj.fstrMaritalStatus) ? "Single" : obj.fstrMaritalStatus.Trim());
             parameters.Add("@flngSpouseMemberKey", obj.flngSpouseMemberKey);

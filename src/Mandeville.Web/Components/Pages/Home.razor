@@ -31,6 +31,16 @@ else if (!__loaded)
 }
 else
 {
+    @* Tablet and desktop: stat cards (the strip below is for the phone) *@
+    <div class="kcards">
+        <div class="kcard" style="--c:#1c86f2"><div class="kc-h"><span>Total members</span><span class="kc-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__totalMembers</b><small>On the roll</small></div>
+        <div class="kcard" style="--c:#10b981"><div class="kc-h"><span>Active</span><span class="kc-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@__activeMembers</b><small><em>@ActivePercent%</em> of members</small></div>
+        <div class="kcard" style="--c:#8b5cf6"><div class="kc-h"><span>Last service</span><span class="kc-i"><Icon Name="calendar" Size="17" Stroke="1.8" /></span></div><b>@__lastServicePresent</b><small>Members present</small></div>
+        <div class="kcard" style="--c:#0ea5e9"><div class="kc-h"><span>Avg attendance</span><span class="kc-i"><Icon Name="chart" Size="17" Stroke="1.8" /></span></div><b>@__averageAttendance%</b><small>Of active members</small></div>
+        <a class="kcard" style="--c:#f59e0b" href="members"><div class="kc-h"><span>Not seen</span><span class="kc-i"><Icon Name="eye" Size="17" Stroke="1.8" /></span></div><b>@__notSeen.Count</b><small>In 3+ weeks</small></a>
+        <a class="kcard" style="--c:#ef4444" href="connect"><div class="kc-h"><span>Visitors</span><span class="kc-i"><Icon Name="link" Size="17" Stroke="1.8" /></span></div><b>@__unconnected.Count</b><small>Not connected yet</small></a>
+    </div>
+
     <div class="kstrip card dk-strip">
         <div class="on"><b>@__totalMembers</b><span>Total members</span></div>
         <div><b>@__activeMembers</b><span>Active (@ActivePercent%)</span></div>
@@ -141,7 +151,52 @@ else
         </section>
     </div>
 
-    <div class="dk-grid two">
+    @* Tablet and desktop: donut, bars and a line chart *@
+    <div class="dk-grid dk-charts">
+        <section class="dk-card">
+            <div class="dk-ch"><h3>Members <small>@__totalMembers on the roll</small></h3></div>
+            <div class="dn-donut" style="background:conic-gradient(#1c86f2 0 @(ActivePercent)%, #94a3b8 @(ActivePercent)% 100%)"><div><b>@(ActivePercent)%</b><span>active</span></div></div>
+            <div class="dn-lg"><span><i style="background:#1c86f2"></i><b>@__activeMembers</b> Active</span><span><i style="background:#94a3b8"></i><b>@(__totalMembers - __activeMembers)</b> Inactive</span></div>
+        </section>
+
+        <section class="dk-card">
+            <div class="dk-ch"><h3>Care coverage <small>@CarePercent% have a carer</small></h3></div>
+            <div class="dn-hb">
+                <div><div class="dn-t"><span>With a carer</span><b>@__careCovered</b></div><div class="dn-tr"><i style="width:@(CarePercent)%;background:linear-gradient(90deg,#38a8ff,#1670d6)"></i></div></div>
+                <div><div class="dn-t"><span>Without a carer</span><b>@(__careTotal - __careCovered)</b></div><div class="dn-tr"><i style="width:@(100 - CarePercent)%;background:#f59e0b"></i></div></div>
+                <div><div class="dn-t"><span>Core members</span><b>@__coreCount</b></div><div class="dn-tr"><i style="width:@(__totalMembers == 0 ? 0 : (int)Math.Round(100.0 * __coreCount / __totalMembers))%;background:#ec4899"></i></div></div>
+            </div>
+            <a class="dk-more" href="pastoral">Assign carers &rarr;</a>
+        </section>
+
+        <section class="dk-card">
+            @{
+                var lineTop = Math.Max(1m, __months.Count == 0 ? 1m : __months.Max(x => Math.Max(x.In, x.Out)));
+            }
+            <div class="dk-ch"><h3>Collection balance <small>Last 6 months</small></h3></div>
+            <div class="dn-big"><b class="@(__balance < 0 ? "neg" : "")">@Money(__balance)</b><span>+ @Money(__collected) collected</span></div>
+            <div class="dn-klg"><span><i style="background:#10b981"></i>Collected</span><span><i style="background:#ef4444"></i>Spent @Money(__spent)</span></div>
+            <svg class="dn-line" viewBox="0 0 490 216" role="img" aria-label="Collected and spent over the last 6 months">
+                <defs><linearGradient id="dnFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#10b981" stop-opacity=".28" /><stop offset="1" stop-color="#10b981" stop-opacity="0" /></linearGradient></defs>
+                @foreach (var gy in new[] { 50, 90, 130, 170 }) { <line class="dn-grid" x1="40" x2="470" y1="@gy" y2="@gy" /> }
+                @if (__months.Count > 1)
+                {
+                    <path d="@LineArea(lineTop)" fill="url(#dnFill)" />
+                    <polyline points="@LinePoints(lineTop, true)" fill="none" stroke="#10b981" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" />
+                    <polyline points="@LinePoints(lineTop, false)" fill="none" stroke="#ef4444" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" />
+                    @for (var i = 0; i < __months.Count; i++)
+                    {
+                        <circle class="dn-dot" cx="@LineX(i)" cy="@LineY(__months[i].In, lineTop)" r="3.5" fill="#10b981" />
+                        <circle class="dn-dot" cx="@LineX(i)" cy="@LineY(__months[i].Out, lineTop)" r="3.5" fill="#ef4444" />
+                        @* Razor reserves the text element name, so the SVG label is written out as markup *@
+                        @((MarkupString)$"<text class=\"dn-xl\" x=\"{LineX(i)}\" y=\"208\" text-anchor=\"middle\">{__months[i].Label}</text>")
+                    }
+                }
+            </svg>
+        </section>
+    </div>
+
+    <div class="dk-grid two dk-phone">
         <section class="dk-card">
             <div class="dk-ch"><h3>Care coverage</h3><small class="dk-pct">@CarePercent% have a carer</small></div>
             <div class="dk-track"><i style="width:@(CarePercent)%"></i></div>
@@ -174,6 +229,7 @@ else
 
     private int __totalMembers, __activeMembers;
     private decimal __collected, __spent;
+    private List<(string Label, decimal In, decimal Out)> __months = [];
     private List<VisitorModel> __unconnected = [];
     private List<(DateTime Date, int Count)> __perService = [];
 
@@ -201,6 +257,24 @@ else
     private static int Pct(int value, int max) => Math.Max(4, (int)Math.Round(100.0 * value / max));
 
     private static string Money(decimal value) => "$" + value.ToString("N2");
+
+    #endregion
+
+    #region Line chart helpers
+
+    /// <summary>X position of month i on the 490 x 216 chart (six months spread from 40 to 470).</summary>
+    private int LineX(int i) => __months.Count <= 1 ? 40 : 40 + (int)Math.Round(i * 430.0 / (__months.Count - 1));
+
+    /// <summary>Y position of a value: 170 is zero, 50 is the highest value on the chart.</summary>
+    private static int LineY(decimal value, decimal top) => 170 - (int)Math.Round((double)(value / top) * 120);
+
+    private string LinePoints(decimal top, bool collected) =>
+        string.Join(' ', __months.Select((m, i) => $"{LineX(i)},{LineY(collected ? m.In : m.Out, top)}"));
+
+    /// <summary>The soft fill under the collected line.</summary>
+    private string LineArea(decimal top) =>
+        $"M{LineX(0)},{LineY(__months[0].In, top)} " + string.Join(' ', __months.Select((m, i) => $"L{LineX(i)},{LineY(m.In, top)}"))
+        + $" L{LineX(__months.Count - 1)},190 L{LineX(0)},190Z";
 
     #endregion
 
@@ -277,8 +351,20 @@ else
                 .OrderBy(v => v.fdtmLastAttended ?? DateTime.MaxValue).ToList();
 
             // Current collection balance = everything collected minus everything spent.
-            __collected = (await FinanceRepo.SelectFinance(active: true, cancellationToken: ct)).Sum(f => f.fcurAmount);
-            __spent = (await ExpenditureRepo.SelectExpenditure(active: true, cancellationToken: ct)).Sum(e => e.fcurAmount);
+            var collections = await FinanceRepo.SelectFinance(active: true, cancellationToken: ct);
+            var expenses = await ExpenditureRepo.SelectExpenditure(active: true, cancellationToken: ct);
+            __collected = collections.Sum(f => f.fcurAmount);
+            __spent = expenses.Sum(e => e.fcurAmount);
+
+            // The last six months, for the line chart
+            var firstMonth = new DateTime(AppClock.Today.Year, AppClock.Today.Month, 1).AddMonths(-5);
+            __months = Enumerable.Range(0, 6).Select(i =>
+            {
+                var m = firstMonth.AddMonths(i);
+                return (m.ToString("MMM"),
+                    collections.Where(f => f.flngYear == m.Year && f.flngMonth == m.Month).Sum(f => f.fcurAmount),
+                    expenses.Where(e => e.fdtmExpenseDate.Year == m.Year && e.fdtmExpenseDate.Month == m.Month).Sum(e => e.fcurAmount));
+            }).ToList();
         }
         catch (OperationCanceledException) { return; }
         catch (Exception ex) { __error = "The dashboard could not be loaded: " + ex.Message; }

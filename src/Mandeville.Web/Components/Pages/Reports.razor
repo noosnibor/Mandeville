@@ -79,6 +79,12 @@ else if (__report is not null)
             <h2>Members and pastoral care <span>@r.TotalMembers members</span></h2>
             <div class="rep-row"><span>Active / Inactive</span><b>@r.ActiveMembers / @r.InactiveMembers</b></div>
             <div class="rep-row"><span>Present at this service</span><b>@r.MembersPresent (@r.PresentPercent%)</b></div>
+            <div class="rep-row"><span>Visiting members</span><b>@r.VisitingMembers</b></div>
+            @foreach (var b in r.VisitingByBranch)
+            {
+                <div class="rep-row"><span>&nbsp;&nbsp;From @b.Key</span><b>@b.Value</b></div>
+            }
+            <div class="rep-row"><span>Total in the service</span><b>@r.TotalInService</b></div>
             <div class="rep-row"><span>Persons connected to a carer</span><b>@r.Connected of @r.Careable</b></div>
             <div class="rep-row"><span>Core members caring</span><b>@r.CoreMembers</b></div>
             <div class="rep-row"><span>Care contacts this week</span><b>@r.CareContactsThisWeek</b></div>

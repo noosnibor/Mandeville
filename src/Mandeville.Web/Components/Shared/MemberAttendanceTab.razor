@@ -4,12 +4,15 @@
 @inject IServiceRepository ServiceRepo
 @inject IMemberAttendanceRepository AttendanceRepo
 @inject IMemberRepository MemberRepo
+@inject IVisitingAttendanceRepository VisitingRepo
+@inject IBranchRepository BranchRepo
 @inject NavigationManager Navigation
 @inject IConfiguration Configuration
+@inject IJSRuntime JS
 
 <ToastBar Toast="__toast" />
 
-<div class="att-layout">
+<div class="att-layout @(__service is null ? "att-list" : "att-detail")">
     @* ---------- Services as cards ---------- *@
     <div class="card att-services">
         <h2><span class="h2-ico"><Icon Name="calendar" Size="20" Stroke="1.6" /></span>Services <span class="pill-ok">@FilteredServices().Count @(FilteredServices().Count == 1 ? "service" : "services")</span></h2>
@@ -28,7 +31,7 @@
                     <small>@s.fdtmServiceDate.ToString("ddd dd MMM yyyy")</small>
                     <div class="scard-meta">
                         @if (s.ftimStartTime.HasValue) { <span><Icon Name="clock" Size="13" /> @(s.ftimStartTime.Value.ToString("hh\\:mm"))</span> }
-                        <span><Icon Name="users" Size="13" /> @PresentCount(s.flngKey) present</span>
+                        <span class="@(PresentCount(s.flngKey) > 0 ? "hi" : "")"><Icon Name="users" Size="13" /> @PresentCount(s.flngKey) present</span>
                     </div>
                 </div>
                 @if (s.IsOpenNow) { <span class="pill-ok">Open</span> }
@@ -56,7 +59,7 @@
         }
     </div>
 
-    <div>
+    <div class="att-main">
         @if (__service is null)
         {
             <div class="card att-empty">
@@ -67,16 +70,26 @@
         }
         else
         {
+            @* Phone only: a way back to the list of services (the list and the service are separate screens on a phone) *@
+            <button class="att-back" @onclick="BackToList"><Icon Name="chevronleft" Size="18" Stroke="2" />Services</button>
+
             @* ---------- Selected service summary ---------- *@
             <div class="card att-head">
                 <span class="att-head-ico"><Icon Name="calendar" Size="24" Stroke="1.6" /></span>
                 <div class="att-head-text">
+                    @if (__service.fblnCheckInOpen) { <span class="hd-live">Check-in open</span> }
                     <h2>@__service.fstrServiceName</h2>
                     <div class="att-head-meta">
                         <span><Icon Name="calendar" Size="15" /> @__service.fdtmServiceDate.ToString("ddd dd MMM yyyy")</span>
                         @if (__service.ftimStartTime.HasValue) { <span><Icon Name="clock" Size="15" /> @(__service.ftimStartTime.Value.ToString("hh\\:mm"))</span> }
-                        <span><Icon Name="users" Size="15" /> @__attendance.Count present</span>
+                        <span class="att-m-present"><Icon Name="users" Size="15" /> @(__attendance.Count + __visiting.Count) present</span>
                     </div>
+                    <div class="hd-bar"><i style="width:@(LivePercent)%"></i></div>
+                </div>
+                @* Tablet and desktop only: headline numbers *@
+                <div class="hd-stats">
+                    <div><b>@__attendance.Count<span> / @__members.Count</span></b><small>members present &middot; @LivePercent%</small></div>
+                    <div><b>@__visiting.Count</b><small>visiting</small></div>
                 </div>
                 @if (__service.fblnCheckInOpen)
                 {
@@ -88,10 +101,20 @@
                 }
             </div>
 
+            @* Phone only: switch between the members, the visiting members and the QR code *@
+            <div class="att-seg" role="tablist">
+                <button role="tab" class="@(ShowQrTab || ShowVisitingTab ? "" : "on") @(ShowVisitingTab ? "" : "don")" @onclick='() => __attTab = "checked"'>Members &middot; @__attendance.Count</button>
+                <button role="tab" class="@(ShowVisitingTab ? "on" : "")" @onclick='() => __attTab = "visiting"'>Visiting &middot; @__visiting.Count</button>
+                @if (__service.fblnCheckInOpen)
+                {
+                    <button role="tab" class="@(ShowQrTab ? "on" : "")" @onclick='() => __attTab = "qr"'>QR code</button>
+                }
+            </div>
+
             @if (__service.fblnCheckInOpen)
             {
                 @* ---------- QR check-in ---------- *@
-                <div class="card">
+                <div class="card att-qrcard @(ShowQrTab ? "" : "att-hide")">
                     <h2><span class="h2-ico"><Icon Name="scan" Size="20" Stroke="1.6" /></span>Check-in <span class="pill-ok">Open</span></h2>
                     <div class="qr-box">
                         @if (!string.IsNullOrEmpty(__qrImage))
@@ -101,6 +124,7 @@
                         <div>
                             <p class="hint" style="margin-top:0">Window: @__service.fdtmCheckInOpens?.ToString("HH:mm") to @__service.fdtmCheckInCloses?.ToString("HH:mm"). The code stays the same for this service, so it can be printed or put on a screen.</p>
                             <p class="qr-link"><a href="@__checkInUrl" target="_blank" rel="noopener">@__checkInUrl</a></p>
+                            <button class="btn btn-sm att-copy" @onclick="CopyLinkAsync"><Icon Name="link" Size="16" Stroke="1.8" />@(__copied ? "Link copied" : "Copy check-in link")</button>
                             @if (__localOnly)
                             {
                                 <div class="qr-warn">
@@ -110,8 +134,8 @@
                                 </div>
                             }
                             <div class="actions">
-                                <button class="btn btn-sm" @onclick="RotateAsync"><Icon Name="refresh" Size="16" Stroke="1.8" />Refresh code now</button>
-                                <button class="btn btn-sm btn-danger" @onclick="CloseAsync"><Icon Name="x" Size="16" Stroke="1.8" />Close check-in</button>
+                                <button class="btn btn-sm" title="Refresh the code now" @onclick="RotateAsync"><Icon Name="refresh" Size="16" Stroke="1.8" />Refresh</button>
+                                <button class="btn btn-sm btn-danger" title="Close check-in" @onclick="CloseAsync"><Icon Name="x" Size="16" Stroke="1.8" />Close</button>
                             </div>
                         </div>
                     </div>
@@ -119,7 +143,7 @@
             }
 
             @* ---------- Checked in people as cards ---------- *@
-            <div class="card">
+            <div class="card att-checkedcard @(ShowQrTab || ShowVisitingTab ? "att-hide" : "") @(ShowVisitingTab ? "att-vis" : "")">
                 <h2><span class="h2-ico"><Icon Name="users" Size="20" Stroke="1.6" /></span>Checked in @if (__service.fblnCheckInOpen) { <span class="live-badge">Live</span> } else { <span class="pill-ok">@__attendance.Count present</span> }</h2>
 
                 <div class="live-count">
@@ -154,9 +178,87 @@
                     </div>
                 }
             </div>
+
+            @* ---------- Visiting members: WAFIF members from other branches (not on the member list) ---------- *@
+            <div class="card att-visitcard @(ShowVisitingTab ? "" : "att-hide")">
+                <h2><span class="h2-ico"><Icon Name="userplus" Size="20" Stroke="1.6" /></span>Visiting members <span class="pill-ok">@__visiting.Count</span></h2>
+
+                <div class="vis-tiles">
+                    <div><b>@__attendance.Count</b><small>Members of @__members.Count active</small></div>
+                    <div class="v"><b>@__visiting.Count</b><small>Visiting from other branches</small></div>
+                </div>
+
+                <button class="btn-record vis-add" @onclick="OpenVisitSheetAsync"><Icon Name="plus" Size="18" Stroke="2" />Add visiting member</button>
+
+                @if (__visiting.Count > 0)
+                {
+                    <div class="vis-label">Visiting today</div>
+                    @foreach (var v in __visiting)
+                    {
+                        var visit = v;
+                        <div class="ucard">
+                            <div class="ucard-avatar" style="background:@AvatarStyle.Colour(visit.flngVisitingMemberKey)">@AvatarStyle.Initials(visit.fstrFirstname, visit.fstrLastname)</div>
+                            <div class="ucard-text"><b>@visit.FullName</b><small>@visit.fdtmCheckedInAt.ToString("HH:mm") &middot; @(visit.fstrMethod == "QR" ? "Scanned" : "By hand")</small></div>
+                            <span class="vis-branch">@visit.fstrBranch</span>
+                            <button class="ucard-remove" title="Remove" aria-label="Remove" @onclick="() => RemoveVisitingAsync(visit)">&#10005;</button>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="att-empty">
+                        <span class="att-empty-ico"><Icon Name="userplus" Size="34" Stroke="1.4" /></span>
+                        <b>No visiting members yet</b>
+                        <p>Add a WAFIF member from another branch. Next time they can check in by QR.</p>
+                    </div>
+                }
+            </div>
         }
     </div>
 </div>
+
+@if (__visitOpen)
+{
+    <Modal Title="Add visiting member" Subtitle="For WAFIF members from another branch. They are not added to your member list." Icon="userplus" CssClass="mem-edit vis-sheet" OnClose="() => __visitOpen = false">
+        <ChildContent>
+            @if (KnownToShow.Any())
+            {
+                <div class="modal-sec">Been here before</div>
+                <div class="vis-known">
+                    @foreach (var k in KnownToShow)
+                    {
+                        var known = k;
+                        <button type="button" class="vis-chip" @onclick="() => PickKnown(known)"><b>@known.FullName</b><small>@known.fstrBranch</small></button>
+                    }
+                </div>
+            }
+
+            <div class="form-grid">
+                <div class="field">
+                    <label>Title</label>
+                    <select @bind="__vTitle">
+                        <option value="">(none)</option>
+                        @foreach (var title in FixedLists.Titles) { <option value="@title">@title</option> }
+                    </select>
+                </div>
+                <div class="field"><label>First name</label><input type="text" maxlength="50" @bind="__vFirst" /></div>
+                <div class="field"><label>Last name</label><input type="text" maxlength="50" @bind="__vLast" /></div>
+                <div class="field">
+                    <label>Branch</label>
+                    <select @bind="__vBranch">
+                        <option value="">Choose a branch</option>
+                        @foreach (var b in BranchChoices) { <option value="@b">@b</option> }
+                    </select>
+                </div>
+            </div>
+            <p class="hint">Not on the list? An administrator can add it in Setup, Branches.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-primary btn-sm" disabled="@__visitBusy" @onclick="SaveVisitingAsync">Mark Present</button>
+            <button class="btn btn-sm" @onclick="() => __visitOpen = false">Cancel</button>
+        </Footer>
+    </Modal>
+}
 
 @code {
     #region Private Fields
@@ -175,6 +277,28 @@
     private bool __refreshing;
     private readonly HashSet<Guid> __fresh = [];
     private Dictionary<Guid, int> __counts = [];
+    private string __attTab = "checked";      // phone: "checked" (people) or "qr" (the code)
+    private bool __copied;
+
+    // Visiting members (WAFIF members from other branches)
+    private List<VisitingAttendanceModel> __visiting = [];
+    private List<VisitingMemberModel> __known = [];
+    private List<string> __branches = [];
+
+    /// <summary>The active branches from Setup, plus the chosen one if it was since made inactive.</summary>
+    private IEnumerable<string> BranchChoices =>
+        string.IsNullOrWhiteSpace(__vBranch) || __branches.Contains(__vBranch) ? __branches : __branches.Append(__vBranch);
+    private bool __visitOpen, __visitBusy;
+    private string __vTitle = string.Empty, __vFirst = string.Empty, __vLast = string.Empty, __vBranch = string.Empty;
+
+    /// <summary>True when the Visiting tab is chosen on a phone.</summary>
+    private bool ShowVisitingTab => __attTab == "visiting";
+
+    /// <summary>Known visiting members who are not already marked present at this service (the "Been here before" quick picks).</summary>
+    private IEnumerable<VisitingMemberModel> KnownToShow => __known.Where(k => !__visiting.Any(v => v.flngVisitingMemberKey == k.flngKey)).Take(8);
+
+    /// <summary>True when the QR tab is chosen on a phone and check-in is open (otherwise the people list is shown).</summary>
+    private bool ShowQrTab => __attTab == "qr" && __service is { fblnCheckInOpen: true };
 
     // Service list paging, search and "load all"
     private const int ServicePageSize = 6;
@@ -236,11 +360,14 @@
         BuildQr();
     }
 
-    /// <summary>How many people were present at each service (shown on the service cards).</summary>
+    /// <summary>How many people (members and visiting members) were present at each service, shown on the service cards.</summary>
     private async Task LoadCountsAsync()
     {
         var all = await AttendanceRepo.SelectMemberAttendance(cancellationToken: __cts.Token);
-        __counts = all.GroupBy(a => a.flngServiceKey).ToDictionary(g => g.Key, g => g.Count());
+        var visits = await VisitingRepo.SelectVisitingAttendance(cancellationToken: __cts.Token);
+        // Members and visiting members both count as present
+        __counts = all.Select(a => a.flngServiceKey).Concat(visits.Select(v => v.flngServiceKey))
+            .GroupBy(k => k).ToDictionary(g => g.Key, g => g.Count());
     }
 
     /// <summary>Gets every service, not just the recent ones, while a loading bar shows.</summary>
@@ -296,8 +423,30 @@
 
     private int PresentCount(Guid serviceKey) => __counts.TryGetValue(serviceKey, out var n) ? n : 0;
 
+    /// <summary>Phone: returns from a service to the list of services.</summary>
+    private void BackToList()
+    {
+        __service = null;
+        __attTab = "checked";
+    }
+
+    /// <summary>Copies the check-in link so it can be pasted into a message.</summary>
+    private async Task CopyLinkAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", __checkInUrl);
+            __copied = true;
+            StateHasChanged();
+            await Task.Delay(2000, __cts.Token);
+            __copied = false;
+        }
+        catch (Exception) { /* clipboard not available; the link is still shown above */ }
+    }
+
     private async Task SelectServiceAsync(ServiceModel s)
     {
+        __attTab = "checked";
         __service = s;
         BuildQr();
         await RefreshAttendanceAsync();
@@ -306,7 +455,8 @@
     private async Task RefreshAttendanceAsync()
     {
         __attendance = __service is null ? [] : await AttendanceRepo.SelectMemberAttendance(serviceKey: __service.flngKey, cancellationToken: __cts.Token);
-        if (__service is not null) __counts[__service.flngKey] = __attendance.Count;
+        __visiting = __service is null ? [] : await VisitingRepo.SelectVisitingAttendance(serviceKey: __service.flngKey, cancellationToken: __cts.Token);
+        if (__service is not null) __counts[__service.flngKey] = __attendance.Count + __visiting.Count;
     }
 
     #endregion
@@ -392,6 +542,59 @@
     private async Task RemoveAsync(MemberAttendanceModel a)
     {
         __toast = await AttendanceRepo.DeleteMemberAttendance(a.flngKey, AppConstants.Who, __cts.Token);
+        if (__toast.IsSuccess) await RefreshAttendanceAsync();
+    }
+
+    #endregion
+
+    #region Visiting members
+
+    /// <summary>Opens the sheet with a clean form, the visitors who came before, and the branches already used.</summary>
+    private async Task OpenVisitSheetAsync()
+    {
+        __vTitle = __vFirst = __vLast = __vBranch = string.Empty;
+        __known = await VisitingRepo.SelectKnownVisitors(__cts.Token);
+        __branches = (await BranchRepo.SelectBranch(active: true, cancellationToken: __cts.Token)).Select(b => b.fstrName).ToList();
+        __visitOpen = true;
+    }
+
+    /// <summary>A visitor who has been here before: fills the form in one tap.</summary>
+    private void PickKnown(VisitingMemberModel known)
+    {
+        __vTitle = known.fstrTitle ?? string.Empty;
+        __vFirst = known.fstrFirstname;
+        __vLast = known.fstrLastname;
+        __vBranch = known.fstrBranch;
+    }
+
+    /// <summary>Saves the visitor (found by name and branch, or created) and marks them present.</summary>
+    private async Task SaveVisitingAsync()
+    {
+        if (__service is null || __visitBusy) return;
+
+        var branch = __vBranch.Trim();
+        if (string.IsNullOrWhiteSpace(__vFirst) || string.IsNullOrWhiteSpace(__vLast) || branch.Length == 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "Please enter the first name, last name and choose a branch." };
+            return;
+        }
+
+        __visitBusy = true;
+        try
+        {
+            __toast = await VisitingRepo.AddVisitingAttendance(__service.flngKey, __vTitle, __vFirst, __vLast, branch, "Manual", AppConstants.Who, __cts.Token);
+            if (__toast.IsSuccess)
+            {
+                __visitOpen = false;
+                await RefreshAttendanceAsync();
+            }
+        }
+        finally { __visitBusy = false; }
+    }
+
+    private async Task RemoveVisitingAsync(VisitingAttendanceModel visit)
+    {
+        __toast = await VisitingRepo.DeleteVisitingAttendance(visit.flngKey, AppConstants.Who, __cts.Token);
         if (__toast.IsSuccess) await RefreshAttendanceAsync();
     }
 

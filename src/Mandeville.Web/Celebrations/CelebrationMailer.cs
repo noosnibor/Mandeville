@@ -7,7 +7,7 @@ namespace Mandeville.Web.Celebrations;
 
 /// <summary>
 /// Builds and sends the birthday and anniversary emails using the account in the "Smtp" settings.
-/// Settings used: Smtp:*, Church:GroupName, Church:Ministers, Celebrations:AutoEmail, Celebrations:SendHour.
+/// Settings used: Smtp:*, Church:GroupName, Church:Ministers.
 /// </summary>
 public class CelebrationMailer(IConfiguration configuration, ILogger<CelebrationMailer> logger, IWebHostEnvironment environment)
 {
@@ -24,12 +24,6 @@ public class CelebrationMailer(IConfiguration configuration, ILogger<Celebration
     /// <summary>True when the mail account has been filled in.</summary>
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(__configuration["Smtp:Host"]) && !string.IsNullOrWhiteSpace(__configuration["Smtp:From"]);
-
-    /// <summary>True when the daily automatic run is switched on (Celebrations:AutoEmail, on unless set to false).</summary>
-    public bool AutoEmail => !string.Equals(__configuration["Celebrations:AutoEmail"], "false", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Hour of the day (church time) the automatic run starts, 0 to 23. Default 8.</summary>
-    public int SendHour => int.TryParse(__configuration["Celebrations:SendHour"], out var h) && h is >= 0 and <= 23 ? h : 8;
 
     public string GroupName => __configuration["Church:GroupName"] is { Length: > 0 } g ? g : "WAFIF Mandeville";
 
