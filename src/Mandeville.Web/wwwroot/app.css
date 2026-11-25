@@ -2123,11 +2123,11 @@ select, .mfilter select, .field select, .table select, .card select, .icon-field
 @media (max-width: 639px), (max-height: 500px) and (max-width: 899px) {
     .auth-split { background: linear-gradient(180deg, #d6ecff 0%, #8fcaff 100%); }
     .auth-panel { box-shadow: 0 -6px 0 #7cc0ff; }
-    .auth-panel::before, .auth-waves { filter: hue-rotate(52deg) saturate(1.5) brightness(1.08); }
+    .auth-panel::before, .auth-waves { filter: none; }
     .auth-submit { background: linear-gradient(135deg, #38a8ff 0%, #1c86f2 55%, #1670d6 100%); box-shadow: 0 12px 24px -10px rgba(28,134,242,.75); }
     .auth-link { color: #1666d1; }
     .m-brand .brand-mark { background: linear-gradient(135deg, #4db4ff, #1c86f2); }
-    .auth-foot { color: #06264d; }
+    .auth-foot { color: #fff; }
     .auth-input:focus { border-color: #1c86f2; box-shadow: 0 0 0 3px rgba(28,134,242,.2); outline: none; }
     :root[data-theme="dark"] .auth-split { background: linear-gradient(180deg, #14283f 0%, #0e1c2e 100%); }
     :root[data-theme="dark"] .auth-link { color: #7cc0ff; }

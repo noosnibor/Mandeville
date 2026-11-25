@@ -116,7 +116,7 @@ else
             <div class="ao-list">
                 @foreach (var m in assignList.Take(60))
                 {
-                    <div class="ao-row">
+                    <div class="ao-row" @key="m.flngKey">
                         <div class="ao-av" style="background:@AvatarStyle.Colour(m.flngKey)">@AvatarStyle.Initials(m.fstrFirstname, m.fstrLastname)</div>
                         <div class="ao-nm">
                             <b>@m.FullName</b>
@@ -125,11 +125,11 @@ else
                         @if (m.flngCarerKey is Guid ck)
                         {
                             <span class="ao-chip"><i style="background:@AvatarStyle.Colour(ck)">@Initials(m.fstrCarerName)</i>@FirstWord(m.fstrCarerName)<Icon Name="chevron" Size="14" Stroke="2" />
-                                <select @onchange="e => AssignAsync(m.flngKey, e.Value?.ToString())" aria-label="Carer for @m.FullName">
-                                    <option value="" selected="@(m.flngCarerKey is null)">Assign to&hellip;</option>
+                                <select @key="@($"has-{m.flngKey}-{m.flngCarerKey}")" value="@m.flngCarerKey" @onchange="e => AssignAsync(m.flngKey, e.Value?.ToString())" aria-label="Carer for @m.FullName">
+                                    <option value="">Assign to&hellip;</option>
                                     @foreach (var core in CoreMembers.Where(c => c.flngKey != m.flngKey))
                                     {
-                                        <option value="@core.flngKey" selected="@(m.flngCarerKey == core.flngKey)">@core.FullName (@CareOf(core.flngKey).Count)</option>
+                                        <option value="@core.flngKey">@core.FullName (@CareOf(core.flngKey).Count)</option>
                                     }
                                     <option value="remove">Remove carer</option>
                                 </select>
@@ -138,7 +138,7 @@ else
                         else
                         {
                             <span class="ao-chip none"><Icon Name="plus" Size="14" Stroke="2.2" />Assign<Icon Name="chevron" Size="14" Stroke="2" />
-                                <select @onchange="e => AssignAsync(m.flngKey, e.Value?.ToString())" aria-label="Carer for @m.FullName">
+                                <select @key="@($"none-{m.flngKey}")" value="" @onchange="e => AssignAsync(m.flngKey, e.Value?.ToString())" aria-label="Carer for @m.FullName">
                                     <option value="">Assign to&hellip;</option>
                                     @foreach (var core in CoreMembers.Where(c => c.flngKey != m.flngKey))
                                     {
