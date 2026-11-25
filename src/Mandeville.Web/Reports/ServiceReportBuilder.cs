@@ -96,7 +96,8 @@ public class ServiceReportBuilder(
         var until = date.AddDays(7);
         r.Baptised = who.Count(v => v.fdtmBaptisedOn is { } b && b.Date >= date && b.Date < until);
         r.StartedClass = who.Count(v => v.fdtmClassStartedOn is { } c && c.Date >= date && c.Date < until);
-        r.Called = who.Count(v => v.fdtmLastContactDate is { } l && l.Date >= date);
+        // Same one-week window as the other follow-up numbers, so an old report is not inflated by calls made weeks later
+        r.Called = who.Count(v => v.fdtmLastContactDate is { } l && l.Date >= date && l.Date < until);
         r.WaitingForConnector = who.Count(v => v.flngFollowUpMemberKey is null);
     }
 
@@ -146,7 +147,9 @@ public class ServiceReportBuilder(
         r.InactiveMembers = r.TotalMembers - r.ActiveMembers;
 
         var attendance = await __memberAttendanceRepo.SelectMemberAttendance(active: true, cancellationToken: ct);
-        r.MembersPresent = attendance.Where(a => a.flngServiceKey == service.flngKey).Select(a => a.flngMemberKey).Distinct().Count();
+        // Only active members count as present, so the percentage (present of active) can never go past 100
+        var activeKeys = members.Where(m => m.fstrMembershipStatus == "Active").Select(m => m.flngKey).ToHashSet();
+        r.MembersPresent = attendance.Where(a => a.flngServiceKey == service.flngKey && activeKeys.Contains(a.flngMemberKey)).Select(a => a.flngMemberKey).Distinct().Count();
         r.PresentPercent = r.ActiveMembers == 0 ? 0 : Math.Min(100, (int)Math.Round(100.0 * r.MembersPresent / r.ActiveMembers));
 
         // Visiting members (other branches) are counted separately so member percentages stay member-only

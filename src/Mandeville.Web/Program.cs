@@ -39,6 +39,7 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<CircuitHandler, UserCircuitHandler>();
 builder.Services.AddScoped<AccountService>();
 builder.Services.AddScoped<ServiceReportBuilder>();
+builder.Services.AddScoped<PeriodReportBuilder>();
 builder.Services.AddScoped<ReportMailer>();
 builder.Services.AddSingleton<Mandeville.Web.Celebrations.CelebrationMailer>();
 builder.Services.AddSingleton<Mandeville.Web.Celebrations.CelebrationEmailStatus>();
@@ -139,6 +140,13 @@ app.MapGet("/reports/service/{serviceKey:guid}", async (Guid serviceKey, Service
     return report is null
         ? Results.NotFound()
         : Results.File(ServiceReportPdf.Create(report), "application/pdf", report.FileName);
+}).RequireAuthorization(new AuthorizeAttribute { Policy = PageAccessPolicy.For(PageKeys.Reports) });
+
+// The week / month / quarter / year / custom report PDF, e.g. /reports/period?kind=Month&from=2026-11-01&to=2026-11-30
+app.MapGet("/reports/period", async (string? kind, DateTime from, DateTime to, PeriodReportBuilder reportBuilder, CancellationToken cancellationToken) =>
+{
+    var report = await reportBuilder.BuildAsync(kind ?? PeriodKinds.Custom, from, to, cancellationToken);
+    return Results.File(PeriodReportPdf.Create(report), "application/pdf", report.FileName);
 }).RequireAuthorization(new AuthorizeAttribute { Policy = PageAccessPolicy.For(PageKeys.Reports) });
 
 app.MapStaticAssets();

@@ -69,7 +69,7 @@ public static class ServiceReportPdf
                         {
                             c.Item().Element(x => Header(x, "Follow-up", "Total"));
                             c.Item().Element(x => Line_(x, "Baptised", r.Baptised.ToString()));
-                            c.Item().Element(x => Line_(x, "Called / contacted", $"{r.Called} of {r.VisitorsAttended}"));
+                            c.Item().Element(x => Line_(x, "Contacted within a week", $"{r.Called} of {r.VisitorsAttended}"));
                             c.Item().Element(x => Line_(x, "Started membership class", r.StartedClass.ToString()));
                             c.Item().Element(x => Line_(x, "Waiting for a connector", r.WaitingForConnector.ToString()));
                         });

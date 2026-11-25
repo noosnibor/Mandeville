@@ -4,6 +4,7 @@
 @implements IDisposable
 @inject IServiceRepository ServiceRepo
 @inject ServiceReportBuilder Builder
+@inject PeriodReportBuilder PeriodBuilder
 @inject ReportMailer Mailer
 
 <PageTitle>Reports</PageTitle>
@@ -11,15 +12,28 @@
 <div class="mod wide vpage vmod">
 
 <div class="fn-head">
-    <div class="mhead"><span class="mhead-ico"><Icon Name="report" Size="26" Stroke="1.5" /></span><div><h1>Service reports</h1><p>One PDF per service date, ready for the Minister's meetings</p></div></div>
-    @if (__report is not null)
+    <div class="mhead"><span class="mhead-ico"><Icon Name="report" Size="26" Stroke="1.5" /></span><div><h1>Reports</h1><p>@(__mode == "service" ? "One PDF per service date, ready for the Minister's meetings" : "Week, month, quarter, year or custom summaries")</p></div></div>
+    @if (__mode == "service" && __report is not null)
     {
         <a class="fn-add" href="reports/service/@__report.ServiceKey" target="_blank" download><Icon Name="download" Size="16" Stroke="2.2" />Download PDF</a>
+    }
+    else if (__mode == "period" && __period is not null)
+    {
+        <a class="fn-add" href="@PeriodPdfUrl()" target="_blank" download><Icon Name="download" Size="16" Stroke="2.2" />Download PDF</a>
     }
 </div>
 
 <ToastBar Toast="__toast" />
 
+<div class="pr-modes">
+    <div class="pr-seg">
+        <button class="@(__mode == "service" ? "on" : "")" @onclick='() => SetModeAsync("service")'>By service</button>
+        <button class="@(__mode == "period" ? "on" : "")" @onclick='() => SetModeAsync("period")'>By period</button>
+    </div>
+</div>
+
+@if (__mode == "service")
+{
 <div class="svc-pick tm rp-pick">
     <span class="sp-ic"><Icon Name="calendar" Size="17" Stroke="1.9" /></span>
     <span class="sp-tx"><small>Service</small><b>@PickedService()</b></span>
@@ -62,7 +76,7 @@ else if (__report is not null)
                 <div class="rp-row sub"><span>@reason</span><b>@count</b></div>
             }
             <div class="rp-row"><span>Baptised</span><b>@r.Baptised</b></div>
-            <div class="rp-row"><span>Called / contacted</span><b>@r.Called of @r.VisitorsAttended</b></div>
+            <div class="rp-row"><span>Contacted within a week</span><b>@r.Called of @r.VisitorsAttended</b></div>
             <div class="rp-row"><span>Started membership class</span><b>@r.StartedClass</b></div>
             <div class="rp-row"><span>Waiting for a connector</span><b>@r.WaitingForConnector</b></div>
         </section>
@@ -149,6 +163,154 @@ else if (__report is not null)
         </section>
     </div>
 }
+}
+else
+{
+    <div class="pr-modes">
+        <div class="pr-seg">
+            @foreach (var k in PeriodKinds.All)
+            {
+                var kind = k;
+                <button class="@(__kind == kind ? "on" : "")" @onclick="() => SetKindAsync(kind)">@kind</button>
+            }
+        </div>
+        @if (__kind == PeriodKinds.Custom)
+        {
+            <div class="pr-cust">
+                <label>From<input type="date" value="@__from.ToString("yyyy-MM-dd")" @onchange="e => SetDateAsync(e.Value?.ToString(), true)" /></label>
+                <label>To<input type="date" value="@__to.ToString("yyyy-MM-dd")" @onchange="e => SetDateAsync(e.Value?.ToString(), false)" /></label>
+            </div>
+        }
+        else
+        {
+            <div class="pr-range">
+                <button class="nv" aria-label="Previous @__kind.ToLowerInvariant()" @onclick="() => StepAsync(-1)"><Icon Name="chevronleft" Size="18" Stroke="2.2" /></button>
+                <span class="lb"><b>@PeriodKinds.Title(__kind, __from, __to)</b><small>@__from.ToString("d MMM") - @__to.ToString("d MMM yyyy")</small></span>
+                <button class="nv" aria-label="Next @__kind.ToLowerInvariant()" @onclick="() => StepAsync(1)"><Icon Name="chevronright" Size="18" Stroke="2.2" /></button>
+            </div>
+        }
+    </div>
+
+    @if (__loadingPeriod && __period is null)
+    {
+        <p class="hint">Loading&hellip;</p>
+    }
+    else if (__period is not null)
+    {
+        var p = __period;
+
+        <div class="vk four fn-vk">
+            <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Services</span><span class="vk-i"><Icon Name="church" Size="17" Stroke="1.8" /></span></div><b>@p.Services</b><small>Held in the period</small></div>
+            <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Avg members</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@p.AvgMembers</b><small>@(p.PeakMembers > 0 ? $"Peak {p.PeakMembers} on {p.PeakDate:d MMM}" : "No attendance yet")</small></div>
+            <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Visitors</span><span class="vk-i"><Icon Name="userplus" Size="17" Stroke="1.8" /></span></div><b>@p.VisitorVisits</b><small>@p.FirstTimeVisitors first-time</small></div>
+            <div class="vkc" style="--c:#6366f1"><div class="vk-h"><span>@(p.CollectionsAreContext ? "Expenses" : "Collected")</span><span class="vk-i"><Icon Name="wallet" Size="17" Stroke="1.8" /></span></div><b>@Money(p.CollectionsAreContext ? p.Expenses : p.TotalCollected)</b><small>@(p.CollectionsAreContext ? "In the period" : p.CollectionsLabel)</small></div>
+        </div>
+
+        <div class="rp-grid">
+            <section class="rp-card pr-full" style="--c:#1c86f2">
+                <div class="rp-head"><span class="rp-ico"><Icon Name="calendar" Size="19" Stroke="1.8" /></span><h2>Attendance @(p.RowsAreMonths ? "by month" : "by service")</h2><span class="n">@p.Services @(p.Services == 1 ? "service" : "services")</span></div>
+                @if (p.Rows.Count == 0)
+                {
+                    <p class="hint" style="margin:.4rem 0 0">No services were held in this period.</p>
+                }
+                else
+                {
+                    <table class="pr-tbl">
+                        <thead><tr><th>@(p.RowsAreMonths ? "Month (totals)" : "Service")</th><th>Members</th><th>Visitors</th><th class="hm">Visiting</th><th>Total</th><th class="hm">Altar</th></tr></thead>
+                        <tbody>
+                            @foreach (var row in p.Rows)
+                            {
+                                <tr><td>@row.Label<br /><small>@row.Sub</small></td><td>@row.Members</td><td>@row.Visitors</td><td class="hm">@row.Visiting</td><td>@row.Total</td><td class="hm">@row.Altar</td></tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr><td>Total</td><td>@p.MemberCheckIns</td><td>@p.VisitorVisits</td><td class="hm">@p.VisitingCheckIns</td><td>@p.TotalAttendance</td><td class="hm">@p.AltarTotal</td></tr>
+                            <tr><td>Average per service</td><td>@p.AvgMembers</td><td>@p.AvgVisitors</td><td class="hm">@p.AvgVisiting</td><td>@p.AvgTotal</td><td class="hm"></td></tr>
+                        </tfoot>
+                    </table>
+                }
+            </section>
+
+            <section class="rp-card" style="--c:#1c86f2">
+                <div class="rp-head"><span class="rp-ico"><Icon Name="users" Size="19" Stroke="1.8" /></span><h2>Visitors</h2><span class="n">@p.VisitorVisits visits</span></div>
+                <div class="rp-row"><span>Different visitors</span><b>@p.DifferentVisitors</b></div>
+                <div class="rp-row"><span>First-time (never before)</span><b>@p.FirstTimeVisitors</b></div>
+                <div class="rp-row"><span>Male / Female</span><b>@p.VisitorsMale / @p.VisitorsFemale</b></div>
+                <div class="rp-row"><span>Adult / Child</span><b>@p.VisitorsAdult / @p.VisitorsChild</b></div>
+                <div class="rp-row"><span>Went to the altar</span><b>@p.WentToAltar</b></div>
+                @foreach (var (reason, count) in p.AltarReasons)
+                {
+                    <div class="rp-row sub"><span>@reason</span><b>@count</b></div>
+                }
+            </section>
+
+            <section class="rp-card" style="--c:#f59e0b">
+                <div class="rp-head"><span class="rp-ico"><Icon Name="userplus" Size="19" Stroke="1.8" /></span><h2>Membership growth</h2><span class="n">this period</span></div>
+                <div class="rp-row"><span>Started Tier 1</span><b>@p.Tier1</b></div>
+                <div class="rp-row"><span>Completed Tier 2</span><b>@p.Tier2</b></div>
+                <div class="rp-row"><span>Interviewed</span><b>@p.Interviews</b></div>
+                <div class="rp-row"><span>Inaugurated</span><b>@p.Inaugurated</b></div>
+                <div class="rp-row"><span>Baptised</span><b>@p.Baptised</b></div>
+                <div class="rp-row"><span>Became members</span><b>@p.MembersJoined</b></div>
+            </section>
+
+            <section class="rp-card" style="--c:#e11d48">
+                <div class="rp-head"><span class="rp-ico"><Icon Name="heart" Size="19" Stroke="1.8" /></span><h2>Members and care</h2><span class="n">this period</span></div>
+                <div class="rp-row"><span>Different members present</span><b>@p.DifferentMembersPresent</b></div>
+                <div class="rp-row"><span>Care contacts made</span><b>@p.CareContacts</b></div>
+                <div class="rp-row"><span>Members contacted</span><b>@p.MembersContacted</b></div>
+                <div class="rp-row"><span>Flagged for the Minister</span><b>@p.FlagsRaised</b></div>
+                <div class="rp-row"><span>Visiting members (all branches)</span><b>@p.DifferentVisitingMembers</b></div>
+                @foreach (var b in p.VisitingByBranch)
+                {
+                    <div class="rp-row sub"><span>From @b.Key</span><b>@b.Value</b></div>
+                }
+            </section>
+
+            @if (p.HasEvangelism)
+            {
+                <section class="rp-card" style="--c:#7c3aed">
+                    <div class="rp-head"><span class="rp-ico"><Icon Name="mega" Size="19" Stroke="1.8" /></span><h2>Evangelism</h2><span class="n">@p.Evangelism.Sessions @(p.Evangelism.Sessions == 1 ? "session" : "sessions")</span></div>
+                    <div class="rp-row"><span>Present of scheduled</span><b>@p.Evangelism.Present of @p.Evangelism.Scheduled (@p.Evangelism.TurnUpPercent%)</b></div>
+                    <div class="rp-row"><span>Flyers / ministered / new contacts</span><b>@p.Evangelism.Flyers / @p.Evangelism.Ministered / @p.Evangelism.NewContacts</b></div>
+                    <div class="rp-row"><span>Calls made / people reached</span><b>@p.Evangelism.Calls / @p.Evangelism.Reached</b></div>
+                </section>
+            }
+
+            <section class="rp-card" style="--c:#10b981">
+                <div class="rp-head"><span class="rp-ico"><Icon Name="wallet" Size="19" Stroke="1.8" /></span><h2>Financial overview</h2><span class="n">@p.From.ToString("d MMM") to @p.To.ToString("d MMM")</span></div>
+                <div class="rp-row"><span>Dues collected (@p.CollectionsLabel)</span><b>@Money(p.DuesCollected)</b></div>
+                <div class="rp-row"><span>Other collections (@p.CollectionsLabel)</span><b>@Money(p.OtherCollected)</b></div>
+                <div class="rp-row"><span>Total collected</span><b>@Money(p.TotalCollected)</b></div>
+                <div class="rp-row"><span>Expenses</span><b>@Money(p.Expenses)</b></div>
+                @foreach (var (category, amount) in p.ExpenseCategories)
+                {
+                    <div class="rp-row sub"><span>@category</span><b>@Money(amount)</b></div>
+                }
+                @if (p.Net is { } net)
+                {
+                    <div class="rp-row"><span>Collected less expenses</span><b>@Money(net)</b></div>
+                }
+                <p class="rp-note">@(p.CollectionsAreContext
+                    ? "Collections are recorded by month. This period is shorter than a month, so the collections shown are the month so far and are not set against the expenses."
+                    : "Collections are recorded by month, so only months that fall completely inside the period are included. Expenses are exact for the dates shown.")</p>
+            </section>
+
+            <section class="rp-card" style="--c:#1c86f2">
+                <div class="rp-head"><span class="rp-ico"><Icon Name="mail" Size="19" Stroke="1.8" /></span><h2>Email this report</h2></div>
+                @if (!Mailer.IsConfigured)
+                {
+                    <p class="hint" style="margin-top:0">Email is not set up yet. Add the Smtp settings (host, user, password, from address) and it will work here. Downloading the PDF works now.</p>
+                }
+                <div class="rp-mail">
+                    <label>Send to (separate addresses with commas)</label>
+                    <input type="text" maxlength="400" placeholder="minister@example.com" @bind="__recipients" />
+                </div>
+                <button class="ev-go" style="margin-top:.9rem" disabled="@(__sending || !Mailer.IsConfigured)" @onclick="EmailPeriodAsync">@(__sending ? "Sending..." : "Email now")</button>
+            </section>
+        </div>
+    }
+}
 
 </div>
 
@@ -161,6 +323,12 @@ else if (__report is not null)
     private ServiceReport? __report;
     private string PickedService() => __services.FirstOrDefault(x => x.flngKey == __serviceKey) is { } sv ? sv.fdtmServiceDate.ToString("ddd d MMM yyyy") + " - " + sv.fstrServiceName : "Choose a service";
 
+    private string __mode = "service";
+    private string __kind = PeriodKinds.Month;
+    private DateTime __from, __to;
+    private PeriodReport? __period;
+    private bool __loadingPeriod;
+
     private bool __loaded, __sending;
     private string? __recipients;
     private ToastMessageModel? __toast;
@@ -172,6 +340,7 @@ else if (__report is not null)
     protected override async Task OnInitializedAsync()
     {
         __recipients = Mailer.DefaultRecipients;
+        (__from, __to) = PeriodKinds.Range(PeriodKinds.Month, AppClock.Today);
         __services = (await ServiceRepo.SelectService(fromDate: AppClock.Today.AddDays(-365), toDate: AppClock.Today, active: true, cancellationToken: __cts.Token))
             .OrderByDescending(s => s.fdtmServiceDate).ToList();
 
@@ -211,6 +380,79 @@ else if (__report is not null)
         try
         {
             var error = await Mailer.SendAsync(__report, ServiceReportPdf.Create(__report), to, __cts.Token);
+            __toast = error is null
+                ? new() { ToastType = ToastTypeModel.Success, Message = $"Report emailed to {to.Count} address(es)" }
+                : new() { ToastType = ToastTypeModel.Danger, Message = error };
+        }
+        finally
+        {
+            __sending = false;
+        }
+    }
+
+    private async Task SetModeAsync(string mode)
+    {
+        __mode = mode;
+        if (mode == "period" && __period is null) await LoadPeriodAsync();
+    }
+
+    /// <summary>Switching the pill keeps the date the person was looking at, so Month then Quarter stays on the same stretch of time.</summary>
+    private async Task SetKindAsync(string kind)
+    {
+        __kind = kind;
+        if (kind != PeriodKinds.Custom)
+        {
+            // Anchor on the middle of what is showing, so a week that straddles two months lands on the larger share
+            var middle = __from.AddDays((__to - __from).Days / 2);
+            (__from, __to) = PeriodKinds.Range(kind, middle);
+        }
+        await LoadPeriodAsync();
+    }
+
+    private async Task StepAsync(int direction)
+    {
+        (__from, __to) = PeriodKinds.Step(__kind, __from, direction);
+        await LoadPeriodAsync();
+    }
+
+    private async Task SetDateAsync(string? text, bool isFrom)
+    {
+        if (!DateTime.TryParse(text, out var d)) return;
+        if (isFrom) __from = d.Date; else __to = d.Date;
+        if (__to < __from) { if (isFrom) __to = __from; else __from = __to; }
+        await LoadPeriodAsync();
+    }
+
+    private async Task LoadPeriodAsync()
+    {
+        __loadingPeriod = true;
+        try
+        {
+            __period = await PeriodBuilder.BuildAsync(__kind, __from, __to, __cts.Token);
+        }
+        finally
+        {
+            __loadingPeriod = false;
+        }
+    }
+
+    private string PeriodPdfUrl() => $"reports/period?kind={__kind}&from={__from:yyyy-MM-dd}&to={__to:yyyy-MM-dd}";
+
+    private async Task EmailPeriodAsync()
+    {
+        if (__period is null) return;
+
+        var to = ReportMailer.ParseRecipients(__recipients, out var invalid);
+        if (invalid.Count > 0)
+        {
+            __toast = new() { ToastType = ToastTypeModel.Warning, Message = "These do not look like email addresses: " + string.Join(", ", invalid) };
+            return;
+        }
+
+        __sending = true;
+        try
+        {
+            var error = await Mailer.SendPeriodAsync(__period, PeriodReportPdf.Create(__period), to, __cts.Token);
             __toast = error is null
                 ? new() { ToastType = ToastTypeModel.Success, Message = $"Report emailed to {to.Count} address(es)" }
                 : new() { ToastType = ToastTypeModel.Danger, Message = error };

@@ -3586,3 +3586,41 @@ html { zoom: var(--ui-scale); }
 :root[data-theme="dark"] .hero-accent, :root[data-theme="dark"] .hero-ref { color: #6cb8ff; }
 :root[data-theme="dark"] .hero-rule { background: rgba(255, 255, 255, .25); }
 @media (max-width: 899px) { .auth-panel { box-shadow: 0 -6px 0 #7cc0ff; } }
+
+/* 55. Reports: week / month / quarter / year / custom period */
+.pr-modes{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:.9rem}
+.pr-seg{display:inline-flex;background:var(--surface-3,#e8f0fb);border-radius:999px;padding:4px}
+.pr-seg button{border:0;background:transparent;border-radius:999px;padding:.5rem 1.1rem;font:inherit;font-weight:600;font-size:.88rem;color:var(--muted);cursor:pointer}
+.pr-seg button.on{background:var(--surface,#fff);color:#1666d1;box-shadow:0 4px 12px -6px rgba(15,40,90,.35)}
+.pr-range{display:flex;align-items:center;gap:.5rem;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:.3rem;box-shadow:0 8px 22px -16px rgba(15,40,90,.3)}
+.pr-range .nv{width:2.3rem;height:2.3rem;border-radius:50%;border:0;cursor:pointer;background:#eef5ff;color:#1666d1;display:grid;place-items:center}
+.pr-range .lb{display:grid;line-height:1.15;text-align:center;min-width:10.5rem}.pr-range .lb b{font-size:.98rem}.pr-range .lb small{color:var(--muted);font-size:.74rem}
+.pr-cust{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}.pr-cust label{display:flex;align-items:center;gap:.45rem;font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.pr-cust input{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:.5rem .9rem;font:inherit;font-size:.88rem;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0}
+.pr-tbl{width:100%;border-collapse:collapse;font-size:.88rem}.pr-tbl th{font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:right;padding:.4rem .5rem;font-weight:600}.pr-tbl th:first-child,.pr-tbl td:first-child{text-align:left}
+.pr-tbl td{text-align:right;padding:.6rem .5rem;border-top:1px solid var(--border)}.pr-tbl td:first-child{font-weight:600}.pr-tbl tfoot td{font-weight:800;background:var(--hover,#f4f8ff)}.pr-tbl td small{color:var(--muted);font-weight:400}
+.pr-full{grid-column:1/-1}
+@media (max-width:639px){.vpage .rp-grid{grid-template-columns:1fr}.pr-tbl .hm{display:none}.pr-range .lb{min-width:0;flex:1}.pr-range{width:100%}.pr-seg{width:100%}.pr-seg button{flex:1;padding:.5rem .3rem;font-size:.8rem}}
+
+/* 56. Calm look: one soft blue instead of many accent colours (light theme; dark theme keeps its own tints) */
+.vpage [style*="--c"], .vpage [style*="--c"] * { --c: #4a82d4 !important; }
+.vpage .vkc::after, .kcard::after { display: none !important; }
+.vpage u i, .vpage i[style*="background"], .vpage .dot { background: #7aa5e6 !important; }
+:root:not([data-theme="dark"]) { --bg: #f4f7fc; }
+:root:not([data-theme="dark"]) .vpage .vk-i, :root:not([data-theme="dark"]) .vpage .rp-ico, :root:not([data-theme="dark"]) .vpage .st-ico, :root:not([data-theme="dark"]) .vpage .h2-ico, :root:not([data-theme="dark"]) .mhead-ico, :root:not([data-theme="dark"]) .vpage .empty-ico { background: #eaf1fb !important; color: #3d74c6 !important; }
+:root:not([data-theme="dark"]) .vpage .vkc, :root:not([data-theme="dark"]) .vpage .rp-card, :root:not([data-theme="dark"]) .vpage .side-card, :root:not([data-theme="dark"]) .vpage .wl-card { box-shadow: 0 1px 2px rgba(30,60,110,.06), 0 8px 20px -18px rgba(30,60,110,.28) !important; border-color: #e1e9f5 !important; }
+:root:not([data-theme="dark"]) .vpage .side-card .side-tile { background: #f3f7fd !important; border-color: #e1e9f5 !important; }
+:root:not([data-theme="dark"]) .vpage .side-card .side-strip { background: #f3f7fd !important; color: var(--ink) !important; }
+:root:not([data-theme="dark"]) .vpage .side-strip .st-ico { background: #eaf1fb !important; color: #3d74c6 !important; }
+:root:not([data-theme="dark"]) .vpage .side-card .hint { background: #f3f7fd !important; color: #46628f !important; }
+:root:not([data-theme="dark"]) .vpage .rp-head .n { background: #eef3fb !important; color: #46628f !important; }
+:root:not([data-theme="dark"]) .vpage .fn-type, :root:not([data-theme="dark"]) .vpage .ty-pill, :root:not([data-theme="dark"]) .vpage .ty-ok { background: #eaf1fb !important; color: #2f64b5 !important; }
+:root:not([data-theme="dark"]) .vpage .fn-amt.out { color: var(--ink) !important; }
+:root:not([data-theme="dark"]) .av, :root:not([data-theme="dark"]) .ao-av, :root:not([data-theme="dark"]) .fn-av, :root:not([data-theme="dark"]) .care-av, :root:not([data-theme="dark"]) .cav, :root:not([data-theme="dark"]) .ucard-avatar, :root:not([data-theme="dark"]) .drawer-avatar, :root:not([data-theme="dark"]) .dash-avatar { background: #e3edfb !important; color: #2f64b5 !important; box-shadow: none !important; }
+:root:not([data-theme="dark"]) .ao-chip i { background: #dce8fa !important; color: #2f64b5 !important; }
+:root:not([data-theme="dark"]) .vpage .ao-chip.none { background: #f3f7fd !important; border-color: #b9cdf0 !important; color: #2f64b5 !important; }
+:root:not([data-theme="dark"]) .vpage .vkc b { color: #14233f; }
+
+/* 57. Calm look for the Dashboard (and any other page using the stat cards without the .vpage wrapper) */
+.kcard[style*="--c"], .kcard[style*="--c"] *, .dk-card [style*="--c"] { --c: #4a82d4 !important; }
+:root:not([data-theme="dark"]) .kcard .kc-i { background: #eaf1fb !important; color: #3d74c6 !important; }
+:root:not([data-theme="dark"]) .kcard { border-color: #e1e9f5 !important; box-shadow: 0 1px 2px rgba(30,60,110,.06), 0 8px 20px -18px rgba(30,60,110,.28) !important; }

@@ -29,8 +29,33 @@ public class ReportMailer(IConfiguration configuration, ILogger<ReportMailer> lo
         return good.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>Sends the PDF. Returns null on success, otherwise a message that is safe to show.</summary>
-    public async Task<string?> SendAsync(ServiceReport report, byte[] pdf, IEnumerable<string> recipients, CancellationToken cancellationToken = default)
+    /// <summary>Sends a service report PDF. Returns null on success, otherwise a message that is safe to show.</summary>
+    public Task<string?> SendAsync(ServiceReport report, byte[] pdf, IEnumerable<string> recipients, CancellationToken cancellationToken = default)
+    {
+        var subject = $"Service report: {report.ServiceName}, {report.ServiceDate:d MMM yyyy}";
+        var body =
+            $"Good day,\n\nPlease find attached the service report for {report.ServiceName} on {report.ServiceDate:dddd d MMMM yyyy}.\n\n" +
+            $"Visitors: {report.VisitorsAttended} ({report.WentToAltar} went to the altar)\n" +
+            $"Members present: {report.MembersPresent} of {report.ActiveMembers} active ({report.PresentPercent}%)\n" +
+            $"Visiting members: {report.VisitingMembers} (total in the service: {report.TotalInService})\n" +
+            $"Collected this month so far: ${report.TotalCollected:N2}\n\n{report.GroupName}";
+        return SendCoreAsync(report.GroupName, subject, body, report.FileName, pdf, recipients, cancellationToken);
+    }
+
+    /// <summary>Sends a period report PDF. Returns null on success, otherwise a message that is safe to show.</summary>
+    public Task<string?> SendPeriodAsync(PeriodReport report, byte[] pdf, IEnumerable<string> recipients, CancellationToken cancellationToken = default)
+    {
+        var subject = $"{report.Kind} report: {report.Title}";
+        var body =
+            $"Good day,\n\nPlease find attached the {report.Kind.ToLowerInvariant()} report for {report.Title} ({report.RangeText}).\n\n" +
+            $"Services held: {report.Services}\n" +
+            $"Average members present: {report.AvgMembers}\n" +
+            $"Visitor visits: {report.VisitorVisits} ({report.FirstTimeVisitors} first-time)\n" +
+            $"Expenses: ${report.Expenses:N2}\n\n{report.GroupName}";
+        return SendCoreAsync(report.GroupName, subject, body, report.FileName, pdf, recipients, cancellationToken);
+    }
+
+    private async Task<string?> SendCoreAsync(string groupName, string subject, string body, string fileName, byte[] pdf, IEnumerable<string> recipients, CancellationToken cancellationToken)
     {
         if (!IsConfigured) return "Email is not set up yet. Add the Smtp settings first.";
 
@@ -51,18 +76,12 @@ public class ReportMailer(IConfiguration configuration, ILogger<ReportMailer> lo
             if (!string.IsNullOrWhiteSpace(user))
                 client.Credentials = new NetworkCredential(user, __configuration["Smtp:Password"]);
 
-            using var message = new MailMessage { From = new MailAddress(from, report.GroupName) };
+            using var message = new MailMessage { From = new MailAddress(from, groupName) };
             foreach (var address in to) message.To.Add(address);
 
-            message.Subject = $"Service report: {report.ServiceName}, {report.ServiceDate:d MMM yyyy}";
-            message.Body =
-                $"Good day,\n\nPlease find attached the service report for {report.ServiceName} on {report.ServiceDate:dddd d MMMM yyyy}.\n\n" +
-                $"Visitors: {report.VisitorsAttended} ({report.WentToAltar} went to the altar)\n" +
-                $"Members present: {report.MembersPresent} of {report.ActiveMembers} active ({report.PresentPercent}%)\n" +
-                $"Visiting members: {report.VisitingMembers} (total in the service: {report.TotalInService})\n" +
-                $"Collected this month so far: ${report.TotalCollected:N2}\n\n{report.GroupName}";
-
-            message.Attachments.Add(new Attachment(new MemoryStream(pdf), report.FileName, "application/pdf"));
+            message.Subject = subject;
+            message.Body = body;
+            message.Attachments.Add(new Attachment(new MemoryStream(pdf), fileName, "application/pdf"));
 
             await client.SendMailAsync(message, cancellationToken);
             return null;
@@ -70,7 +89,7 @@ public class ReportMailer(IConfiguration configuration, ILogger<ReportMailer> lo
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            __logger.LogError(ex, "Could not email the service report.");
+            __logger.LogError(ex, "Could not email the report.");
             return "The email could not be sent. Check the Smtp settings. (" + ex.Message + ")";
         }
     }
