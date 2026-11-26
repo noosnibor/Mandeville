@@ -1,7 +1,8 @@
 // Sign-in page behaviour. The page is static SSR, so this is plain JS using event delegation.
 (function () {
     'use strict';
-    var EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // A plain name like jane.brown (the app adds the domain) or a full email address
+    var USERNAME = /^[A-Za-z0-9]+([._-][A-Za-z0-9]+)*(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})?$/;
 
     function setError(input, msg) {
         var field = input.closest('.field');
@@ -20,8 +21,8 @@
     function check(input) {
         var v = input.value.trim();
         if (input.name.indexOf('Email') > -1) {
-            if (!v) return 'Enter your email address.';
-            if (!EMAIL.test(v)) return 'Enter a valid email address.';
+            if (!v) return 'Enter your username, like firstname.lastname.';
+            if (!USERNAME.test(v)) return 'Use letters and numbers, like firstname.lastname.';
         } else if (input.type === 'password' || input.dataset.pw) {
             if (!input.value) return 'Enter your password.';
         }

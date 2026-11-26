@@ -3624,3 +3624,10 @@ html { zoom: var(--ui-scale); }
 .kcard[style*="--c"], .kcard[style*="--c"] *, .dk-card [style*="--c"] { --c: #4a82d4 !important; }
 :root:not([data-theme="dark"]) .kcard .kc-i { background: #eaf1fb !important; color: #3d74c6 !important; }
 :root:not([data-theme="dark"]) .kcard { border-color: #e1e9f5 !important; box-shadow: 0 1px 2px rgba(30,60,110,.06), 0 8px 20px -18px rgba(30,60,110,.28) !important; }
+
+/* 58. Username sign-in: the domain is added by the app, so it is shown at the end of the box */
+.input-wrap .input-sfx { position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); color: var(--muted); font-weight: 600; font-size: .92rem; pointer-events: none; }
+.auth-input.has-sfx { padding-right: 6.6rem; }
+.un-wrap { position: relative; }
+.un-wrap input { width: 100%; padding-right: 6.4rem; }
+.un-wrap .un-sfx { position: absolute; right: .9rem; top: 50%; transform: translateY(-50%); color: var(--muted); font-weight: 600; font-size: .85rem; pointer-events: none; }

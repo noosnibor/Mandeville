@@ -23,11 +23,11 @@
     <DataAnnotationsValidator />
 
     <div class="field">
-        <label class="auth-label" for="email">Email address</label>
+        <label class="auth-label" for="email">Username</label>
         <div class="input-wrap">
-            <span class="input-ico" aria-hidden="true"><Icon Name="mail" Size="18" Stroke="1.25" /></span>
-            <InputText id="email" type="email" class="auth-input" @bind-Value="Input.Email" placeholder="Email address"
-                       autocomplete="username" inputmode="email" autofocus data-validate="1" />
+            <span class="input-ico" aria-hidden="true"><Icon Name="user" Size="18" Stroke="1.25" /></span>
+            <InputText id="email" type="text" class="auth-input" @bind-Value="Input.Email" placeholder="firstname.lastname"
+                       autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus data-validate="1" />
         </div>
         <ValidationMessage For="() => Input.Email" class="field-error" />
     </div>
@@ -108,8 +108,8 @@
 
     private sealed class SignInInput
     {
-        [Required(ErrorMessage = "Enter your email address.")]
-        [EmailAddress(ErrorMessage = "Enter a valid email address.")]
+        [Required(ErrorMessage = "Enter your username, like firstname.lastname.")]
+        [RegularExpression(@"^\s*[A-Za-z0-9]+([._\-][A-Za-z0-9]+)*(@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})?\s*$", ErrorMessage = "Use letters and numbers, like firstname.lastname.")]
         public string? Email { get; set; }
 
         [Required(ErrorMessage = "Enter your password.")]

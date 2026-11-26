@@ -13,7 +13,10 @@ public class AccountService(IAppUserRepository userRepo, IRoleRepository roleRep
 
     private const int MaxAttempts = 5;
     private const int LockMinutes = 10;
-    private const string Generic = "Incorrect email or password.";
+    private const string Generic = "Incorrect username or password.";
+
+    /// <summary>The old ending that used to be added to sign-in names; now only stripped if typed.</summary>
+    public const string DefaultDomain = "wm.com";
 
     private readonly IAppUserRepository __userRepo = userRepo;
     private readonly IRoleRepository __roleRepo = roleRepo;
@@ -23,12 +26,48 @@ public class AccountService(IAppUserRepository userRepo, IRoleRepository roleRep
 
     #endregion
 
+    #region Sign-in names
+
+    /// <summary>The old ending (without the @) that is removed from a sign-in name if someone still types it.</summary>
+    public string Domain => (__configuration["Security:UsernameDomain"] ?? DefaultDomain).Trim().TrimStart('@').ToLowerInvariant();
+
+    /// <summary>
+    /// Turns what a person typed into the stored sign-in: trimmed and lower case, like "jane.brown".
+    /// The old "@wm.com" ending is dropped; any other address (older accounts) is kept as typed.
+    /// </summary>
+    public string NormalizeUsername(string? input)
+    {
+        var text = (input ?? string.Empty).Trim().ToLowerInvariant();
+        var ending = "@" + Domain;
+        return text.EndsWith(ending, StringComparison.Ordinal) ? text[..^ending.Length] : text;
+    }
+
+    /// <summary>The sign-in as shown on screen (the same as stored, without any old ending).</summary>
+    public string UsernamePart(string? email) => NormalizeUsername(email);
+
+    /// <summary>Suggests firstname.lastname from a full name: the first and the last word, letters and numbers only.</summary>
+    public static string SuggestUsername(string? name)
+    {
+        var words = (name ?? string.Empty)
+            .Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => new string(w.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant())
+            .Where(w => w.Length > 0)
+            .ToList();
+        return words.Count switch { 0 => string.Empty, 1 => words[0], _ => $"{words[0]}.{words[^1]}" };
+    }
+
+    /// <summary>True when the text is a plain name like jane.brown (a full address is still accepted for older accounts).</summary>
+    public static bool IsValidUsername(string? input) =>
+        System.Text.RegularExpressions.Regex.IsMatch((input ?? string.Empty).Trim(), @"^[A-Za-z0-9]+([._\-][A-Za-z0-9]+)*(@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})?$");
+
+    #endregion
+
     #region Sign in
 
-    /// <summary>Checks an email and password. Returns the account, or a message that is safe to show.</summary>
+    /// <summary>Checks a sign-in name (or email) and password. Returns the account, or a message that is safe to show.</summary>
     public async Task<(AppUserModel? User, string? Error)> ValidateAsync(string? email, string? password, CancellationToken cancellationToken = default)
     {
-        email = email?.Trim().ToLowerInvariant();
+        email = NormalizeUsername(email);
         if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password))
             return (null, Generic);
 

@@ -57,7 +57,7 @@ else
                 <div class="fn-av" style="background:@(u.fblnActive ? AvatarStyle.Colour(u.flngKey) : "var(--inactive)")">@Initials(u.fstrDisplayName)</div>
                 <div class="fn-nm">
                     <b><span class="t">@u.fstrDisplayName</span>@if (isMe) { <span class="fn-you">You</span> }@if (!u.fblnActive) { <span class="fn-you">Inactive</span> }</b>
-                    <small>@u.fstrEmail
+                    <small>@Accounts.UsernamePart(u.fstrEmail)
                         @if (!string.IsNullOrWhiteSpace(u.fstrMemberName)) { <text> &middot; Member: @u.fstrMemberName</text> }
                         &middot; @(u.fdtmLastSignIn is { } ls ? "Last sign-in " + ls.ToString("d MMM HH:mm") : "Never signed in")
                         @if (u.IsLocked) { <text> &middot; <span class="lk">Locked</span></text> }
@@ -86,8 +86,11 @@ else
     <Modal Title="@(__isNew ? "Add account" : "Edit account")" Subtitle="@(__isNew ? "A temporary password is made for them" : "Change their details or access")" Icon="lock" OnClose="() => __edit = null">
         <ChildContent>
             <div class="form-grid">
-                <div class="field"><label>Name</label><input type="text" maxlength="100" @bind="__edit.fstrDisplayName" /></div>
-                <div class="field"><label>Email (their sign-in)</label><input type="email" maxlength="150" @bind="__edit.fstrEmail" /></div>
+                <div class="field"><label>Name</label><input type="text" maxlength="100" value="@__edit.fstrDisplayName" @oninput="OnNameInput" /></div>
+                <div class="field">
+                    <label>Username (their sign-in)</label>
+                    <input type="text" maxlength="120" placeholder="firstname.lastname" autocapitalize="none" spellcheck="false" value="@__username" @oninput="OnUsernameInput" />
+                </div>
                 <div class="field">
                     <label>@(__edit.fstrRole == AppRoles.Administrator ? "Role" : "Primary role")</label>
                     <select value="@__edit.fstrRole" @onchange="OnPrimaryChanged">
@@ -142,7 +145,7 @@ else
     <Modal Title="Temporary password" Subtitle="Shown only now. Give it to them privately." Icon="lock" OnClose="() => __reveal = null">
         <ChildContent>
             <div class="care-reveal">
-                <div><span>Email</span><b>@__reveal.Email</b></div>
+                <div><span>Username</span><b>@Accounts.UsernamePart(__reveal.Email)</b></div>
                 <div><span>Temporary password</span><code>@__reveal.Password</code></div>
             </div>
             <p class="hint">They will be asked to choose their own password the first time they sign in. This password cannot be shown again; use Reset password if it is lost.</p>
@@ -171,6 +174,8 @@ else
     private List<MemberModel> __core = [];
     private List<MemberModel> __active = [];
     private AppUserModel? __edit;
+    private string __username = string.Empty;
+    private bool __usernameTouched;
     private bool __isNew;
     private ToastMessageModel? __toast;
     private Reveal? __reveal;
@@ -217,7 +222,7 @@ else
     private List<AppUserModel> Shown => __users
         .Where(u => string.IsNullOrWhiteSpace(__search)
             || u.fstrDisplayName.Contains(__search.Trim(), StringComparison.OrdinalIgnoreCase)
-            || (u.fstrEmail ?? string.Empty).Contains(__search.Trim(), StringComparison.OrdinalIgnoreCase))
+            || Accounts.UsernamePart(u.fstrEmail).Contains(__search.Trim(), StringComparison.OrdinalIgnoreCase))
         .Where(u => string.IsNullOrEmpty(__roleFilter) || u.GetAllRoles().Contains(__roleFilter))
         .ToList();
 
@@ -315,6 +320,22 @@ else
         // New accounts start on the first role that is not the Administrator, so nobody gets full access by accident
         __edit = new AppUserModel { fstrRole = __roles.FirstOrDefault(r => !r.fblnLocked)?.fstrName ?? string.Empty };
         __isNew = true;
+        __username = string.Empty;
+        __usernameTouched = false;
+    }
+
+    /// <summary>While adding, the username follows the name (jane.brown) until someone types their own.</summary>
+    private void OnNameInput(ChangeEventArgs e)
+    {
+        if (__edit is null) return;
+        __edit.fstrDisplayName = e.Value?.ToString() ?? string.Empty;
+        if (__isNew && !__usernameTouched) __username = AccountService.SuggestUsername(__edit.fstrDisplayName);
+    }
+
+    private void OnUsernameInput(ChangeEventArgs e)
+    {
+        __username = e.Value?.ToString() ?? string.Empty;
+        __usernameTouched = true;
     }
 
     private void StartEdit(AppUserModel u)
@@ -325,6 +346,8 @@ else
             fstrRole = u.fstrRole, fstrExtraRoles = u.fstrExtraRoles, flngMemberKey = u.flngMemberKey, fblnMustChangePassword = u.fblnMustChangePassword, fblnActive = u.fblnActive
         };
         __isNew = false;
+        __username = Accounts.UsernamePart(u.fstrEmail);
+        __usernameTouched = true;
     }
 
     private async Task SaveAsync()
@@ -343,12 +366,13 @@ else
             return;
         }
 
-        var email = __edit.fstrEmail?.Trim() ?? string.Empty;
-        if (!email.Contains('@') || !email.Contains('.') || email.Contains(' '))
+        if (!AccountService.IsValidUsername(__username))
         {
-            __toast = Warn("Enter a valid email address");
+            __toast = Warn("Enter a username like firstname.lastname (letters and numbers only)");
             return;
         }
+
+        __edit.fstrEmail = Accounts.NormalizeUsername(__username);
 
         if (NeedsMember(__edit) && __edit.flngMemberKey is null)
         {
