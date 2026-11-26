@@ -1,8 +1,8 @@
-﻿using System.Security.Claims;
-using System.Security.Cryptography;
-using Mandeville.Library.Model;
+﻿using Mandeville.Library.Model;
 using Mandeville.Library.Repository;
 using Microsoft.AspNetCore.Identity;
+using System.Security.Claims;
+using System.Security.Cryptography;
 
 namespace Mandeville.Web.Security;
 
@@ -72,6 +72,11 @@ public class AccountService(IAppUserRepository userRepo, IRoleRepository roleRep
             return (null, Generic);
 
         var user = (await __userRepo.SelectAppUser(email: email, cancellationToken: cancellationToken)).FirstOrDefault();
+
+        // Accounts made before usernames were plain are still stored as name@wm.com until they are converted
+        // (the 2026-11-username-signin.sql script) or edited, so they must still be found by their plain name.
+        if (user is null && !email.Contains('@'))
+            user = (await __userRepo.SelectAppUser(email: $"{email}@{Domain}", cancellationToken: cancellationToken)).FirstOrDefault();
 
         if (user is null)
         {
@@ -239,11 +244,13 @@ public class AccountService(IAppUserRepository userRepo, IRoleRepository roleRep
     /// </summary>
     public async Task EnsureSysAdminAsync(CancellationToken cancellationToken = default)
     {
-        var entries = new List<(string? Email, string? Password)>
-        {
-            (__configuration["Security:SysAdmin:Email"], __configuration["Security:SysAdmin:Password"])
-        };
-        foreach (var section in __configuration.GetSection("Security:SysAdmins").GetChildren())
+        var entries = new List<(string? Email, string? Password)>();
+
+        // The single pair is only used when it is set (otherwise it would add an empty row)
+        if (!string.IsNullOrWhiteSpace(__configuration["Security:SysAdmin:Email"]) || !string.IsNullOrWhiteSpace(__configuration["Security:SysAdmin:Password"]))
+            entries.Add((__configuration["Security:SysAdmin:Email"], __configuration["Security:SysAdmin:Password"]));
+
+        foreach (var section in __configuration.GetSection("Security:SysAdmin").GetChildren())
             entries.Add((section["Email"], section["Password"]));
 
         foreach (var (email, password) in entries)
@@ -255,11 +262,12 @@ public class AccountService(IAppUserRepository userRepo, IRoleRepository roleRep
 
     private async Task EnsureOneSysAdminAsync(string? rawEmail, string? password, CancellationToken cancellationToken)
     {
-        var email = (rawEmail ?? string.Empty).Trim().ToLowerInvariant();
+        // Either a username like firstname.lastname or a full email address
+        var email = NormalizeUsername(rawEmail);
 
-        if (string.IsNullOrWhiteSpace(password) || !System.Net.Mail.MailAddress.TryCreate(email, out _))
+        if (string.IsNullOrWhiteSpace(password) || !IsValidUsername(email))
         {
-            __logger.LogError("A system administrator secret was not used. Each one needs a valid Email and a Password.");
+            __logger.LogError("A system administrator secret was not used. Each one needs a valid username or email and a Password.");
             return;
         }
 
