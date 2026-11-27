@@ -44,7 +44,7 @@ else
     <div class="vk">
         <div class="vkc" style="--c:#1c86f2"><div class="vk-h"><span>Assigned</span><span class="vk-i"><Icon Name="users" Size="17" Stroke="1.8" /></span></div><b>@__mine.Count</b><small>To them</small></div>
         <div class="vkc" style="--c:#f59e0b"><div class="vk-h"><span>Follow-ups due</span><span class="vk-i"><Icon Name="bell" Size="17" Stroke="1.8" /></span></div><b>@DueCount()</b><small>Call today</small></div>
-        <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Called</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@(__mine.Count(v => v.fdtmLastContactDate is { } c && c.Date >= AppClock.Today.AddDays(-6)))</b><small>This week</small></div>
+        <div class="vkc" style="--c:#10b981"><div class="vk-h"><span>Contacted</span><span class="vk-i"><Icon Name="check" Size="17" Stroke="2" /></span></div><b>@(__mine.Count(v => v.fdtmLastContactDate is { } c && c.Date >= AppClock.Today.AddDays(-6)))</b><small>This week</small></div>
     </div>
     <div class="mgrid">
         @foreach (var p in __mine)
@@ -62,18 +62,33 @@ else
                         <span class="inc-path @(IsMembership(person) ? "join" : "new")">@(__reasons.GetValueOrDefault(person.flngKey) ?? "Visitor")</span>
                     </div>
                     <div class="vcard-line">
-                        <span>Last contact<b>@(person.fdtmLastContactDate?.ToString("d MMM") ?? "Not yet")</b></span>
+                        <span>Last contact<b>@LastContactText(person, "d MMM")</b></span>
                         <span class="@(due ? "vdue" : "")">Next@(due ? " · due" : "")<b>@(person.fdtmNextContactDate?.ToString("d MMM") ?? "Not set")</b></span>
                     </div>
                 </div>
-                <div class="vcard-foot">
-                    <button class="p" @onclick="() => CalledAsync(person)"><Icon Name="phone" Size="18" Stroke="1.6" />Called</button>
-                    <button @onclick="() => OpenAsync(person)"><Icon Name="edit" Size="18" Stroke="1.6" />Update</button>
-                    @if (IsMembership(person))
-                    {
-                        <button class="acc" @onclick="() => AddToIncomingAsync(person)">Add to incoming</button>
-                    }
-                </div>
+                @if (__pendingTexts.Contains(person.flngKey))
+                {
+                    @* A message was opened: the contact is only logged when the sender confirms it went out *@
+                    <div class="txt-ask" role="status">
+                        <b>Did your message to @person.fstrFirstname send?</b>
+                        <div class="txt-btns">
+                            <button type="button" class="txt-main" disabled="@__saving" @onclick="() => TextSentAsync(person)">Yes, sent</button>
+                            <button type="button" class="txt-alt" disabled="@__saving" @onclick="() => TextNotSent(person)">No, not sent</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="vcard-foot has-text">
+                        <button class="p" @onclick="() => CalledAsync(person)"><Icon Name="phone" Size="18" Stroke="1.6" />Called</button>
+                        <button disabled="@(ContactLinks.Sms(person.fstrPhoneNumber) is null)" @onclick="() => OpenTextAsync(person)"><Icon Name="message" Size="18" Stroke="1.6" />Text</button>
+                        <button @onclick="() => OpenAsync(person)"><Icon Name="edit" Size="18" Stroke="1.6" />Update</button>
+                        @if (IsMembership(person))
+                        {
+                            <button class="acc" @onclick="() => AddToIncomingAsync(person)">Add to incoming</button>
+                        }
+                    </div>
+                }
             </div>
         }
     </div>
@@ -85,6 +100,27 @@ else
             <p>Nobody is assigned to this team member yet.</p>
         </div>
     }
+}
+
+@* ---------- Text message ---------- *@
+@if (__texting is not null)
+{
+    var t = __texting;
+    <Modal Title="@($"Message {t.fstrFirstname}")" Subtitle="@($"{t.fstrPhoneNumber} · you can edit before sending")" Icon="message" CssClass="txt-modal" OnClose="CloseText">
+        <textarea class="txt-box" rows="8" maxlength="1000" aria-label="Message" @bind="__textMessage" @bind:event="oninput"></textarea>
+        <div class="txt-btns">
+            @if (WhatsAppLink(t) is { } wa && !string.IsNullOrWhiteSpace(__textMessage))
+            {
+                <a class="txt-main" href="@wa" target="_blank" rel="noopener noreferrer" @onclick="() => MessageOpened(t)"><Icon Name="message" Size="17" Stroke="1.8" />WhatsApp</a>
+            }
+            @if (SmsLink(t) is { } sms && !string.IsNullOrWhiteSpace(__textMessage))
+            {
+                <a class="txt-alt" href="@sms" @onclick="() => MessageOpened(t)"><Icon Name="message" Size="17" Stroke="1.8" />Text (SMS)</a>
+            }
+        </div>
+        @if (string.IsNullOrWhiteSpace(__textMessage)) { <p class="hint">Write a message to send.</p> }
+        <button type="button" class="txt-cancel" @onclick="CloseText">Cancel</button>
+    </Modal>
 }
 
 @* ---------- Update drawer ---------- *@
@@ -104,9 +140,9 @@ else
 
             <div class="drawer-card">
                 <h4><Icon Name="calendar" Size="20" Stroke="1.6" />Contact Dates</h4>
-                <div class="ir"><span>Last contact</span><b>@(e.fdtmLastContactDate?.ToString("dd MMM yyyy") ?? "Not yet")</b></div>
+                <div class="ir"><span>Last contact</span><b>@LastContactText(e, "dd MMM yyyy")</b></div>
                 <div class="ir"><span>Next contact</span><b>@(e.fdtmNextContactDate?.ToString("dd MMM yyyy") ?? "Not set")</b></div>
-                <p class="hint">Press Called after you speak to them. That sets the last contact to today and the next contact to a week later.</p>
+                <p class="hint">Press Called after you speak to them, or use Text if you cannot reach them. Either one sets the last contact to today and the next contact to a week later.</p>
             </div>
 
             <div class="drawer-card">
@@ -162,6 +198,19 @@ else
     private string __editReason = string.Empty;
     private string? __newNote;
     private ToastMessageModel? __toast;
+
+    // The notes that record how a contact was made
+    private const string CallNote = "Called.";
+    private const string TextNote = "Texted.";
+
+    /// <summary>Call or Text for each person's latest contact.</summary>
+    private Dictionary<Guid, string> __methods = [];
+
+    /// <summary>People whose message was opened and is waiting for "Did it send?".</summary>
+    private readonly HashSet<Guid> __pendingTexts = [];
+    private VisitorModel? __texting;
+    private string __textMessage = string.Empty;
+    private bool __saving;
 
     /// <summary>The Google Form address from the app settings (Church:ConnectionFormUrl); null when it is not set or not a web address.</summary>
     private string? __formUrl;
@@ -227,8 +276,11 @@ else
 
         // The latest altar reason for each person (Member is the old name of Membership).
         __reasons = [];
+        __methods = [];
         foreach (var v in __mine)
         {
+            await LoadMethodAsync(v);
+
             var visits = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
             var reason = visits.Where(a => !string.IsNullOrWhiteSpace(a.fstrAltarReason))
                                .OrderByDescending(a => a.fdtmServiceDate).Select(a => a.fstrAltarReason).FirstOrDefault();
@@ -273,32 +325,149 @@ else
 
     #region Called
 
-    /// <summary>Logs a call for today: last contact is today, next contact is a week later, and the call is noted.</summary>
+    /// <summary>Logs a call for today.</summary>
     private async Task CalledAsync(VisitorModel v)
     {
-        if (!Owns(v)) return;
+        if (await LogContactAsync(v, CallNote, "Called")) __pendingTexts.Remove(v.flngKey);
+    }
 
-        v.fdtmLastContactDate = AppClock.Today;
-        v.fdtmNextContactDate = AppClock.Today.AddDays(7);
-        v.fstrWho = AppConstants.Who;
+    /// <summary>Logs a contact for today: last contact is today, next contact is a week later, and a note records how.</summary>
+    private async Task<bool> LogContactAsync(VisitorModel v, string noteText, string done)
+    {
+        if (__saving || !Owns(v)) return false;
 
-        __toast = await VisitorRepo.AddOrUpdateVisitor(v, false, __cts.Token);
-        if (!__toast.IsSuccess) return;
-
-        await NoteRepo.AddVisitorNote(new VisitorNoteModel
+        __saving = true;
+        try
         {
-            flngVisitorKey = v.flngKey,
-            fdtmNoteDate = AppClock.Today,
-            fstrNote = "Called.",
-            fstrWho = AppConstants.Who
-        }, __cts.Token);
+            var previousLast = v.fdtmLastContactDate;
+            var previousNext = v.fdtmNextContactDate;
+            v.fdtmLastContactDate = AppClock.Today;
+            v.fdtmNextContactDate = AppClock.Today.AddDays(7);
+            v.fstrWho = AppConstants.Who;
 
-        __toast = new() { ToastType = ToastTypeModel.Success, Message = $"Called. Next contact with {v.fstrFirstname} is {v.fdtmNextContactDate:d MMM}" };
-        await LoadAsync();
+            __toast = await VisitorRepo.AddOrUpdateVisitor(v, false, __cts.Token);
+            if (!__toast.IsSuccess)
+            {
+                // Nothing was saved, so the card keeps showing the old dates
+                v.fdtmLastContactDate = previousLast;
+                v.fdtmNextContactDate = previousNext;
+                return false;
+            }
+
+            var noted = await NoteRepo.AddVisitorNote(new VisitorNoteModel
+            {
+                flngVisitorKey = v.flngKey,
+                fdtmNoteDate = AppClock.Today,
+                fstrNote = noteText,
+                fstrWho = AppConstants.Who
+            }, __cts.Token);
+
+            __toast = noted.IsSuccess
+                ? new() { ToastType = ToastTypeModel.Success, Message = $"{done}. Next contact with {v.fstrFirstname} is {v.fdtmNextContactDate:d MMM}" }
+                : new() { ToastType = ToastTypeModel.Warning, Message = "The contact dates were saved, but the note was not" };
+            await LoadAsync();
+            return true;
+        }
+        finally { __saving = false; }
     }
 
     /// <summary>A team member may only change people on their own list.</summary>
     private bool Owns(VisitorModel v) => v.flngFollowUpMemberKey is not null && v.flngFollowUpMemberKey == __viewKey && (CanPick || __viewKey == MemberKey);
+
+    #endregion
+
+    #region Text message
+
+    /// <summary>Opens the message box with a ready-written message for a person who could not be reached by phone.</summary>
+    private async Task OpenTextAsync(VisitorModel v)
+    {
+        if (!Owns(v)) return;
+
+        var visits = await AttendanceRepo.SelectVisitorAttendance(visitorKey: v.flngKey, cancellationToken: __cts.Token);
+        var lastVisit = visits.OrderByDescending(a => a.fdtmServiceDate).FirstOrDefault();
+
+        __textMessage = BuildTextMessage(v, await SenderNameAsync(), lastVisit?.fdtmServiceDate);
+        __texting = v;
+    }
+
+    /// <summary>The first name of the person signed in; their sign-in name when no member is linked to the account.</summary>
+    private async Task<string> SenderNameAsync()
+    {
+        if (MemberKey is not null)
+        {
+            var me = (await MemberRepo.SelectMember(key: MemberKey, cancellationToken: __cts.Token)).FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(me?.fstrFirstname)) return TidyName(me.fstrFirstname);
+        }
+
+        return TidyName(AppConstants.Who);
+    }
+
+    /// <summary>Turns a name stored in capitals (MIGUEL) into normal writing (Miguel); other names are left as typed.</summary>
+    private static string TidyName(string name)
+    {
+        var trimmed = name.Trim();
+        return trimmed.Any(char.IsLower) ? trimmed : System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(trimmed.ToLowerInvariant());
+    }
+
+    private string BuildTextMessage(VisitorModel v, string sender, DateTime? visit)
+    {
+        var church = Configuration["Church:GroupName"] ?? "WAFIF Mandeville";
+        var glad = visit is null
+            ? "We were glad to have you with us."
+            : $"We were glad to have you with us on {visit.Value.ToString("MMMM d", System.Globalization.CultureInfo.InvariantCulture)}.";
+
+        return $"Hello {TidyName(v.fstrFirstname)}, this is {sender} from {church}. I tried calling but couldn't reach you. {glad} " +
+               "Is there anything we can pray with you about? Please reply, or let me know a good time to call. God bless you.";
+    }
+
+    private string? WhatsAppLink(VisitorModel v) =>
+        ContactLinks.WhatsApp(v.fstrPhoneNumber) is { } url ? $"{url}?text={Uri.EscapeDataString(__textMessage)}" : null;
+
+    private string? SmsLink(VisitorModel v) =>
+        ContactLinks.Sms(v.fstrPhoneNumber) is { } url ? $"{url}?body={Uri.EscapeDataString(__textMessage)}" : null;
+
+    /// <summary>WhatsApp or the text app was opened: close the box and ask on the card whether it was sent.</summary>
+    private void MessageOpened(VisitorModel v)
+    {
+        __pendingTexts.Add(v.flngKey);
+        CloseText();
+    }
+
+    private void CloseText() => __texting = null;
+
+    /// <summary>The sender confirmed the message went out, so it counts as today's contact.</summary>
+    private async Task TextSentAsync(VisitorModel v)
+    {
+        if (await LogContactAsync(v, TextNote, "Text sent")) __pendingTexts.Remove(v.flngKey);
+    }
+
+    /// <summary>The message did not go out: nothing is saved, so a follow-up that is due stays due.</summary>
+    private void TextNotSent(VisitorModel v) => __pendingTexts.Remove(v.flngKey);
+
+    #endregion
+
+    #region Last contact
+
+    /// <summary>Finds whether the latest contact was a call or a text, from the note saved with it.</summary>
+    private async Task LoadMethodAsync(VisitorModel v)
+    {
+        if (v.fdtmLastContactDate is not { } last) return;
+
+        var notes = await NoteRepo.SelectVisitorNote(visitorKey: v.flngKey, cancellationToken: __cts.Token);
+        var latest = notes.Where(n => n.fdtmNoteDate.Date == last.Date && n.fstrNote is CallNote or TextNote)
+                          .OrderByDescending(n => n.fdtmWhen)
+                          .FirstOrDefault();
+
+        if (latest is not null) __methods[v.flngKey] = latest.fstrNote == TextNote ? "Text" : "Call";
+    }
+
+    /// <summary>The last contact date, followed by how it was made when that is known.</summary>
+    private string LastContactText(VisitorModel v, string format)
+    {
+        if (v.fdtmLastContactDate is not { } last) return "Not yet";
+        var date = last.ToString(format);
+        return __methods.TryGetValue(v.flngKey, out var how) ? $"{date} · {how}" : date;
+    }
 
     #endregion
 

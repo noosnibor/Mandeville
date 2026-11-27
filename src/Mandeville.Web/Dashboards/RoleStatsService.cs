@@ -322,8 +322,8 @@ public sealed class RoleStatsService(
             ],
             Bars =
             [
-                new("New visitors called within 24 hours", followedUp, newKeys.Count),
-                new("Prayer requests called within 24 hours", inTime, recentPrayer.Count)
+                new("New visitors contacted within 24 hours", followedUp, newKeys.Count),
+                new("Prayer requests contacted within 24 hours", inTime, recentPrayer.Count)
             ],
             Attention = attention
         };
@@ -377,7 +377,7 @@ public sealed class RoleStatsService(
 
         var due = mine.Where(v => v.fdtmNextContactDate is { } n && n.Date <= today).OrderBy(v => v.fdtmNextContactDate).ToList();
         var overdue = due.Count(v => (today - v.fdtmNextContactDate!.Value.Date).Days > 1);
-        var calledWeek = mine.Count(v => v.fdtmLastContactDate is { } c && c.Date >= today.AddDays(-6));
+        var contactedWeek = mine.Count(v => v.fdtmLastContactDate is { } c && c.Date >= today.AddDays(-6));
         var contacted = mine.Count(v => v.fdtmLastContactDate is not null);
 
         return new RolePanelData
@@ -388,7 +388,7 @@ public sealed class RoleStatsService(
                 new("Assigned to them", mine.Count.ToString()),
                 new("Follow-ups due", due.Count.ToString(), due.Count > 0),
                 new("Calls overdue (over 24 hours)", overdue.ToString(), overdue > 0),
-                new("Called this week", calledWeek.ToString())
+                new("Contacted this week", contactedWeek.ToString())
             ],
             Bars = [new("Contacted at least once", contacted, mine.Count)],
             Attention = due.Take(6)

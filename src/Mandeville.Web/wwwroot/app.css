@@ -3631,3 +3631,26 @@ html { zoom: var(--ui-scale); }
 .un-wrap { position: relative; }
 .un-wrap input { width: 100%; padding-right: 6.4rem; }
 .un-wrap .un-sfx { position: absolute; right: .9rem; top: 50%; transform: translateY(-50%); color: var(--muted); font-weight: 600; font-size: .85rem; pointer-events: none; }
+
+/* ===== Change password page: labels, boxes and hint share one left edge, with even spacing ===== */
+.pw-field { margin-bottom: 1.15rem; }
+.pw-field .auth-label { margin: 0 0 .45rem 0; }
+.pw-field .auth-input { display: block; }
+.pw-field .auth-hint { margin: .45rem 0 0; line-height: 1.4; }
+.auth-card .pw-actions { margin-top: 1.6rem; }
+
+/* ===== Connections: Text button, message box and "Did it send?" ===== */
+.vpage .mgrid .vcard-foot.has-text button { flex: 1 1 0; padding: 0 .4rem; white-space: nowrap; }
+.vpage .mgrid .vcard-foot.has-text .acc { flex-basis: 100%; }
+.vpage .mgrid .vcard-foot.has-text button:disabled { opacity: .45; cursor: not-allowed; }
+.txt-ask { margin: auto 1.1rem 1.1rem; padding: .75rem; border-radius: 1rem; background: #eaf3ff; }
+.txt-ask > b { display: block; margin-bottom: .55rem; font-size: .85rem; color: var(--ink); }
+.txt-btns { display: flex; gap: .5rem; }
+.txt-main, .txt-alt { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 2.6rem; padding: 0 .6rem; border-radius: 999px; font: inherit; font-weight: 700; font-size: .82rem; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.txt-main { border: 0; color: #fff; background: linear-gradient(135deg, #38a8ff, #1670d6); }
+.txt-alt { border: 1px solid var(--border-strong); color: #1670d6; background: var(--surface); }
+.txt-main:disabled, .txt-alt:disabled { opacity: .5; cursor: default; }
+.modal-body textarea.txt-box { width: 100%; margin-bottom: .85rem; background: var(--surface); border: 1.5px solid #9fb4d4; font-size: 16px; line-height: 1.55; color: var(--ink); }
+.txt-cancel { display: block; margin: .65rem auto 0; padding: .4rem 1rem; border: 0; background: transparent; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; }
+:root[data-theme="dark"] .txt-ask { background: var(--surface-2); }
+:root[data-theme="dark"] .txt-alt { color: #7dbbff; }
